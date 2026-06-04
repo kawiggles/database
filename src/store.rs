@@ -23,7 +23,7 @@ impl Store {
     }
 
     pub fn get(&self, key: &str) -> Result<&Value, DbError> {
-        self.datamap.get(key).ok_or(DbError::NoKey)?;
+        self.datamap.get(key).ok_or(DbError::NoKey)
     }
 
     pub fn put(&mut self, key: &str, val: Value) {
