@@ -1,4 +1,5 @@
 pub mod store;
+pub mod cli;
 
 #[cfg(test)]
 mod tests {
@@ -9,7 +10,16 @@ mod tests {
         let input = "test";
         let key = "key";
         let mut db = Store::build();
-        db.put(key, Value::text(input));
-        assert_eq!(key, db.get(input).unwrap().as_text().unwrap());
+        db.put(key, Value::Text(String::from(input)));
+        assert_eq!("test", db.get(key).unwrap().as_text().unwrap());
+    }
+
+    #[test]
+    fn insert_and_remove() {
+        let input = "test";
+        let key = "key";
+        let mut db = Store::build();
+        db.put(key, Value::Text(String::from(input)));
+        assert_eq!("test", db.get(key).unwrap().as_text().unwrap());
     }
 }

@@ -1,4 +1,5 @@
 use std::collections::{HashMap};
+use std::fmt;
 
 pub struct Store {
     datamap: HashMap<String, Value>
@@ -11,6 +12,7 @@ pub enum Call {
         value: Value,
     },
     Del(String),
+    Exit,
 }
 
 impl Store {
@@ -21,14 +23,15 @@ impl Store {
     }
 
     pub fn get(&self, key: &str) -> Result<&Value, DbError> {
-        self.datamap.get(key).ok_or(DbError::NoKey)
+        self.datamap.get(key).ok_or(DbError::NoKey)?;
     }
 
     pub fn put(&mut self, key: &str, val: Value) {
-
+        self.datamap.insert(key.to_owned(), val);
     }
 
     pub fn del(&mut self, key: &str) {
+        self.datamap.remove(key);
     }
 }
 
@@ -59,8 +62,28 @@ impl Value {
     }
 }
 
+// TODO: unify error handling 
 #[derive(Debug)]
 pub enum DbError {
     NoKey,
     NoValue,
+    BadVal,
+    BadCall,
+}
+
+impl From<DbError> for fmt::Error {
+    fn from(_error: DbError) -> Self {
+        fmt::Error
+    }
+}
+
+impl fmt::Display for DbError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", String::from(match self {
+            DbError::NoKey => "No key found",
+            DbError::NoValue => "No value found at requested key",
+            DbError::BadVal => "Value input is invalid",
+            DbError::BadCall => "API call is malformed",
+        }))
+    }
 }
