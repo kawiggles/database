@@ -5,16 +5,6 @@ pub struct Store {
     datamap: HashMap<String, Value>
 }
 
-pub enum Call {
-    Get(String),
-    Put {
-        key: String,
-        value: Value,
-    },
-    Del(String),
-    Exit,
-}
-
 impl Store {
     pub fn build() -> Self {
         Store {
