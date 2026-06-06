@@ -32,7 +32,7 @@ impl Store {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -58,6 +58,18 @@ impl Value {
     pub fn blob(b: Vec<u8>) -> Self { Value::Blob(b) }
     pub fn as_blob(&self) -> Option<&Vec<u8>> { 
         if let Value::Blob(b) = self { Some(b) } else { None } 
+    }
+    pub fn print(self) -> String {
+        match self {
+            Value::Int(x) => x.to_string(),
+            Value::Float(x) => x.to_string(),
+            Value::Text(x) => x,
+            Value::Blob(x) => format!("[{}]", x.iter()
+                .map(|byte| byte.to_string())
+                .collect::<Vec<String>>()
+                .join(",")),
+            Value::Null => "null".to_string(),
+        }
     }
 }
 

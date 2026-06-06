@@ -8,6 +8,7 @@ pub fn get_input() -> String {
     input
 }
 
+#[derive(PartialEq)]
 pub enum Call {
     Get(String),
     Put {

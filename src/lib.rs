@@ -22,4 +22,26 @@ mod tests {
         db.put(key, Value::Text(String::from(input)));
         assert_eq!("test", db.get(key).unwrap().as_text().unwrap());
     }
+
+    #[test]
+    fn test_parse_get() {
+        let key = "key";
+        let mut db = Store::build();
+        db.put(key, Value::Text(String::from("test")));
+        let test: Call = Call::parse("get key").unwrap();
+        // TODO: finish writing this test
+
+    }
+
+    // And this one
+    #[test]
+    fn test_parse_put() {
+
+    }
+
+    // And this one
+    #[test]
+    fn test_parse_del() {
+
+    }
 }
