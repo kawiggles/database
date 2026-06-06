@@ -12,25 +12,34 @@ impl Store {
         }
     }
 
-    pub fn get(&self, key: &str) -> Result<&Value, DbError> {
-        self.datamap.get(key).ok_or(DbError::NoKey)
+    pub fn get(&self, key: &str) -> Result<Value, DbError> {
+        match self.datamap.get(key) {
+            Some(x) => Ok(x.clone()),
+            None => Err(DbError::NoValue),
+        }
     }
 
-    pub fn put(&mut self, key: &str, val: Value) {
+    pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbError> {
         self.datamap.insert(key.to_owned(), val);
+        self.get(key)
     }
 
-    pub fn del(&mut self, key: &str) {
-        self.datamap.remove(key);
+    pub fn del(&mut self, key: &str) -> Result<Value, DbError> {
+        match self.datamap.remove(key) {
+            Some(x) => Ok(x),
+            None => Err(DbError::BadDel),
+        }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
     Float(f64),
     Text(String),
     Blob(Vec<u8>),
+    // Not sure if this is necessary yet, check Call::execute for current usage()
+    Null
 }
 
 impl Value {
@@ -52,13 +61,14 @@ impl Value {
     }
 }
 
-// TODO: unify error handling 
 #[derive(Debug)]
 pub enum DbError {
     NoKey,
     NoValue,
     BadVal,
     BadCall,
+    BadPut,
+    BadDel,
 }
 
 impl From<DbError> for fmt::Error {
@@ -74,6 +84,8 @@ impl fmt::Display for DbError {
             DbError::NoValue => "No value found at requested key",
             DbError::BadVal => "Value input is invalid",
             DbError::BadCall => "API call is malformed",
+            DbError::BadPut => "Put call was unsuccessful",
+            DbError::BadDel => "Del call was unsuccessful",
         }))
     }
 }

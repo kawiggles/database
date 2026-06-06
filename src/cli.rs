@@ -28,14 +28,17 @@ impl Call {
             }
             ["put", key, val, type_tag] => {
                 let value: Option::<Value> = match *type_tag {
-                    "int" => Some(Value::Int(val.parse::<i64>().ok().unwrap())),
-                    "float" => Some(Value::Float(val.parse::<f64>().ok().unwrap())),
+                    "int" => Some(Value::Int(val.parse::<i64>().map_err(|_| DbError::BadVal)?)),
+                    "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| DbError::BadVal)?)),
                     "text" => Some(Value::Text(val.to_string())),
-                    "blob" => Some(Value::Blob(val.trim_matches(&['[', ']'])
-                        .split(',')
-                        .into_iter()
-                        .map(|s| s.parse::<u8>().ok().unwrap())
-                        .collect())),
+                    "blob" => {
+                        let bytes: Result<Vec<u8>, DbError> = val
+                            .trim_matches(&['[', ']'])
+                            .split(',')
+                            .map(|s| s.parse::<u8>().map_err(|_| DbError::BadVal))
+                            .collect();
+                        Some(Value::Blob(bytes?))
+                    }
                     _ => None
                 };
                 match value {
@@ -49,19 +52,16 @@ impl Call {
         }
     }
 
-    pub fn execute(self, db: &mut Store) -> Value {
+    pub fn execute(self, db: &mut Store) -> Result<Value, DbError> {
         match self {
-            Call::Get(key) => db.get(&key).unwrap().clone(),
+            Call::Get(key) => db.get(&key),
             Call::Put { key, value } => {
-                db.put(&key, value);
-                db.get(&key).unwrap().clone()
+                db.put(&key, value)
             },
             Call::Del(key) => {
-                let val = db.get(&key).unwrap().clone();
-                db.del(&key);
-                val
+                db.del(&key)
             },
-            Call::Exit => Value::Null
+            Call::Exit => Ok(Value::Null)
         }
     }
 }

@@ -3,7 +3,7 @@ pub mod cli;
 
 #[cfg(test)]
 mod tests {
-    use crate::store::{Store, Value};
+    use crate::{cli::Call, store::{Store, Value}};
 
     #[test]
     fn insert_and_get() {
