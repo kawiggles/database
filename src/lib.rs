@@ -1,9 +1,10 @@
 pub mod store;
 pub mod cli;
+pub mod logs;
 
 #[cfg(test)]
 mod tests {
-    use crate::{cli::Call, store::{Store, Value, DbError}};
+    use crate::{cli::Call, store::{Store, Value}};
 
     #[test]
     fn insert_and_get() {

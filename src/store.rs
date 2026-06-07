@@ -1,5 +1,5 @@
 use std::collections::{HashMap};
-use std::fmt;
+use crate::logs::DbError;
 
 pub struct Store {
     // TODO: Turn this into a B+ tree with indexes instead of reference
@@ -39,7 +39,7 @@ pub enum Value {
     Float(f64),
     Text(String),
     Blob(Vec<u8>),
-    // Not sure if this is necessary yet, check Call::execute for current usage()
+    // Not sure if this is necessary yet, check Call::execute for current usage
     Null
 }
 
@@ -71,34 +71,5 @@ impl Value {
                 .join(",")),
             Value::Null => "null".to_string(),
         }
-    }
-}
-
-#[derive(Debug)]
-pub enum DbError {
-    NoKey,
-    NoValue,
-    BadVal,
-    BadCall,
-    BadPut,
-    BadDel,
-}
-
-impl From<DbError> for fmt::Error {
-    fn from(_error: DbError) -> Self {
-        fmt::Error
-    }
-}
-
-impl fmt::Display for DbError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", String::from(match self {
-            DbError::NoKey => "No key found",
-            DbError::NoValue => "No value found at requested key",
-            DbError::BadVal => "Value input is invalid",
-            DbError::BadCall => "API call is malformed",
-            DbError::BadPut => "Put call was unsuccessful",
-            DbError::BadDel => "Del call was unsuccessful",
-        }))
     }
 }

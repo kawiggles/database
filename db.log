@@ -1,0 +1,23 @@
+03:43:54 [INFO] Database initialized
+03:43:57 [INFO] Input entered: hi
+
+03:43:57 [WARN] Invalid call made: API call is malformed
+03:44:03 [INFO] Input entered: put key ahsdlfk
+
+03:44:03 [INFO] Input parsed as basic put
+03:44:03 [INFO] Executing call
+03:44:05 [INFO] Input entered: get key
+
+03:44:05 [INFO] Input parsed as get
+03:44:05 [INFO] Executing call
+03:44:22 [INFO] Input entered: put key [1,45,3,6] blob
+
+03:44:22 [INFO] Input parsed as put
+03:44:22 [INFO] Executing call
+03:44:28 [INFO] Input entered: get key
+
+03:44:28 [INFO] Input parsed as get
+03:44:28 [INFO] Executing call
+03:44:31 [INFO] Input entered: exit
+
+03:44:31 [INFO] Exit call parsed
