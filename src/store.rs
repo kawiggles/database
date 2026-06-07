@@ -2,6 +2,7 @@ use std::collections::{HashMap};
 use std::fmt;
 
 pub struct Store {
+    // TODO: Turn this into a B+ tree with indexes instead of reference
     datamap: HashMap<String, Value>
 }
 
