@@ -1,8 +1,36 @@
 use std::collections::{HashMap};
 use crate::logs::DbError;
 
+pub struct Node {
+    keys: Vec<i64>,
+    children: Vec<usize>, // usize is index of node in BpTree
+    is_leaf: bool,
+    next_leaf: Option<usize> // None if not leaf or end of leaf chain
+}
+
+pub struct BpTree {
+    nodes: Vec<Node>,
+    root: usize,
+    order: usize, // track branching factor
+}
+
+// TODO: Implement get, insert, and remove functions for BpTree (or just use the store methods)
+impl BpTree {
+    pub fn new() -> Self {
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Value> {
+    }
+
+    pub fn insert(&mut self, key: &str) -> Option<&Value> {
+    }
+
+    pub fn remove(&mut self, key: &str) -> Option<&Value> {
+    }
+}
+
+// wrapper for basic data structure, with metadata (haven't figured that out yet)
 pub struct Store {
-    // TODO: Turn this into a B+ tree with indexes instead of reference
     datamap: HashMap<String, Value>
 }
 
