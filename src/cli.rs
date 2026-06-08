@@ -104,7 +104,7 @@ mod tests {
         let mut db = Store::build();
         let _ = db.put("key", Value::Int(3));
         let test: Call = Call::parse("del key").unwrap();
-        assert_eq!(3, test.execute(&mut db).unwrap().as_int().unwrap());
+        assert_eq!(Value::Int(3), test.execute(&mut db).unwrap());
         assert!(db.get("key").is_err());
     }
 }

@@ -43,19 +43,15 @@ mod tests {
 
     #[test]
     fn insert_and_get() {
-        let input = "test";
-        let key = "key";
         let mut db = Store::build();
-        let _ = db.put(key, Value::Text(String::from(input)));
-        assert_eq!("test", db.get(key).unwrap().as_text().unwrap());
+        let put = db.put("key", Value::Text("test".to_string()));
+        assert_eq!(put.unwrap(), db.get("key").unwrap());
     }
 
     #[test]
     fn insert_and_remove() {
-        let input = "test";
-        let key = "key";
         let mut db = Store::build();
-        let _ = db.put(key, Value::Text(String::from(input)));
-        assert_eq!("test", db.get(key).unwrap().as_text().unwrap());
+        let put = db.put("key", Value::Text("test".to_string()));
+        assert_eq!(put.unwrap(), db.get("key").unwrap());
     }
 }
