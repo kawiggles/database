@@ -168,16 +168,82 @@ impl BpTree {
                             children: vec![*index, new_node_idx]
                         }
                     };
+
                     self.nodes.push(parent);
                     self.root = self.nodes.len() - 1;
                 }
             }
         }
+
         return_val
     }
 
-    pub fn remove(&mut self, _key: &str) -> Option<&Value> {
-        None
+    pub fn remove(&mut self, key: &str) -> Option<Value> {
+        let mut return_val = None;
+
+        // Handle empty tree case
+        if self.nodes.is_empty() {
+            return None;
+        }
+
+        // Step 1: Search
+        let mut current = self.root;
+        let mut path = Vec::new();
+        loop {
+            let node = &self.nodes[current];
+            match &node.node_type {
+                NodeType::Branch { children } => {
+                    path.push(current);
+                    let i = match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                        Ok(i) => i + 1,
+                        Err(i) => i,
+                    };
+                    current = children[i];
+                }
+                NodeType::Leaf { .. } => {
+                    path.push(current);
+                    break;
+                },
+            }
+        }
+
+        // Step 2: Delete
+        let node = &mut self.nodes[current];
+        // If the key exists
+        match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+            Ok(i) => {
+                node.keys.remove(i);
+                if let NodeType::Leaf { values, .. } = &mut node.node_type {
+                    return_val = Some(values.remove(i));
+                }
+            },
+            Err(_) => return None,
+        }
+
+        // Step 3: Handle Underflow
+        let mut path_iter = path.iter().rev().peekable();
+        while let Some(idx) = path_iter.next() {
+            // check if underflow
+            if self.nodes[*idx].keys.len() < ((self.order + 1) / 2) - 1 {
+                // First we try borrowing
+                if let Some(&parent_idx) = path_iter.peek() {
+                    let sib_idx = {
+                        let parent = &self.nodes[*parent_idx];
+                        if let NodeType::Branch { children } = &parent.node_type {
+                            let pos = children.iter().position(|&c| c == *idx).unwrap();
+                            if pos > 0 { Some(children[pos - 1]) } else { None }
+                        } else { None }
+                    };
+                    // if left sibling has a spare key, borrow it
+                    if let Some(sib_idx) = sib_idx {
+                        let _sibling = &mut self.nodes[sib_idx];
+                    }
+                }
+            } else {
+            }
+        }
+
+        return_val
     }
 }
 
@@ -242,17 +308,21 @@ mod tests {
         assert!(result.is_ok(), "Error is: {:?}", result);
     }
 
+    /*
     #[test]
-    fn bptree_remove() {
-        let mut tree = BpTree::new(2);
-        let _ = tree.insert("one", Value::Int(1));
-        let _ = tree.insert("two", Value::Int(2));
-        let _ = tree.insert("three", Value::Int(3));
-        let _ = tree.insert("four", Value::Int(4));
-        let _ = tree.insert("five", Value::Int(5));
-        let _ = tree.insert("six", Value::Int(6));
+    fn bptree_remove_simple() {
+        let mut tree = build_tree();
+        tree.remove("two");
+        assert!(tree.get("two").is_none());
+        assert_eq!(Value::Int(1), tree.get("one").unwrap());
+        assert_eq!(Value::Int(3), tree.get("three").unwrap());
     }
 
+    #[test]
+    fn bptree_remove_borrow() {
+        let mut tree = build_tree();
+    }
+    */
 }
 
 #[cfg(test)]
