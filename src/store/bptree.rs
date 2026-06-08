@@ -1,4 +1,3 @@
-use crate::logs::DbError;
 use crate::store::value::Value;
 
 pub enum NodeType {
@@ -27,7 +26,7 @@ impl BpTree {
         }
     }
 
-    pub fn get(&self, key: &str) -> Result<Value, DbError> {
+    pub fn get(&self, key: &str) -> Option<Value> {
         let mut current = self.root;
         loop {
             let node = &self.nodes[current];
@@ -41,8 +40,8 @@ impl BpTree {
                 },
                 NodeType::Leaf { values, .. } => {
                     return match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-                        Ok(i) => Ok(values[i].clone()),
-                        Err(_) => Err(DbError::NoValue),
+                        Ok(i) => Some(values[i].clone()),
+                        Err(_) => None
                     }
                 }
             }
