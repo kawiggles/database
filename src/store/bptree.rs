@@ -11,28 +11,6 @@ pub struct Node {
     node_type: NodeType,
 }
 
-impl Node {
-    // might be able to make these private after testing
-    fn new_leaf() -> Self {
-        Node {
-            keys: Vec::new(),
-            node_type: NodeType::Leaf { 
-                values: Vec::new(), 
-                next: None,
-            }
-        }
-    }
-
-    fn new_branch() -> Self {
-        Node {
-            keys: Vec::new(),
-            node_type: NodeType::Branch { 
-                children: Vec::new(),
-            }
-        }
-    }
-}
-
 pub struct BpTree {
     nodes: Vec<Node>, // nodes are reference by index to prevent weird borrow checker problems
     root: usize,
@@ -61,7 +39,7 @@ impl BpTree {
                     };
                     current = children[i];
                 },
-                NodeType::Leaf { values, next: _ } => {
+                NodeType::Leaf { values, .. } => {
                     return match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         Ok(i) => Ok(values[i].clone()),
                         Err(_) => Err(DbError::NoValue),
@@ -71,11 +49,132 @@ impl BpTree {
         }
     }
 
-    pub fn insert(&mut self, key: &str) -> Option<&Value> {
-        None
+    pub fn insert(&mut self, key: &str, val: Value) -> Option<Value> {
+        let mut return_val = None;
+        
+        if self.nodes.is_empty() {
+            let node = Node {
+                keys: vec![key.to_string()],
+                node_type: NodeType::Leaf { 
+                    values: vec![val], 
+                    next: None, 
+                },
+            };
+            self.nodes.push(node);
+            return None;
+        }
+
+        let mut path: Vec<usize> = Vec::new(); // for tracking nodes to edit if split is needed
+
+        // First we find the leaf node
+        let mut current = self.root;
+        loop {
+            let node = &self.nodes[current];
+            match &node.node_type {
+                NodeType::Branch { children } => {
+                    path.push(current);
+                    let i = match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                        // This might be wrong, so if there are weird fetches the problem is here
+                        Ok(i) => i + 1,
+                        Err(i) => i,
+                    }; 
+                    current = children[i];
+                },
+                NodeType::Leaf { .. } => {
+                    path.push(current);
+                    break;
+                }
+            }
+        }
+
+        // Then we insert into that node
+        let node = &mut self.nodes[current];
+        if let NodeType::Leaf { values, .. } = &mut node.node_type {
+             match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                Ok(i) => {
+                    node.keys[i] = key.to_string();
+                    return_val = Some(val.clone());
+                    values[i] = val;
+                },
+                Err(i) => {
+                    node.keys.insert(i, key.to_string());
+                    values.insert(i, val);
+                }
+             }
+        }
+
+        // Finally we handle splits as necessary
+        let mut path_iter = path.iter().rev().peekable();
+        while let Some(index) = path_iter.next() {
+
+            let split_result = {
+                let nodes_len = self.nodes.len();
+                let node = &mut self.nodes[*index];
+                if node.keys.len() > self.order {
+                    let mid = node.keys.len() / 2;
+                    let new_keys = node.keys.split_off(mid);
+
+                    let mut new_node = match &mut node.node_type {
+                        NodeType::Leaf { values, next } => {
+                            let new_values = values.split_off(mid);
+                            let old_next = *next;
+                            *next = Some(nodes_len);
+                            Node {
+                                keys: new_keys,
+                                node_type: NodeType::Leaf { 
+                                    values: new_values, 
+                                    next: old_next, 
+                                }
+                            }
+                        },
+                        NodeType::Branch { children } => {
+                            let new_children = children.split_off(mid + 1);
+                            Node {
+                                keys: new_keys,
+                                node_type: NodeType::Branch { 
+                                    children: new_children, 
+                                }
+                            }
+                        }
+                    };
+
+                    let promoted = match &mut new_node.node_type {
+                        NodeType::Leaf { .. } => new_node.keys[0].clone(),
+                        NodeType::Branch { .. } => new_node.keys.remove(0),
+                    };
+                    Some((promoted, new_node))
+                } else {
+                    None
+                }
+            };
+            if let Some((promoted, new_node)) = split_result {
+                let new_node_idx = self.nodes.len();
+                self.nodes.push(new_node);
+
+                if let Some(&parent_idx) = path_iter.peek() {
+                    let parent = &mut self.nodes[*parent_idx];
+                    let i = parent.keys.binary_search_by(|probe| probe.as_str().cmp(&promoted))
+                        .unwrap_or_else(|i| i);
+                    parent.keys.insert(i, promoted);
+                    if let NodeType::Branch { children } = &mut parent.node_type {
+                        children.insert(i + 1, new_node_idx);
+                    }
+                } else {
+                    let parent = Node {
+                        keys: vec![promoted],
+                        node_type: NodeType::Branch { 
+                            children: vec![*index, new_node_idx]
+                        }
+                    };
+                    self.nodes.push(parent);
+                    self.root = self.nodes.len() - 1;
+                }
+            }
+        }
+        return_val
     }
 
-    pub fn remove(&mut self, key: &str) -> Option<&Value> {
+    pub fn remove(&mut self, _key: &str) -> Option<&Value> {
         None
     }
 }
@@ -95,5 +194,22 @@ mod tests {
             } 
         });
         assert_eq!(Value::Int(3), tree.get("key").unwrap());
+    }
+
+    #[test]
+    fn bptree_insert() {
+        let mut tree = BpTree::new(2);
+        let _ = tree.insert("one", Value::Int(1));
+        assert_eq!(Value::Int(1), tree.get("one").unwrap(), "Failure in first insertion");
+        let _ = tree.insert("two", Value::Int(2));
+        assert_eq!(Value::Int(2), tree.get("two").unwrap(), "Failure in second insertion");
+        let _ = tree.insert("three", Value::Int(3));
+        assert_eq!(Value::Int(3), tree.get("three").unwrap(), "Failure in third insertion");
+        let _ = tree.insert("four", Value::Int(4));
+        assert_eq!(Value::Int(4), tree.get("four").unwrap(), "Failure in fourth insertion");
+        let _ = tree.insert("five", Value::Int(5));
+        assert_eq!(Value::Int(5), tree.get("five").unwrap(), "Failure in fifth insertion");
+        let _ = tree.insert("six", Value::Int(6));
+        assert_eq!(Value::Int(6), tree.get("six").unwrap(), "Failure in sixth insertion");
     }
 }

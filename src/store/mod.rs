@@ -25,8 +25,11 @@ impl Store {
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbError> {
-        self.datamap.insert(key.to_owned(), val);
-        self.get(key)
+        let if_new = val.clone();
+        match self.datamap.insert(key.to_owned(), val) {
+            Some(x) => Ok(x),
+            None => Ok(if_new),
+        }
     }
 
     pub fn del(&mut self, key: &str) -> Result<Value, DbError> {
