@@ -20,6 +20,7 @@ pub enum Call {
         value: Value,
     },
     Del(String),
+    Help,
     Exit,
 }
 
@@ -57,6 +58,7 @@ impl Call {
                 }
             }
             ["del", key] => Ok(Call::Del(key.to_string())),
+            ["help"] => Ok(Call::Help),
             ["exit"] => Ok(Call::Exit),
             _ => Err(DbError::BadCall),
         }
@@ -72,7 +74,8 @@ impl Call {
             Call::Del(key) => {
                 db.del(&key)
             },
-            Call::Exit => Ok(Value::Null)
+            Call::Help => Ok(Value::Null),
+            Call::Exit => Ok(Value::Null),
         }
     }
 }

@@ -1,23 +1,38 @@
-03:43:54 [INFO] Database initialized
-03:43:57 [INFO] Input entered: hi
+03:07:05 [INFO] Database initialized
+03:07:05 [INFO] Parsing Call
+03:07:08 [INFO] Input entered: help
 
-03:43:57 [WARN] Invalid call made: API call is malformed
-03:44:03 [INFO] Input entered: put key ahsdlfk
+03:07:08 [INFO] Help call parsed
+03:07:08 [INFO] Parsing Call
+03:07:36 [INFO] Input entered: put hi [1,2,3,4,5] blob
 
-03:44:03 [INFO] Input parsed as basic put
-03:44:03 [INFO] Executing call
-03:44:05 [INFO] Input entered: get key
+03:07:36 [INFO] Input parsed as put
+03:07:36 [INFO] Executing call
+03:07:36 [INFO] Value retrieved: [1,2,3,4,5]
+03:07:36 [INFO] Parsing Call
+03:07:39 [INFO] Input entered: get blob
 
-03:44:05 [INFO] Input parsed as get
-03:44:05 [INFO] Executing call
-03:44:22 [INFO] Input entered: put key [1,45,3,6] blob
+03:07:39 [INFO] Input parsed as get
+03:07:39 [INFO] Executing call
+03:07:39 [WARN] Error in call execution: No value found at requested key
+03:07:39 [INFO] Parsing Call
+03:07:41 [INFO] Input entered: get hi
 
-03:44:22 [INFO] Input parsed as put
-03:44:22 [INFO] Executing call
-03:44:28 [INFO] Input entered: get key
+03:07:41 [INFO] Input parsed as get
+03:07:41 [INFO] Executing call
+03:07:41 [INFO] Value retrieved: [1,2,3,4,5]
+03:07:41 [INFO] Parsing Call
+03:07:45 [INFO] Input entered: del hi
 
-03:44:28 [INFO] Input parsed as get
-03:44:28 [INFO] Executing call
-03:44:31 [INFO] Input entered: exit
+03:07:45 [INFO] Executing call
+03:07:45 [INFO] Value retrieved: [1,2,3,4,5]
+03:07:45 [INFO] Parsing Call
+03:07:47 [INFO] Input entered: get hi
 
-03:44:31 [INFO] Exit call parsed
+03:07:47 [INFO] Input parsed as get
+03:07:47 [INFO] Executing call
+03:07:47 [WARN] Error in call execution: No value found at requested key
+03:07:47 [INFO] Parsing Call
+03:07:51 [INFO] Input entered: exit
+
+03:07:51 [INFO] Exit call parsed

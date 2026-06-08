@@ -22,6 +22,15 @@ pub fn run() {
                     info!("Exit call parsed");
                     break;
                 }
+                if call == Call::Help {
+                    info!("Help call parsed");
+                    println!("<call> key value value_type");
+                    println!("Valid calls: get, put, del");
+                    println!("Valid value types: text, int, float, blob");
+                    println!(" - Format blobs with as [1,2,3]");
+                    println!(" - put defaults to value_type text");
+                    continue;
+                }
                 match call.execute(&mut db) {
                     Ok(value) => {
                         let val = value.print();
