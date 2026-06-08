@@ -109,7 +109,7 @@ impl BpTree {
                 let nodes_len = self.nodes.len();
                 let node = &mut self.nodes[*index];
 
-                if node.keys.len() > self.order {
+                if node.keys.len() > self.order - 1 {
                     let mid = node.keys.len() / 2;
                     let new_keys = node.keys.split_off(mid);
 
