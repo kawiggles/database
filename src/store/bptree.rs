@@ -196,29 +196,50 @@ mod tests {
             } 
         });
         assert_eq!(Value::Int(3), tree.get("key").unwrap());
+        assert!(tree.validate().is_ok());
     }
 
     #[test]
     fn bptree_insert() {
-        let mut tree = BpTree::new(2);
-        let _ = tree.insert("one", Value::Int(1));
+        let mut tree = BpTree::new(3);
+        tree.insert("one", Value::Int(1));
         tree.print_tree();
         assert_eq!(Value::Int(1), tree.get("one").unwrap(), "Failure in first insertion");
-        let _ = tree.insert("two", Value::Int(2));
+        tree.insert("two", Value::Int(2));
         tree.print_tree();
         assert_eq!(Value::Int(2), tree.get("two").unwrap(), "Failure in second insertion");
-        let _ = tree.insert("three", Value::Int(3));
+        tree.insert("three", Value::Int(3));
         tree.print_tree();
         assert_eq!(Value::Int(3), tree.get("three").unwrap(), "Failure in third insertion");
-        let _ = tree.insert("four", Value::Int(4));
+        tree.insert("four", Value::Int(4));
         tree.print_tree();
         assert_eq!(Value::Int(4), tree.get("four").unwrap(), "Failure in fourth insertion");
-        let _ = tree.insert("five", Value::Int(5));
+        tree.insert("five", Value::Int(5));
         tree.print_tree();
         assert_eq!(Value::Int(5), tree.get("five").unwrap(), "Failure in fifth insertion");
-        let _ = tree.insert("six", Value::Int(6));
+        tree.insert("six", Value::Int(6));
         tree.print_tree();
         assert_eq!(Value::Int(6), tree.get("six").unwrap(), "Failure in sixth insertion");
+        let result = tree.validate();
+        assert!(result.is_ok(), "Error is: {:?}", result);
+    }
+
+    #[test]
+    fn test_tree() {
+        let mut tree = BpTree::new(4);
+        tree.insert("one", Value::Int(1));
+        tree.insert("two", Value::Int(2));
+        tree.insert("three", Value::Int(3));
+        tree.insert("four", Value::Int(4));
+        tree.insert("five", Value::Int(5));
+        tree.insert("six", Value::Int(6));
+        tree.insert("seven", Value::Int(7));
+        tree.insert("eight", Value::Int(8));
+        tree.insert("nine", Value::Int(9));
+        tree.insert("ten", Value::Int(10));
+        tree.print_tree();
+        let result = tree.validate();
+        assert!(result.is_ok(), "Error is: {:?}", result);
     }
 
     #[test]
@@ -250,12 +271,12 @@ impl BpTree {
             NodeType::Leaf { values: _ , next } => {
                 let next_str = match next {
                     Some(idx) => format!(" -> [{}]", idx),
-                    None => "[]".to_string(),
+                    None => " -> []".to_string(),
                 };
-                println!("[{}: Leaf] keys: {:?}{}", node_idx, node.keys, next_str);
+                println!("[Leaf: {}] keys: {:?}{}", node_idx, node.keys, next_str);
             },
             NodeType::Branch { children } => {
-                println!("[{}: Branch] keys: {:?}", node_idx, node.keys);
+                println!("[Branch: {}] keys: {:?}", node_idx, node.keys);
                 let new_prefix = format!("{}{}", prefix, if is_last { "    " } else {"|   "});
                 for (i, &child_idx) in children.iter().enumerate() {
                     let child_is_last = i == children.len() - 1;
@@ -270,6 +291,19 @@ impl BpTree {
             println!("Tree is empty");
             return;
         }
+
+        println!("Tree Structure: (Root: {})", self.root);
+        self.print_node(self.root, "", true);
+        println!();
+        println!();
+    }
+
+    fn _print_nodes(&self) {
+        if self.nodes.is_empty() {
+            println!("Tree is empty");
+            return;
+        }
+
         println!("Nodes vector:");
         for (index, node) in self.nodes.iter().enumerate() {
             match node.node_type {
@@ -278,11 +312,119 @@ impl BpTree {
             }
         }
         println!();
+    }
 
-        println!("Tree Structure: (Root: {})", self.root);
-        self.print_node(self.root, "", true);
+    fn validate(&self) -> Result<(), TreeErr> {
+        if self.nodes.is_empty() {
+            return Err(TreeErr::Empty);
+        }
 
-        println!();
-        println!();
+        if let NodeType::Branch { children } = &self.nodes[self.root].node_type {
+            if children.len() < 2 {
+                return Err(TreeErr::RootTooFewChildren);
+            }
+        }
+
+        let mut leaf_depth = 0;
+        let mut current = self.root;
+        loop {
+            match &self.nodes[current].node_type {
+                NodeType::Branch { children } => {
+                    leaf_depth += 1;
+                    current = children[0];
+                },
+                NodeType::Leaf { .. } => break,
+            }
+        }
+
+        let mut prev_key: Option<&String> = None;
+        loop {
+            let node = &self.nodes[current];
+            match  &node.node_type {
+                NodeType::Leaf { next, .. } => {
+                    for key in &node.keys {
+                        if let Some(prev) = prev_key {
+                            if key <= prev {
+                                return Err(TreeErr::LeafKeysBadSeq);
+                            }
+                        }
+                        prev_key = Some(key);
+                    }
+
+                    match next {
+                        Some(x) => current = *x,
+                        None => break,
+                    }
+                },
+                NodeType::Branch { .. } => return Err(TreeErr::BranchInLeafSeq),
+            }
+        }
+
+        return self.validate_node(self.root, 0, leaf_depth); 
+    }
+
+    fn validate_node(&self, idx: usize, depth: usize, leaf_depth: usize) -> Result<(), TreeErr> {
+        let node = &self.nodes[idx];
+        
+        let mut iter = node.keys.iter().peekable();
+        while let Some(key) = iter.next() {
+            if let Some(next_key) = iter.peek() {
+                if key >= next_key {
+                    return Err(TreeErr::NodeKeySeqErr);
+                }
+            }
+        }
+
+        match &node.node_type {
+            NodeType::Branch { children } => {
+                if children.len() != node.keys.len() + 1 {
+                    return Err(TreeErr::BranchChildCountErr);
+                }
+                if idx != self.root && (node.keys.len() < self.order / 2 ||
+                    node.keys.len() > self.order - 1) {
+                    return Err(TreeErr::BranchKeyCountErr);
+                }
+                for &child in children {
+                    return self.validate_node(child, depth + 1, leaf_depth);
+                }
+            },
+            NodeType::Leaf { values, .. } => {
+                if depth != leaf_depth {
+                    return Err(TreeErr::LeafBadDepth);
+                }
+
+                if values.len() != node.keys.len() {
+                    return Err(TreeErr::KeyValueDesync);
+                }
+
+                if idx != self.root && (node.keys.len() < self.order / 2 ||
+                    node.keys.len() > self.order - 1) {
+                    return Err(TreeErr::LeafKeyCountErr);
+                }
+            },
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+enum TreeErr {
+    Empty,
+    RootTooFewChildren,
+    LeafKeysBadSeq,
+    BranchInLeafSeq,
+    NodeKeySeqErr,
+    BranchChildCountErr,
+    BranchKeyCountErr,
+    LeafKeyCountErr,
+    KeyValueDesync,
+    LeafBadDepth,
+}
+
+#[cfg(test)]
+impl From<TreeErr> for std::fmt::Error {
+    fn from(_error: TreeErr) -> Self {
+        std::fmt::Error
     }
 }
