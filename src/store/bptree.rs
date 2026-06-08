@@ -106,10 +106,10 @@ impl BpTree {
         // Finally we handle splits as necessary
         let mut path_iter = path.iter().rev().peekable();
         while let Some(index) = path_iter.next() {
-
             let split_result = {
                 let nodes_len = self.nodes.len();
                 let node = &mut self.nodes[*index];
+
                 if node.keys.len() > self.order {
                     let mid = node.keys.len() / 2;
                     let new_keys = node.keys.split_off(mid);
@@ -142,11 +142,13 @@ impl BpTree {
                         NodeType::Leaf { .. } => new_node.keys[0].clone(),
                         NodeType::Branch { .. } => new_node.keys.remove(0),
                     };
+
                     Some((promoted, new_node))
                 } else {
                     None
                 }
             };
+
             if let Some((promoted, new_node)) = split_result {
                 let new_node_idx = self.nodes.len();
                 self.nodes.push(new_node);
@@ -156,6 +158,7 @@ impl BpTree {
                     let i = parent.keys.binary_search_by(|probe| probe.as_str().cmp(&promoted))
                         .unwrap_or_else(|i| i);
                     parent.keys.insert(i, promoted);
+
                     if let NodeType::Branch { children } = &mut parent.node_type {
                         children.insert(i + 1, new_node_idx);
                     }
@@ -200,16 +203,87 @@ mod tests {
     fn bptree_insert() {
         let mut tree = BpTree::new(2);
         let _ = tree.insert("one", Value::Int(1));
+        tree.print_tree();
         assert_eq!(Value::Int(1), tree.get("one").unwrap(), "Failure in first insertion");
         let _ = tree.insert("two", Value::Int(2));
+        tree.print_tree();
         assert_eq!(Value::Int(2), tree.get("two").unwrap(), "Failure in second insertion");
         let _ = tree.insert("three", Value::Int(3));
+        tree.print_tree();
         assert_eq!(Value::Int(3), tree.get("three").unwrap(), "Failure in third insertion");
         let _ = tree.insert("four", Value::Int(4));
+        tree.print_tree();
         assert_eq!(Value::Int(4), tree.get("four").unwrap(), "Failure in fourth insertion");
         let _ = tree.insert("five", Value::Int(5));
+        tree.print_tree();
         assert_eq!(Value::Int(5), tree.get("five").unwrap(), "Failure in fifth insertion");
         let _ = tree.insert("six", Value::Int(6));
+        tree.print_tree();
         assert_eq!(Value::Int(6), tree.get("six").unwrap(), "Failure in sixth insertion");
+    }
+
+    #[test]
+    fn bptree_remove() {
+        let mut tree = BpTree::new(2);
+        let _ = tree.insert("one", Value::Int(1));
+        let _ = tree.insert("two", Value::Int(2));
+        let _ = tree.insert("three", Value::Int(3));
+        let _ = tree.insert("four", Value::Int(4));
+        let _ = tree.insert("five", Value::Int(5));
+        let _ = tree.insert("six", Value::Int(6));
+    }
+
+}
+
+#[cfg(test)]
+impl BpTree {
+    fn print_node(&self, node_idx: usize, prefix: &str, is_last: bool) {
+        let node = &self.nodes[node_idx];
+
+        print!("{}", prefix);
+        if is_last {
+            print!("└── ");
+        } else {
+            print!("├── ");
+        }
+        
+        match &node.node_type {
+            NodeType::Leaf { values: _ , next } => {
+                let next_str = match next {
+                    Some(idx) => format!(" -> [{}]", idx),
+                    None => "[]".to_string(),
+                };
+                println!("[{}: Leaf] keys: {:?}{}", node_idx, node.keys, next_str);
+            },
+            NodeType::Branch { children } => {
+                println!("[{}: Branch] keys: {:?}", node_idx, node.keys);
+                let new_prefix = format!("{}{}", prefix, if is_last { "    " } else {"|   "});
+                for (i, &child_idx) in children.iter().enumerate() {
+                    let child_is_last = i == children.len() - 1;
+                    self.print_node(child_idx, &new_prefix, child_is_last);
+                }
+            },
+        }
+    }
+
+    fn print_tree(&self) {
+        if self.nodes.is_empty() {
+            println!("Tree is empty");
+            return;
+        }
+        println!("Nodes vector:");
+        for (index, node) in self.nodes.iter().enumerate() {
+            match node.node_type {
+                NodeType::Branch { .. } => println!("\t[{}: Branch] keys: {:?}", index, node.keys),
+                NodeType::Leaf { .. } => println!("\t[{}: Leaf] keys: {:?}", index, node.keys),
+            }
+        }
+        println!();
+
+        println!("Tree Structure: (Root: {})", self.root);
+        self.print_node(self.root, "", true);
+
+        println!();
+        println!();
     }
 }
