@@ -110,9 +110,9 @@ impl BpTree {
                 let nodes_len = self.nodes.len();
                 let node = &mut self.nodes[*index];
 
-                if node.keys.len() > self.order {
-                    let mid = (node.keys.len() + 1) / 2;
-                    let new_keys = node.keys.split_off(mid);
+                if node.keys.len() >= self.order { // This is where max keys is defined
+                    let mid = (node.keys.len() + 1) / 2; // ⌈m/2⌉ 
+                    let new_keys = node.keys.split_off(mid); // Because 0 index shifted one right
 
                     let mut new_node = match &mut node.node_type {
                         NodeType::Leaf { values, next } => {
@@ -286,24 +286,23 @@ impl BpTree {
                         let parent = &mut self.nodes[parent_idx];
                         parent.keys[pos-1] = borrow_key.clone();
                     } else {
-                        // Need to redo this
-                        let borrow_key = sibling.keys.remove(sibling.keys.len() - 1);
-                        let borrow_val = {
+                        // Branch has separate logic
+                        let sibling = &mut self.nodes[sib_idx];
+                        let borrow = { // pop key and child from sibling
                             if let NodeType::Branch { children } = &mut sibling.node_type {
-                                Some(children.remove(children.len() - 1))
+                                let key = sibling.keys.remove(sibling.keys.len() - 1);
+                                let val = children.remove(children.len() - 1);
+                                Some((key, val))
                             } else { None }
                         };
 
-                        self.nodes[*idx].keys.insert(0, borrow_key.clone());
+                        // Take separator and insert into current node
+                        let parent = &self.nodes[parent_idx];
+                        let sep_key = 
 
-                        if let Some(val) = borrow_val {
-                            if let NodeType::Branch { children } = &mut self.nodes[*idx].node_type {
-                                children.insert(0, val);
-                            }
-                        }
+                        // Put the left siblings key into the separator spot of the parent
 
-                        let parent = &mut self.nodes[parent_idx];
-                        parent.keys[pos-1] = borrow_key.clone();
+                        // Insert the popped child into the current node's children
                     }
                 }
             } else if let Some(sib_idx) = r_sib {
@@ -330,26 +329,6 @@ impl BpTree {
                         let parent = &mut self.nodes[parent_idx];
                         parent.keys[pos-1] = sep_key;
                     } else {
-                        // And this
-                        let parent = &self.nodes[parent_idx];
-                        let sep_key = parent.keys[pos];
-                        let node_ref = &mut self.nodes[*idx];
-                        node_ref.keys.insert(node_ref.keys.len(), sep_key);
-                        let borrow_key = &sibling.keys.remove(0);
-                        let parent = &mut self.nodes[parent_idx];
-                        parent.keys[pos] = borrow_key.clone();
-                        let borrow_val = {
-                            if let NodeType::Branch { children } = &mut sibling.node_type {
-                                Some(children.remove(children.len() - 1))
-                            } else { None }
-                        };
-
-                        if let Some(val) = borrow_val {
-                            if let NodeType::Branch { children } = &mut self.nodes[*idx].node_type {
-                                children.insert(0, val);
-                            }
-                        }
-
                     }
                 }
             } else if let Some(sib_idx) = r_sib {
@@ -503,46 +482,71 @@ mod tests {
         }
     }
 
-    #[test]
-    fn build_tree() {
-        let mut tree = BpTree::new(3);
-        for i in 1..31 {
+    fn build_tree(o: usize, n: i64) -> BpTree {
+        let mut tree = BpTree::new(o);
+        for i in 1..n {
             tree.insert(&format!("key{:03}", i), Value::Int(i));
         }
+        tree
+    }
+
+    #[test]
+    fn show_tree() {
+        let tree = build_tree(4, 16);
         tree.print_tree();
         let result = tree.validate();
         assert!(result.is_ok(), "Error is: {:?}", result);
     }
 
-    /*
     #[test]
     fn bptree_remove_simple() {
-        let mut tree = build_tree();
-        tree.remove("two");
-        assert!(tree.get("two").is_none());
-        assert_eq!(Value::Int(1), tree.get("one").unwrap());
-        assert_eq!(Value::Int(3), tree.get("three").unwrap());
+        let mut tree = build_tree(3, 20);
+        tree.remove("key018");
+        assert!(tree.get("key018").is_none());
+        tree.print_tree();
+        let result = tree.validate();
+        assert!(result.is_ok(), "Error is: {:?}", result);
     }
 
     #[test]
     fn bptree_remove_borrow() {
-        let mut tree = build_tree();
+        let mut tree = build_tree(3, 20);
+        tree.remove("key020");
+        assert!(tree.get("key020").is_none());
+        tree.print_tree();
+        let result = tree.validate();
+        assert!(result.is_ok(), "Error is: {:?}", result);
     }
     
     #[test]
-    fn bptree_remove_merge() {
-        let mut tree = build_tree();
+    fn bptree_remove_cascade() {
+        let mut tree = build_tree(3, 20);
+        tree.remove("key020");
+        assert!(tree.get("key020").is_none());
+        tree.remove("key019");
+        assert!(tree.get("key019").is_none());
+        tree.print_tree();
+        let result = tree.validate();
+        assert!(result.is_ok(), "Error is: {:?}", result);
     }
 
     #[test]
-    fn bptree_remove_cascade() {
-        let mut tree = build_tree();
+    fn bptree_remove_merge() {
+        let mut tree = build_tree(3, 20);
+        tree.remove("key015");
+        assert!(tree.get("key003").is_none());
+        tree.remove("key014");
+        assert!(tree.get("key006").is_none());
+        tree.remove("key009");
+        assert!(tree.get("key009").is_none());
+        tree.remove("key012");
+        assert!(tree.get("key012").is_none());
     }
-    */
 }
 
 #[cfg(test)]
 impl BpTree {
+    // Assorted functions for displaying information in tests
     fn print_node(&self, node_idx: usize, prefix: &str, is_last: bool) {
         let node = &self.nodes[node_idx];
 
@@ -600,6 +604,7 @@ impl BpTree {
         println!();
     }
 
+    // Function to check if a tree is valid
     fn validate(&self) -> Result<(), TreeErr> {
         if self.nodes.is_empty() {
             return Err(TreeErr::Empty);
@@ -611,6 +616,7 @@ impl BpTree {
             }
         }
 
+        // Get leaf depth and traverse to leftmost leaf
         let mut leaf_depth = 0;
         let mut current = self.root;
         loop {
@@ -623,6 +629,7 @@ impl BpTree {
             }
         }
 
+        // Check all keys are ordered and that no branches are leaf level
         let mut prev_key: Option<&String> = None;
         loop {
             let node = &self.nodes[current];
@@ -645,13 +652,17 @@ impl BpTree {
                 NodeType::Branch { .. } => return Err(TreeErr::BranchInLeafSeq),
             }
         }
-
-        return self.validate_node(self.root, 0, leaf_depth); 
+        
+        // Recurse through each node checking leaves
+        return self.validate_node(self.root, 0, leaf_depth, None, None); 
     }
 
-    fn validate_node(&self, idx: usize, depth: usize, leaf_depth: usize) -> Result<(), TreeErr> {
+    fn validate_node(&self, idx: usize, depth: usize, leaf_depth: usize, 
+        min_bound: Option<&str>, max_bound: Option<&str>) -> Result<(), TreeErr> {
+        
         let node = &self.nodes[idx];
         
+        // Ensure keys are properly ordered
         let mut iter = node.keys.iter().peekable();
         while let Some(key) = iter.next() {
             if let Some(next_key) = iter.peek() {
@@ -661,32 +672,51 @@ impl BpTree {
             }
         }
 
+        // Check all keys are in the bounds defined by the parent node
+        for key in &node.keys {
+            if let Some(min) = min_bound {
+                if key.as_str() <= min { return Err(TreeErr::KeyOOB); }
+            }
+            if let Some(max) = max_bound {
+                if key.as_str() > max { return Err(TreeErr::KeyOOB); }
+            }
+        }
+
+        // Ensure the key count is within the tree's defined order
+        if idx != self.root && (node.keys.len() < (self.order + 1) / 2 ||
+            node.keys.len() > self.order - 1) {
+            return Err(TreeErr::KeyCountErr);
+        }
+
         match &node.node_type {
             NodeType::Branch { children } => {
+                // Each branch should have keys + 1 children
                 if children.len() != node.keys.len() + 1 {
-                    return Err(TreeErr::BranchChildCountErr);
+                    return Err(TreeErr::KeyChildDesync);
                 }
-                if idx != self.root && (node.keys.len() < (self.order + 1) / 2 ||
-                    node.keys.len() > self.order - 1) {
-                    return Err(TreeErr::BranchKeyCountErr);
-                }
-                for &child in children {
-                    return self.validate_node(child, depth + 1, leaf_depth);
+
+                for (i, &child) in children.iter().enumerate() {
+                    // Set the new bounds and check children
+                    let new_min = if i > 0 { 
+                        Some(node.keys[i-1].as_str()) 
+                    } else { min_bound };
+                    let new_max = if i < node.keys.len() { 
+                        Some(node.keys[i].as_str()) 
+                    } else { max_bound };
+                    return self.validate_node(child, depth + 1, leaf_depth, new_min, new_max);
                 }
             },
             NodeType::Leaf { values, .. } => {
+                // Make sure leaf is at the proper depth
                 if depth != leaf_depth {
                     return Err(TreeErr::LeafBadDepth);
                 }
 
+                // Ensure leaves have the same number of keys and values
                 if values.len() != node.keys.len() {
                     return Err(TreeErr::KeyValueDesync);
                 }
 
-                if idx != self.root && (node.keys.len() < self.order / 2 ||
-                    node.keys.len() > self.order - 1) {
-                    return Err(TreeErr::LeafKeyCountErr);
-                }
             },
         }
         Ok(())
@@ -701,11 +731,11 @@ enum TreeErr {
     LeafKeysBadSeq,
     BranchInLeafSeq,
     NodeKeySeqErr,
-    BranchChildCountErr,
-    BranchKeyCountErr,
-    LeafKeyCountErr,
+    KeyChildDesync,
+    KeyCountErr,
     KeyValueDesync,
     LeafBadDepth,
+    KeyOOB,
 }
 
 #[cfg(test)]
