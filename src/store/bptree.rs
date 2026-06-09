@@ -26,6 +26,7 @@ impl BpTree {
         }
     }
 
+    // This function shows the basic pattern for searching the tree with a key
     pub fn get(&self, key: &str) -> Option<Value> {
         let mut current = self.root;
         loop {
@@ -33,13 +34,17 @@ impl BpTree {
             match &node.node_type {
                 NodeType::Branch { children } => {
                     let i = match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                        // A hit guarentees the right node, because right is always >=
                         Ok(i) => i + 1,
+                        // A miss returns the would be index, which is always the target
                         Err(i) => i,
                     };
                     current = children[i];
                 },
                 NodeType::Leaf { values, .. } => {
                     return match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                        // TODO: When values get refactored, this will be a function that takes the
+                        // associated page id and returns the data, which will alter the return
                         Ok(i) => Some(values[i].clone()),
                         Err(_) => None
                     }
@@ -51,6 +56,7 @@ impl BpTree {
     pub fn insert(&mut self, key: &str, val: Value) -> Option<Value> {
         let mut return_val = None;
         
+        // If the tree is empty, create a new root
         if self.nodes.is_empty() {
             let node = Node {
                 keys: vec![key.to_string()],
@@ -73,7 +79,6 @@ impl BpTree {
                 NodeType::Branch { children } => {
                     path.push(current);
                     let i = match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-                        // This might be wrong, so if there are weird fetches the problem is here
                         Ok(i) => i + 1,
                         Err(i) => i,
                     }; 
@@ -93,6 +98,7 @@ impl BpTree {
                 Ok(i) => {
                     node.keys[i] = key.to_string();
                     return_val = Some(val.clone());
+                    // TODO: See other todo, we need to insert a page id here instead of the value
                     values[i] = val;
                 },
                 Err(i) => {
@@ -112,10 +118,10 @@ impl BpTree {
 
                 if node.keys.len() >= self.order { // This is where max keys is defined
                     let mid = (node.keys.len() + 1) / 2; // ⌈m/2⌉ 
-                    let new_keys = node.keys.split_off(mid); // Because 0 index shifted one right
 
                     let mut new_node = match &mut node.node_type {
                         NodeType::Leaf { values, next } => {
+                            let new_keys = node.keys.split_off(mid);
                             let new_values = values.split_off(mid);
                             let old_next = *next;
                             *next = Some(nodes_len);
@@ -128,6 +134,8 @@ impl BpTree {
                             }
                         },
                         NodeType::Branch { children } => {
+                            let new_keys = node.keys.split_off(mid); 
+                            // increment by 1 because there are 1 more children than keys
                             let new_children = children.split_off(mid + 1);
                             Node {
                                 keys: new_keys,
@@ -138,6 +146,7 @@ impl BpTree {
                         }
                     };
 
+                    // The promoted key is the key that'll get pushed up to the parent
                     let promoted = match &mut new_node.node_type {
                         NodeType::Leaf { .. } => new_node.keys[0].clone(),
                         NodeType::Branch { .. } => new_node.keys.remove(0),
@@ -154,6 +163,7 @@ impl BpTree {
                 let new_node_idx = self.nodes.len();
                 self.nodes.push(new_node);
 
+                // The parent is the next node in the path (since the iterator was reversed)
                 if let Some(&parent_idx) = path_iter.peek() {
                     let parent = &mut self.nodes[*parent_idx];
                     let i = parent.keys.binary_search_by(|probe| probe.as_str().cmp(&promoted))
@@ -164,6 +174,7 @@ impl BpTree {
                         children.insert(i + 1, new_node_idx);
                     }
                 } else {
+                    // If there's no parent, we make a new root
                     let parent = Node {
                         keys: vec![promoted],
                         node_type: NodeType::Branch { 
@@ -180,6 +191,7 @@ impl BpTree {
         return_val
     }
 
+    // Holy fucking shit (Tool reference)
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         let mut return_val = None;
 
@@ -223,9 +235,12 @@ impl BpTree {
 
         // Third, handle underflow vectors
         let mut path_iter = path.iter().rev().peekable();
+        // Like insertion, iterating through every visited node
         while let Some(idx) = path_iter.next() {
+            // The parent node is important for retrieving and storing separator keys
             let parent_idx = match path_iter.peek() {
                 Some(&&p) => p,
+                // If prior operations destroy the root, then create a new one from the children
                 None => {
                     if self.nodes[self.root].keys.is_empty() {
                         if let NodeType::Branch { children } = &self.nodes[self.root].node_type {
@@ -241,33 +256,37 @@ impl BpTree {
             // Check if underflow occured and find siblings/pos
             let (min_keys, rebalance, pos, l_sib, r_sib, is_leaf) = {
                 let node = &self.nodes[*idx];
+                // Need to know if leaf or branch, because operations differ depending on type
                 let is_leaf = matches!(node.node_type, NodeType::Leaf { .. });
-                let min_keys = match node.node_type {
-                    NodeType::Branch { .. } => (self.order + 1) / 2,
-                    NodeType::Leaf { .. } => self.order / 2,
-                };
+                let min_keys = (self.order + 1) / 2; // Same min keys for leaf and node
 
                 if node.keys.len() >= min_keys {
                     (min_keys, false, 0, None, None, is_leaf)
                 } else {
+                    // from the parent, we grab...
                     let parent = &self.nodes[parent_idx];
                     if let NodeType::Branch { children } = &parent.node_type {
+                        // ...the nodes position in the children vector
                         let pos = children.iter().position(|&c| c == *idx).unwrap();
+                        // ...and it's siblings
                         let left_sib = if pos > 0 { Some(children[pos - 1]) } else { None };
                         let right_sib = if pos < children.len() - 1 { 
                             Some(children[pos+1]) } else { None };
                         (min_keys, true, pos, left_sib, right_sib, is_leaf)
-                    } else { unreachable!() }
+                    } else { panic!("You somehow have a parent leaf node") }
                 }
             };
 
+            // Need to break loop out here because borrow checker
             if !rebalance { break; }
 
-            // Attempt borrow, then merge
+            // Attempt the following in order: left borrow, right borrow, right merge, left merge
             if let Some(sib_idx) = l_sib {
                 let sibling = &mut self.nodes[sib_idx];
+                // The sibling has to have enough keys to borrow hence > and not >=
                 if sibling.keys.len() > min_keys {
                     if is_leaf {
+                        // We pop the last key and value, because left
                         let borrow_key = sibling.keys.remove(sibling.keys.len() - 1);
                         let borrow_val = {
                             if let NodeType::Leaf { values, .. } = &mut sibling.node_type {
@@ -275,60 +294,90 @@ impl BpTree {
                             } else { None }
                         };
 
+                        // We insert both into the first position of our node
                         self.nodes[*idx].keys.insert(0, borrow_key.clone());
-
                         if let Some(val) = borrow_val {
                             if let NodeType::Leaf { values, .. } = &mut self.nodes[*idx].node_type {
                                 values.insert(0, val);
                             }
                         }
 
+                        // And then update the parent separator
                         let parent = &mut self.nodes[parent_idx];
                         parent.keys[pos-1] = borrow_key.clone();
                     } else {
-                        // Branch has separate logic
+                        // Branches have separate logic
+                        // First we pop the key and child from the sibling
                         let sibling = &mut self.nodes[sib_idx];
-                        let borrow = { // pop key and child from sibling
+                        let borrow = {
                             if let NodeType::Branch { children } = &mut sibling.node_type {
                                 let key = sibling.keys.remove(sibling.keys.len() - 1);
-                                let val = children.remove(children.len() - 1);
-                                Some((key, val))
+                                let child = children.remove(children.len() - 1);
+                                Some((key, child))
                             } else { None }
                         };
 
-                        // Take separator and insert into current node
-                        let parent = &self.nodes[parent_idx];
-                        let sep_key = 
+                        if let Some((new_key, new_child)) = borrow {
+                            // Take separator and insert into current node
+                            let parent = &self.nodes[parent_idx];
+                            let sep_key = parent.keys[pos-1].clone();
+                            let current = &mut self.nodes[*idx];
+                            current.keys.insert(0, sep_key);
+                            // and also insert the child from the sibling
+                                if let NodeType::Branch { children } = &mut current.node_type {
+                                    children.insert(0, new_child);
+                                }
 
-                        // Put the left siblings key into the separator spot of the parent
-
-                        // Insert the popped child into the current node's children
+                            // Put the left siblings key into the separator spot of the parent
+                            let parent = &mut self.nodes[parent_idx];
+                            parent.keys[pos-1] = new_key;
+                        }
                     }
                 }
             } else if let Some(sib_idx) = r_sib {
                 let sibling = &mut self.nodes[sib_idx];
                 if sibling.keys.len() > min_keys {
                     if is_leaf {
+                        // For right, everything is popped differently
                         let borrow_key = sibling.keys.remove(0);
-                        let sep_key = sibling.keys[0].clone();
                         let borrow_val = {
                             if let NodeType::Leaf { values, .. } = &mut sibling.node_type {
-                                Some(values.remove(values.len() - 1))
+                                Some(values.remove(0))
                             } else { None }
                         };
 
-                        let node_ref = &mut self.nodes[*idx];
-                        node_ref.keys.insert(node_ref.keys.len(), borrow_key.clone());
-
+                        self.nodes[*idx].keys.push(borrow_key.clone());
                         if let Some(val) = borrow_val {
                             if let NodeType::Leaf { values, .. } = &mut self.nodes[*idx].node_type {
-                                values.insert(0, val);
+                                values.push(val);
                             }
                         }
 
                         let parent = &mut self.nodes[parent_idx];
-                        parent.keys[pos-1] = sep_key;
+                        parent.keys[pos] = borrow_key.clone();
                     } else {
+                        // Logic for right branches is nearly identical, save pos and where pops go
+                        let sibling = &mut self.nodes[sib_idx];
+                        let borrow = {
+                            if let NodeType::Branch { children } = &mut sibling.node_type {
+                                let key = sibling.keys.remove(0);
+                                let child = children.remove(0);
+                                Some((key, child))
+                            } else { None }
+                        };
+
+                        if let Some((new_key, new_child)) = borrow {
+                            let parent = &self.nodes[parent_idx];
+                            let sep_key = parent.keys[pos].clone();
+                            let current = &mut self.nodes[*idx];
+                            current.keys.push(sep_key);
+                                if let NodeType::Branch { children } = &mut current.node_type {
+                                    children.push(new_child);
+                                }
+
+                            let parent = &mut self.nodes[parent_idx];
+                            parent.keys[pos] = new_key;
+                        }
                     }
                 }
             } else if let Some(sib_idx) = r_sib {
