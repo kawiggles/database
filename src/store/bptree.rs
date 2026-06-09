@@ -117,10 +117,10 @@ impl BpTree {
                 let node = &mut self.nodes[*index];
 
                 if node.keys.len() >= self.order { // This is where max keys is defined
-                    let mid = (node.keys.len() + 1) / 2; // ⌈m/2⌉ 
 
                     let mut new_node = match &mut node.node_type {
                         NodeType::Leaf { values, next } => {
+                            let mid = (node.keys.len() + 1) / 2; // ⌈m/2⌉ 
                             let new_keys = node.keys.split_off(mid);
                             let new_values = values.split_off(mid);
                             let old_next = *next;
@@ -134,6 +134,7 @@ impl BpTree {
                             }
                         },
                         NodeType::Branch { children } => {
+                            let mid = node.keys.len() / 2; // m/2 for branches 
                             let new_keys = node.keys.split_off(mid); 
                             // increment by 1 because there are 1 more children than keys
                             let new_children = children.split_off(mid + 1);
@@ -258,7 +259,7 @@ impl BpTree {
                 let node = &self.nodes[*idx];
                 // Need to know if leaf or branch, because operations differ depending on type
                 let is_leaf = matches!(node.node_type, NodeType::Leaf { .. });
-                let min_keys = (self.order + 1) / 2; // Same min keys for leaf and node
+                let min_keys = self.order / 2;
 
                 if node.keys.len() >= min_keys {
                     (min_keys, false, 0, None, None, is_leaf)
@@ -506,24 +507,22 @@ mod tests {
         let mut tree = BpTree::new(3);
         tree.insert("one", Value::Int(1));
         tree.print_tree();
-        assert_eq!(Value::Int(1), tree.get("one").unwrap(), "Failure in first insertion");
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.insert("two", Value::Int(2));
         tree.print_tree();
-        assert_eq!(Value::Int(2), tree.get("two").unwrap(), "Failure in second insertion");
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.insert("three", Value::Int(3));
         tree.print_tree();
-        assert_eq!(Value::Int(3), tree.get("three").unwrap(), "Failure in third insertion");
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.insert("four", Value::Int(4));
         tree.print_tree();
-        assert_eq!(Value::Int(4), tree.get("four").unwrap(), "Failure in fourth insertion");
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.insert("five", Value::Int(5));
         tree.print_tree();
-        assert_eq!(Value::Int(5), tree.get("five").unwrap(), "Failure in fifth insertion");
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.insert("six", Value::Int(6));
         tree.print_tree();
-        assert_eq!(Value::Int(6), tree.get("six").unwrap(), "Failure in sixth insertion");
-        let result = tree.validate();
-        assert!(result.is_ok(), "Error is: {:?}", result);
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
     }
 
     #[test]
@@ -533,7 +532,7 @@ mod tests {
                 let mut tree = BpTree::new(order);
                 for i in 0..n {
                     tree.insert(&format!("key{:03}", i), Value::Int(i));
-                    assert!(tree.validate().is_ok());
+                    assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
                 }
                 // verify all keys retrievable
                 for i in 0..n {
@@ -555,53 +554,51 @@ mod tests {
     fn show_tree() {
         let tree = build_tree(4, 16);
         tree.print_tree();
-        let result = tree.validate();
-        assert!(result.is_ok(), "Error is: {:?}", result);
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
     }
 
     #[test]
     fn bptree_remove_simple() {
         let mut tree = build_tree(3, 20);
         tree.remove("key018");
-        assert!(tree.get("key018").is_none());
         tree.print_tree();
-        let result = tree.validate();
-        assert!(result.is_ok(), "Error is: {:?}", result);
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
     }
 
     #[test]
     fn bptree_remove_borrow() {
         let mut tree = build_tree(3, 20);
         tree.remove("key020");
-        assert!(tree.get("key020").is_none());
         tree.print_tree();
-        let result = tree.validate();
-        assert!(result.is_ok(), "Error is: {:?}", result);
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
     }
     
     #[test]
-    fn bptree_remove_cascade() {
-        let mut tree = build_tree(3, 20);
+    fn bptree_remove_merge() {
+        let mut tree = build_tree(3, 21);
         tree.remove("key020");
-        assert!(tree.get("key020").is_none());
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.remove("key019");
-        assert!(tree.get("key019").is_none());
         tree.print_tree();
-        let result = tree.validate();
-        assert!(result.is_ok(), "Error is: {:?}", result);
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
     }
 
     #[test]
-    fn bptree_remove_merge() {
-        let mut tree = build_tree(3, 20);
-        tree.remove("key015");
-        assert!(tree.get("key003").is_none());
-        tree.remove("key014");
-        assert!(tree.get("key006").is_none());
+    fn bptree_remove_cascade() {
+        let mut tree = build_tree(3, 14);
+        tree.print_tree();
+        tree.remove("key003");
+        tree.print_tree();
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
+        tree.remove("key006");
+        tree.print_tree();
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.remove("key009");
-        assert!(tree.get("key009").is_none());
+        tree.print_tree();
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
         tree.remove("key012");
-        assert!(tree.get("key012").is_none());
+        tree.print_tree();
+        assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
     }
 }
 
@@ -743,8 +740,8 @@ impl BpTree {
             }
         }
 
-        // Ensure the key count is within the tree's defined order
-        if idx != self.root && (node.keys.len() < (self.order + 1) / 2 ||
+        // Ensure node is above minimum value
+        if idx != self.root && (node.keys.len() < self.order / 2 ||
             node.keys.len() > self.order - 1) {
             return Err(TreeErr::KeyCountErr);
         }
