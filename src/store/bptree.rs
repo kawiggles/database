@@ -280,9 +280,12 @@ impl BpTree {
             // Need to break loop out here because borrow checker
             if !rebalance { break; }
 
+            let left_surplus = l_sib.map_or(false, |s| self.nodes[s].keys.len() > min_keys);
+            let right_surplus = r_sib.map_or(false, |s| self.nodes[s].keys.len() > min_keys);
+
             // Attempt the following in order: left borrow, right borrow, right merge, left merge
-            if let Some(sib_idx) = l_sib {
-                let sibling = &mut self.nodes[sib_idx];
+            if left_surplus {
+                let sibling = &mut self.nodes[l_sib.unwrap()];
                 // The sibling has to have enough keys to borrow hence > and not >=
                 if sibling.keys.len() > min_keys {
                     if is_leaf {
@@ -308,7 +311,7 @@ impl BpTree {
                     } else {
                         // Branches have separate logic
                         // First we pop the key and child from the sibling
-                        let sibling = &mut self.nodes[sib_idx];
+                        let sibling = &mut self.nodes[l_sib.unwrap()];
                         let borrow = {
                             if let NodeType::Branch { children } = &mut sibling.node_type {
                                 let key = sibling.keys.remove(sibling.keys.len() - 1);
@@ -334,11 +337,11 @@ impl BpTree {
                         }
                     }
                 }
-            } else if let Some(sib_idx) = r_sib {
-                let sibling = &mut self.nodes[sib_idx];
+            } else if right_surplus {
+                // For right, everything is popped differently
+                let sibling = &mut self.nodes[r_sib.unwrap()];
                 if sibling.keys.len() > min_keys {
                     if is_leaf {
-                        // For right, everything is popped differently
                         let borrow_key = sibling.keys.remove(0);
                         let borrow_val = {
                             if let NodeType::Leaf { values, .. } = &mut sibling.node_type {
@@ -353,11 +356,13 @@ impl BpTree {
                             }
                         }
 
+                        // Also, the new separator isn't the borrowed key
+                        let new_sep = self.nodes[r_sib.unwrap()].keys[0].clone();
                         let parent = &mut self.nodes[parent_idx];
-                        parent.keys[pos] = borrow_key.clone();
+                        parent.keys[pos] = new_sep;
                     } else {
                         // Logic for right branches is nearly identical, save pos and where pops go
-                        let sibling = &mut self.nodes[sib_idx];
+                        let sibling = &mut self.nodes[r_sib.unwrap()];
                         let borrow = {
                             if let NodeType::Branch { children } = &mut sibling.node_type {
                                 let key = sibling.keys.remove(0);
@@ -380,9 +385,12 @@ impl BpTree {
                         }
                     }
                 }
-            } else if let Some(sib_idx) = r_sib {
+            } else if r_sib.is_some() {
+                // If borrowing isn't possible, we attempt merging with the right node first
+                // With right merge, we destroy the right node and push it's values to the back of
+                // the current node
                 let (old_keys, old_children, old_values, old_next) = {
-                    let node = &mut self.nodes[sib_idx];
+                    let node = &mut self.nodes[r_sib.unwrap()];
                     let keys = node.keys.drain(..).collect::<Vec<_>>();
 
                     match &mut node.node_type {
@@ -397,10 +405,12 @@ impl BpTree {
                     }
                 };
 
-                let parent = &self.nodes[parent_idx];
-                let sep_key = parent.keys[pos].clone();
-                let merge_node = &mut self.nodes[*idx];
+                // Then we grap the separator key
+                let parent = &mut self.nodes[parent_idx];
+                let sep_key = parent.keys.remove(pos);
 
+                // merge_node is current node
+                let merge_node = &mut self.nodes[*idx];
                 match &mut merge_node.node_type {
                     NodeType::Leaf { values, next } => {
                         if let Some(old_values) = old_values {
@@ -415,14 +425,17 @@ impl BpTree {
                         }
                     },
                 }
+                // This comes after the match in case the node is a branch, so the sep_key goes in
+                // between the two branches' keys
                 merge_node.keys.extend(old_keys);
 
+                // Finally, we remove the record of the old branch
                 let parent = &mut self.nodes[parent_idx];
-                parent.keys.remove(pos);
                 if let NodeType::Branch { children } = &mut parent.node_type {
                     children.remove(pos + 1);
                 }
-            } else if let Some(sib_idx) = l_sib {
+            } else if l_sib.is_some() {
+                // Same logic for left but we destroy the current node instead
                 let (old_keys, old_children, old_values, old_next) = {
                     let node = &mut self.nodes[*idx];
                     let keys = node.keys.drain(..).collect::<Vec<_>>();
@@ -439,10 +452,10 @@ impl BpTree {
                     }
                 };
 
-                let parent = &self.nodes[parent_idx];
-                let sep_key = parent.keys[pos - 1].clone();
-                let merge_node = &mut self.nodes[sib_idx];
+                let parent = &mut self.nodes[parent_idx];
+                let sep_key = parent.keys.remove(pos-1);
 
+                let merge_node = &mut self.nodes[l_sib.unwrap()];
                 match &mut merge_node.node_type {
                     NodeType::Leaf { values, next } => {
                         if let Some(old_values) = old_values {
@@ -460,7 +473,6 @@ impl BpTree {
                 merge_node.keys.extend(old_keys);
 
                 let parent = &mut self.nodes[parent_idx];
-                parent.keys.remove(pos - 1);
                 if let NodeType::Branch { children } = &mut parent.node_type {
                     children.remove(pos);
                 }
