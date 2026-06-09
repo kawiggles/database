@@ -224,58 +224,221 @@ impl BpTree {
         // Third, handle underflow vectors
         let mut path_iter = path.iter().rev().peekable();
         while let Some(idx) = path_iter.next() {
-            let node = &self.nodes[*idx];
-            match &node.node_type {
-                NodeType::Branch { .. } => {
-                    if node.keys.len() < ((self.order + 1) / 2) - 1 {
-                    }
-                },
-                NodeType::Leaf { .. } => {
-                    if node.keys.len() < (self.order + 1) / 2 {
-                    }
-                },
-            }
-            if self.nodes[*idx].keys.len() < ((self.order + 1) / 2) - 1 {
-                // Try borrowing if the node has a parent
-                if let Some(&parent_idx) = path_iter.peek() {
-                    let sib_idx = {
-                        let parent = &self.nodes[*parent_idx];
-                        if let NodeType::Branch { children } = &parent.node_type {
-                            let pos = children.iter().position(|&c| c == *idx).unwrap();
-                            if pos > 0 { Some(children[pos - 1]) } else { None }
-                        } else { None }
-                    };
-                    // If left sibling has a spare key, borrow it
-                    if let Some(sib_idx) = sib_idx {
-                        let sibling = &mut self.nodes[sib_idx];
-                        if sibling.keys.len() > ((self.order + 1) / 2) - 1 {
-                            let borrow_key = sibling.keys.remove(sibling.keys.len() - 1);
-                            self.nodes[*idx].keys.insert(0, borrow_key);
-                            continue;
+            let parent_idx = match path_iter.peek() {
+                Some(&&p) => p,
+                None => {
+                    if self.nodes[self.root].keys.is_empty() {
+                        if let NodeType::Branch { children } = &self.nodes[self.root].node_type {
+                            if children.len() == 1 {
+                                self.root = children[0];
+                            }
                         }
                     }
-                    let sib_idx = {
-                        let parent = &self.nodes[*parent_idx];
-                        if let NodeType::Branch { children } = &parent.node_type {
-                            let pos = children.iter().position(|&c| c == *idx).unwrap();
-                            if pos > 0 { Some(children[pos + 1]) } else { None }
-                        } else { None }
-                    };
-                    // And now the right sibling
-                    if let Some(sib_idx) = sib_idx {
-                        let sibling = &mut self.nodes[sib_idx];
-                        if sibling.keys.len() > ((self.order + 1) / 2) - 1 {
-                            let borrow_key = sibling.keys.remove(0);
-                            self.nodes[*idx].keys.push(borrow_key);
-                            continue;
+                    break;
+                },
+            };
+
+            // Check if underflow occured and find siblings/pos
+            let (min_keys, rebalance, pos, l_sib, r_sib, is_leaf) = {
+                let node = &self.nodes[*idx];
+                let is_leaf = matches!(node.node_type, NodeType::Leaf { .. });
+                let min_keys = match node.node_type {
+                    NodeType::Branch { .. } => (self.order + 1) / 2,
+                    NodeType::Leaf { .. } => self.order / 2,
+                };
+
+                if node.keys.len() >= min_keys {
+                    (min_keys, false, 0, None, None, is_leaf)
+                } else {
+                    let parent = &self.nodes[parent_idx];
+                    if let NodeType::Branch { children } = &parent.node_type {
+                        let pos = children.iter().position(|&c| c == *idx).unwrap();
+                        let left_sib = if pos > 0 { Some(children[pos - 1]) } else { None };
+                        let right_sib = if pos < children.len() - 1 { 
+                            Some(children[pos+1]) } else { None };
+                        (min_keys, true, pos, left_sib, right_sib, is_leaf)
+                    } else { unreachable!() }
+                }
+            };
+
+            if !rebalance { break; }
+
+            // Attempt borrow, then merge
+            if let Some(sib_idx) = l_sib {
+                let sibling = &mut self.nodes[sib_idx];
+                if sibling.keys.len() > min_keys {
+                    if is_leaf {
+                        let borrow_key = sibling.keys.remove(sibling.keys.len() - 1);
+                        let borrow_val = {
+                            if let NodeType::Leaf { values, .. } = &mut sibling.node_type {
+                                Some(values.remove(values.len() - 1))
+                            } else { None }
+                        };
+
+                        self.nodes[*idx].keys.insert(0, borrow_key.clone());
+
+                        if let Some(val) = borrow_val {
+                            if let NodeType::Leaf { values, .. } = &mut self.nodes[*idx].node_type {
+                                values.insert(0, val);
+                            }
                         }
+
+                        let parent = &mut self.nodes[parent_idx];
+                        parent.keys[pos-1] = borrow_key.clone();
+                    } else {
+                        // Need to redo this
+                        let borrow_key = sibling.keys.remove(sibling.keys.len() - 1);
+                        let borrow_val = {
+                            if let NodeType::Branch { children } = &mut sibling.node_type {
+                                Some(children.remove(children.len() - 1))
+                            } else { None }
+                        };
+
+                        self.nodes[*idx].keys.insert(0, borrow_key.clone());
+
+                        if let Some(val) = borrow_val {
+                            if let NodeType::Branch { children } = &mut self.nodes[*idx].node_type {
+                                children.insert(0, val);
+                            }
+                        }
+
+                        let parent = &mut self.nodes[parent_idx];
+                        parent.keys[pos-1] = borrow_key.clone();
                     }
                 }
-                // If borrowing didn't work, we do merging
-            } else {
-            }
-        }
+            } else if let Some(sib_idx) = r_sib {
+                let sibling = &mut self.nodes[sib_idx];
+                if sibling.keys.len() > min_keys {
+                    if is_leaf {
+                        let borrow_key = sibling.keys.remove(0);
+                        let sep_key = sibling.keys[0].clone();
+                        let borrow_val = {
+                            if let NodeType::Leaf { values, .. } = &mut sibling.node_type {
+                                Some(values.remove(values.len() - 1))
+                            } else { None }
+                        };
 
+                        let node_ref = &mut self.nodes[*idx];
+                        node_ref.keys.insert(node_ref.keys.len(), borrow_key.clone());
+
+                        if let Some(val) = borrow_val {
+                            if let NodeType::Leaf { values, .. } = &mut self.nodes[*idx].node_type {
+                                values.insert(0, val);
+                            }
+                        }
+
+                        let parent = &mut self.nodes[parent_idx];
+                        parent.keys[pos-1] = sep_key;
+                    } else {
+                        // And this
+                        let parent = &self.nodes[parent_idx];
+                        let sep_key = parent.keys[pos];
+                        let node_ref = &mut self.nodes[*idx];
+                        node_ref.keys.insert(node_ref.keys.len(), sep_key);
+                        let borrow_key = &sibling.keys.remove(0);
+                        let parent = &mut self.nodes[parent_idx];
+                        parent.keys[pos] = borrow_key.clone();
+                        let borrow_val = {
+                            if let NodeType::Branch { children } = &mut sibling.node_type {
+                                Some(children.remove(children.len() - 1))
+                            } else { None }
+                        };
+
+                        if let Some(val) = borrow_val {
+                            if let NodeType::Branch { children } = &mut self.nodes[*idx].node_type {
+                                children.insert(0, val);
+                            }
+                        }
+
+                    }
+                }
+            } else if let Some(sib_idx) = r_sib {
+                let (old_keys, old_children, old_values, old_next) = {
+                    let node = &mut self.nodes[sib_idx];
+                    let keys = node.keys.drain(..).collect::<Vec<_>>();
+
+                    match &mut node.node_type {
+                        NodeType::Branch { children } => {
+                            let old_children = children.drain(..).collect::<Vec<_>>();
+                            (keys, Some(old_children), None, None)
+                        },
+                        NodeType::Leaf { values, next } => {
+                            let old_values = values.drain(..).collect::<Vec<_>>();
+                            (keys, None, Some(old_values), Some(*next))
+                        },
+                    }
+                };
+
+                let parent = &self.nodes[parent_idx];
+                let sep_key = parent.keys[pos].clone();
+                let merge_node = &mut self.nodes[*idx];
+
+                match &mut merge_node.node_type {
+                    NodeType::Leaf { values, next } => {
+                        if let Some(old_values) = old_values {
+                            values.extend(old_values);
+                            *next = old_next.unwrap();
+                        }
+                    },
+                    NodeType::Branch { children } => {
+                        if let Some(old_children) = old_children {
+                            merge_node.keys.push(sep_key);
+                            children.extend(old_children);
+                        }
+                    },
+                }
+                merge_node.keys.extend(old_keys);
+
+                let parent = &mut self.nodes[parent_idx];
+                parent.keys.remove(pos);
+                if let NodeType::Branch { children } = &mut parent.node_type {
+                    children.remove(pos + 1);
+                }
+            } else if let Some(sib_idx) = l_sib {
+                let (old_keys, old_children, old_values, old_next) = {
+                    let node = &mut self.nodes[*idx];
+                    let keys = node.keys.drain(..).collect::<Vec<_>>();
+
+                    match &mut node.node_type {
+                        NodeType::Branch { children } => {
+                            let old_children = children.drain(..).collect::<Vec<_>>();
+                            (keys, Some(old_children), None, None)
+                        },
+                        NodeType::Leaf { values, next } => {
+                            let old_values = values.drain(..).collect::<Vec<_>>();
+                            (keys, None, Some(old_values), Some(*next))
+                        },
+                    }
+                };
+
+                let parent = &self.nodes[parent_idx];
+                let sep_key = parent.keys[pos - 1].clone();
+                let merge_node = &mut self.nodes[sib_idx];
+
+                match &mut merge_node.node_type {
+                    NodeType::Leaf { values, next } => {
+                        if let Some(old_values) = old_values {
+                            values.extend(old_values);
+                        }
+                        *next = old_next.unwrap();
+                    },
+                    NodeType::Branch { children } => {
+                        if let Some(old_children) = old_children {
+                            merge_node.keys.push(sep_key);
+                            children.extend(old_children);
+                        }
+                    },
+                }
+                merge_node.keys.extend(old_keys);
+
+                let parent = &mut self.nodes[parent_idx];
+                parent.keys.remove(pos - 1);
+                if let NodeType::Branch { children } = &mut parent.node_type {
+                    children.remove(pos);
+                }
+            }
+
+        }
         return_val
     }
 }
@@ -338,6 +501,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn build_tree() {
+        let mut tree = BpTree::new(3);
+        for i in 1..31 {
+            tree.insert(&format!("key{:03}", i), Value::Int(i));
+        }
+        tree.print_tree();
+        let result = tree.validate();
+        assert!(result.is_ok(), "Error is: {:?}", result);
     }
 
     /*
@@ -492,7 +666,7 @@ impl BpTree {
                 if children.len() != node.keys.len() + 1 {
                     return Err(TreeErr::BranchChildCountErr);
                 }
-                if idx != self.root && (node.keys.len() < ((self.order + 1) / 2) - 1 ||
+                if idx != self.root && (node.keys.len() < (self.order + 1) / 2 ||
                     node.keys.len() > self.order - 1) {
                     return Err(TreeErr::BranchKeyCountErr);
                 }
@@ -509,7 +683,7 @@ impl BpTree {
                     return Err(TreeErr::KeyValueDesync);
                 }
 
-                if idx != self.root && (node.keys.len() < (self.order + 1) / 2 ||
+                if idx != self.root && (node.keys.len() < self.order / 2 ||
                     node.keys.len() > self.order - 1) {
                     return Err(TreeErr::LeafKeyCountErr);
                 }
