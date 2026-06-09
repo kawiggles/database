@@ -13,11 +13,11 @@ pub struct Node {
 pub struct BpTree {
     nodes: Vec<Node>, // nodes are reference by index to prevent weird borrow checker problems
     root: usize,
-    order: usize, // track branching factor
+    order: usize,
 }
 
-// TODO: Implement get, insert, and remove functions for BpTree
 impl BpTree {
+    // Easiest method on the tree
     pub fn new(order: usize) -> Self {
         BpTree { 
             nodes: Vec::new(), 
@@ -65,7 +65,7 @@ impl BpTree {
 
         let mut path: Vec<usize> = Vec::new(); // for tracking nodes to edit if split is needed
 
-        // First we find the leaf node
+        // First: find the leaf node while tracking path
         let mut current = self.root;
         loop {
             let node = &self.nodes[current];
@@ -86,7 +86,7 @@ impl BpTree {
             }
         }
 
-        // Then we insert into that node
+        // Second: insert key into node
         let node = &mut self.nodes[current];
         if let NodeType::Leaf { values, .. } = &mut node.node_type {
              match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
@@ -102,15 +102,16 @@ impl BpTree {
              }
         }
 
-        // Finally we handle splits as necessary
+        // Third: handle splits, iterating through path
         let mut path_iter = path.iter().rev().peekable();
         while let Some(index) = path_iter.next() {
+            // First check if a split is necessary
             let split_result = {
                 let nodes_len = self.nodes.len();
                 let node = &mut self.nodes[*index];
 
-                if node.keys.len() > self.order - 1 {
-                    let mid = node.keys.len() / 2;
+                if node.keys.len() > self.order {
+                    let mid = (node.keys.len() + 1) / 2;
                     let new_keys = node.keys.split_off(mid);
 
                     let mut new_node = match &mut node.node_type {
@@ -148,6 +149,7 @@ impl BpTree {
                 }
             };
 
+            // If it is, insert the promoted key and new node into the parent and node vector
             if let Some((promoted, new_node)) = split_result {
                 let new_node_idx = self.nodes.len();
                 self.nodes.push(new_node);
@@ -186,7 +188,7 @@ impl BpTree {
             return None;
         }
 
-        // Step 1: Search
+        // First, search for the leaf node with the key to delete
         let mut current = self.root;
         let mut path = Vec::new();
         loop {
@@ -207,9 +209,8 @@ impl BpTree {
             }
         }
 
-        // Step 2: Delete
+        // Second, delete the key and shift the key vector
         let node = &mut self.nodes[current];
-        // If the key exists
         match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
             Ok(i) => {
                 node.keys.remove(i);
@@ -220,12 +221,22 @@ impl BpTree {
             Err(_) => return None,
         }
 
-        // Step 3: Handle Underflow
+        // Third, handle underflow vectors
         let mut path_iter = path.iter().rev().peekable();
         while let Some(idx) = path_iter.next() {
-            // check if underflow
+            let node = &self.nodes[*idx];
+            match &node.node_type {
+                NodeType::Branch { .. } => {
+                    if node.keys.len() < ((self.order + 1) / 2) - 1 {
+                    }
+                },
+                NodeType::Leaf { .. } => {
+                    if node.keys.len() < (self.order + 1) / 2 {
+                    }
+                },
+            }
             if self.nodes[*idx].keys.len() < ((self.order + 1) / 2) - 1 {
-                // First we try borrowing
+                // Try borrowing if the node has a parent
                 if let Some(&parent_idx) = path_iter.peek() {
                     let sib_idx = {
                         let parent = &self.nodes[*parent_idx];
@@ -234,11 +245,33 @@ impl BpTree {
                             if pos > 0 { Some(children[pos - 1]) } else { None }
                         } else { None }
                     };
-                    // if left sibling has a spare key, borrow it
+                    // If left sibling has a spare key, borrow it
                     if let Some(sib_idx) = sib_idx {
-                        let _sibling = &mut self.nodes[sib_idx];
+                        let sibling = &mut self.nodes[sib_idx];
+                        if sibling.keys.len() > ((self.order + 1) / 2) - 1 {
+                            let borrow_key = sibling.keys.remove(sibling.keys.len() - 1);
+                            self.nodes[*idx].keys.insert(0, borrow_key);
+                            continue;
+                        }
+                    }
+                    let sib_idx = {
+                        let parent = &self.nodes[*parent_idx];
+                        if let NodeType::Branch { children } = &parent.node_type {
+                            let pos = children.iter().position(|&c| c == *idx).unwrap();
+                            if pos > 0 { Some(children[pos + 1]) } else { None }
+                        } else { None }
+                    };
+                    // And now the right sibling
+                    if let Some(sib_idx) = sib_idx {
+                        let sibling = &mut self.nodes[sib_idx];
+                        if sibling.keys.len() > ((self.order + 1) / 2) - 1 {
+                            let borrow_key = sibling.keys.remove(0);
+                            self.nodes[*idx].keys.push(borrow_key);
+                            continue;
+                        }
                     }
                 }
+                // If borrowing didn't work, we do merging
             } else {
             }
         }
@@ -291,21 +324,20 @@ mod tests {
     }
 
     #[test]
-    fn test_tree() {
-        let mut tree = BpTree::new(4);
-        tree.insert("one", Value::Int(1));
-        tree.insert("two", Value::Int(2));
-        tree.insert("three", Value::Int(3));
-        tree.insert("four", Value::Int(4));
-        tree.insert("five", Value::Int(5));
-        tree.insert("six", Value::Int(6));
-        tree.insert("seven", Value::Int(7));
-        tree.insert("eight", Value::Int(8));
-        tree.insert("nine", Value::Int(9));
-        tree.insert("ten", Value::Int(10));
-        tree.print_tree();
-        let result = tree.validate();
-        assert!(result.is_ok(), "Error is: {:?}", result);
+    fn stress_test() {
+        for order in [3, 4, 5, 10] {
+            for n in [10, 20, 50, 100] {
+                let mut tree = BpTree::new(order);
+                for i in 0..n {
+                    tree.insert(&format!("key{:03}", i), Value::Int(i));
+                    assert!(tree.validate().is_ok());
+                }
+                // verify all keys retrievable
+                for i in 0..n {
+                    assert!(tree.get(&format!("key{:03}", i)).is_some());
+                }
+            }
+        }
     }
 
     /*
@@ -320,6 +352,16 @@ mod tests {
 
     #[test]
     fn bptree_remove_borrow() {
+        let mut tree = build_tree();
+    }
+    
+    #[test]
+    fn bptree_remove_merge() {
+        let mut tree = build_tree();
+    }
+
+    #[test]
+    fn bptree_remove_cascade() {
         let mut tree = build_tree();
     }
     */
@@ -450,7 +492,7 @@ impl BpTree {
                 if children.len() != node.keys.len() + 1 {
                     return Err(TreeErr::BranchChildCountErr);
                 }
-                if idx != self.root && (node.keys.len() < self.order / 2 ||
+                if idx != self.root && (node.keys.len() < ((self.order + 1) / 2) - 1 ||
                     node.keys.len() > self.order - 1) {
                     return Err(TreeErr::BranchKeyCountErr);
                 }
@@ -467,7 +509,7 @@ impl BpTree {
                     return Err(TreeErr::KeyValueDesync);
                 }
 
-                if idx != self.root && (node.keys.len() < self.order / 2 ||
+                if idx != self.root && (node.keys.len() < (self.order + 1) / 2 ||
                     node.keys.len() > self.order - 1) {
                     return Err(TreeErr::LeafKeyCountErr);
                 }
