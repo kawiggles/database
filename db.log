@@ -1,38 +1,17 @@
-03:07:05 [INFO] Database initialized
-03:07:05 [INFO] Parsing Call
-03:07:08 [INFO] Input entered: help
+22:33:13 [INFO] Database initialized
+22:33:13 [INFO] Parsing Call
+22:33:24 [INFO] Input entered: put yay 1234
 
-03:07:08 [INFO] Help call parsed
-03:07:08 [INFO] Parsing Call
-03:07:36 [INFO] Input entered: put hi [1,2,3,4,5] blob
+22:33:24 [INFO] Input parsed as basic put
+22:33:24 [INFO] Executing call
+22:33:24 [INFO] Value retrieved: 1234
+22:33:24 [INFO] Parsing Call
+22:33:28 [INFO] Input entered: get yay
 
-03:07:36 [INFO] Input parsed as put
-03:07:36 [INFO] Executing call
-03:07:36 [INFO] Value retrieved: [1,2,3,4,5]
-03:07:36 [INFO] Parsing Call
-03:07:39 [INFO] Input entered: get blob
+22:33:28 [INFO] Input parsed as get
+22:33:28 [INFO] Executing call
+22:33:28 [INFO] Value retrieved: 1234
+22:33:28 [INFO] Parsing Call
+22:33:31 [INFO] Input entered: exit
 
-03:07:39 [INFO] Input parsed as get
-03:07:39 [INFO] Executing call
-03:07:39 [WARN] Error in call execution: No value found at requested key
-03:07:39 [INFO] Parsing Call
-03:07:41 [INFO] Input entered: get hi
-
-03:07:41 [INFO] Input parsed as get
-03:07:41 [INFO] Executing call
-03:07:41 [INFO] Value retrieved: [1,2,3,4,5]
-03:07:41 [INFO] Parsing Call
-03:07:45 [INFO] Input entered: del hi
-
-03:07:45 [INFO] Executing call
-03:07:45 [INFO] Value retrieved: [1,2,3,4,5]
-03:07:45 [INFO] Parsing Call
-03:07:47 [INFO] Input entered: get hi
-
-03:07:47 [INFO] Input parsed as get
-03:07:47 [INFO] Executing call
-03:07:47 [WARN] Error in call execution: No value found at requested key
-03:07:47 [INFO] Parsing Call
-03:07:51 [INFO] Input entered: exit
-
-03:07:51 [INFO] Exit call parsed
+22:33:31 [INFO] Exit call parsed

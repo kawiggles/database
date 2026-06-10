@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, PartialEq)]
+use bincode_next::{Encode, Decode};
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -26,4 +28,10 @@ impl Value {
             Value::Null => "null".to_string(),
         }
     }
+}
+
+// Implement this later
+pub enum Key {
+    Int(i64),
+    Text(String),
 }
