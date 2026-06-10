@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_parse_get() {
-        let mut db = Store::build();
+        let mut db = Store::start();
         let _ = db.put("key", Value::Text(String::from("test")));
         let test: Call = Call::parse("get key").unwrap();
         assert_eq!(test.execute(&mut db).unwrap(), db.get("key").unwrap());
@@ -94,14 +94,14 @@ mod tests {
 
     #[test]
     fn test_parse_put() {
-        let mut db = Store::build();
+        let mut db = Store::start();
         let test: Call = Call::parse("put key value").unwrap();
         assert_eq!(test.execute(&mut db).unwrap(), db.get("key").unwrap());
     }
 
     #[test]
     fn test_parse_del() {
-        let mut db = Store::build();
+        let mut db = Store::start();
         let _ = db.put("key", Value::Int(3));
         let test: Call = Call::parse("del key").unwrap();
         assert_eq!(Value::Int(3), test.execute(&mut db).unwrap());

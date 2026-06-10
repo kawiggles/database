@@ -10,7 +10,7 @@ use log::{info, warn};
 
 pub fn run() {
     init_logs();
-    let mut db = Store::build();
+    let mut db = Store::start();
     info!("Database initialized");
     loop {
         info!("Parsing Call");

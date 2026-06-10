@@ -1,17 +1,50 @@
-22:33:13 [INFO] Database initialized
-22:33:13 [INFO] Parsing Call
-22:33:24 [INFO] Input entered: put yay 1234
+06:32:27 [INFO] Database initialized
+06:32:27 [INFO] Parsing Call
+06:32:32 [INFO] Input entered: put hi ashdlkf
 
-22:33:24 [INFO] Input parsed as basic put
-22:33:24 [INFO] Executing call
-22:33:24 [INFO] Value retrieved: 1234
-22:33:24 [INFO] Parsing Call
-22:33:28 [INFO] Input entered: get yay
+06:32:32 [INFO] Input parsed as basic put
+06:32:32 [INFO] Executing call
+06:32:32 [INFO] Value retrieved: ashdlkf
+06:32:32 [INFO] Parsing Call
+06:32:34 [INFO] Input entered: get hi
 
-22:33:28 [INFO] Input parsed as get
-22:33:28 [INFO] Executing call
-22:33:28 [INFO] Value retrieved: 1234
-22:33:28 [INFO] Parsing Call
-22:33:31 [INFO] Input entered: exit
+06:32:34 [INFO] Input parsed as get
+06:32:34 [INFO] Executing call
+06:32:34 [INFO] Value retrieved: ashdlkf
+06:32:34 [INFO] Parsing Call
+06:32:36 [INFO] Input entered: del hi
 
-22:33:31 [INFO] Exit call parsed
+06:32:36 [INFO] Executing call
+06:32:36 [INFO] Value retrieved: ashdlkf
+06:32:36 [INFO] Parsing Call
+06:32:39 [INFO] Input entered: get hi
+
+06:32:39 [INFO] Input parsed as get
+06:32:39 [INFO] Executing call
+06:32:39 [WARN] Error in call execution: No value found at requested key
+06:32:39 [INFO] Parsing Call
+06:32:44 [INFO] Input entered: put hi hsdklaf;
+
+06:32:44 [INFO] Input parsed as basic put
+06:32:44 [INFO] Executing call
+06:32:44 [INFO] Value retrieved: hsdklaf;
+06:32:44 [INFO] Parsing Call
+06:32:47 [INFO] Input entered: put shadfl
+
+06:32:47 [WARN] Invalid call made: API call is malformed
+06:32:47 [INFO] Parsing Call
+06:32:50 [INFO] Input entered: put hasldf sdjlf
+
+06:32:50 [INFO] Input parsed as basic put
+06:32:50 [INFO] Executing call
+06:32:50 [INFO] Value retrieved: sdjlf
+06:32:50 [INFO] Parsing Call
+06:32:53 [INFO] Input entered: put hsadlfa jdklfa
+
+06:32:53 [INFO] Input parsed as basic put
+06:32:53 [INFO] Executing call
+06:32:53 [INFO] Value retrieved: jdklfa
+06:32:53 [INFO] Parsing Call
+06:32:54 [INFO] Input entered: exit
+
+06:32:54 [INFO] Exit call parsed

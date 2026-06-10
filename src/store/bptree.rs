@@ -1,9 +1,8 @@
 use crate::store::value::Value;
-use crate::store::pager::{Pager, Page, PageId};
 
 pub enum NodeType {
-    Branch { children: Vec<PageId> },
-    Leaf { values: Vec<PageId>, next: Option<PageId> },
+    Branch { children: Vec<usize> },
+    Leaf { values: Vec<Value>, next: Option<usize> },
 }
 
 pub struct Node {
@@ -13,7 +12,7 @@ pub struct Node {
 
 pub struct BpTree {
     nodes: Vec<Node>, // nodes are reference by index to prevent weird borrow checker problems
-    root: PageId,
+    root: usize,
     order: usize,
 }
 
@@ -28,7 +27,7 @@ impl BpTree {
     }
 
     // This function shows the basic pattern for searching the tree with a key
-    pub fn get(&self, key: &str, pager: &Pager) -> Option<Value> {
+    pub fn get(&self, key: &str) -> Option<Value> {
         let mut current = self.root;
         loop {
             let node = &self.nodes[current];
@@ -54,7 +53,7 @@ impl BpTree {
         }
     }
 
-    pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> Option<Value> {
+    pub fn insert(&mut self, key: &str, val: Value) -> Option<Value> {
         let mut return_val = None;
         
         // If the tree is empty, create a new root
@@ -194,7 +193,7 @@ impl BpTree {
     }
 
     // Holy fucking shit (Tool reference)
-    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Option<Value> {
+    pub fn remove(&mut self, key: &str) -> Option<Value> {
         let mut return_val = None;
 
         // Handle empty tree case

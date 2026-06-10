@@ -1,9 +1,11 @@
-use crate::store::bptree::Node;
 use crate::store::value::Value;
 use crate::logs::DbError;
 
 use bincode_next::{config, Encode, Decode};
 use std::fs::{File};
+use std::fmt;
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 pub const PAGE_SIZE: usize = 4096;
 
@@ -18,22 +20,43 @@ const DATA_CONFIG: config::Configuration<config::BigEndian, config::Varint, conf
     .with_big_endian()
     .with_limit::<4000>();
 
-pub struct PageId(usize);
+#[derive(PartialEq, Encode, Decode, Clone, Copy)]
+pub struct PageId(pub usize);
 
-pub enum Page {
-    Index(IndexPage),
-    Data(DataPage),
+impl fmt::Display for PageId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Encode, Decode)]
+pub enum PageType {
+    Index,
+    Data,
+}
+
+#[derive(Encode, Decode)]
+pub struct PageHeader {
+    page_type: PageType,
+    page_id: PageId,
 }
 
 #[derive(Encode, Decode)]
 pub struct IndexPage {
-    page_id: PageId,
-    node: Node,
+    pub header: PageHeader,
+    pub keys: Vec<String>,
+    pub node_type: NodeType,
+}
+
+#[derive(Encode, Decode)]
+pub enum NodeType {
+    Branch { children: Vec<PageId> },
+    Leaf { pages: Vec<PageId>, next: Option<PageId> }
 }
 
 #[derive(Encode, Decode)]
 pub struct DataPage {
-    page_id: PageId,
+    header: PageHeader,
     value: Value,
 }
 
@@ -47,23 +70,55 @@ pub struct DbHeader {
     free_list_head: Option<PageId>,
 }
 
+struct CachedPage {
+    page: IndexPage,
+    dirty: bool,
+}
+
 pub struct Pager {
     file: File,
-    cache: HashMap<PageId, Node>,
     free_list: HashSet<PageId>,
-    num_pages: usize,
+    dirty_cache: HashMap<PageId, CachedPage>,
+    pub num_pages: usize,
 }
 
 impl Pager {
+    /*
     pub fn open(path: &str) -> Result<Self, DbError> {
     }
 
-    pub fn read(&self, id: PageId) -> Result<Page, DbError> {
+    // Read a DataPage, Datapage only
+    pub fn read(&self, id: &PageId) -> Result<Value, DbError> {
+        return Ok(Value::Null);
     }
 
-    pub fn write(&mut self, id: PageId) -> Result<Page, DbError> {
+    // Write to a DataPage, DataPage only
+    pub fn write(&mut self, id: PageId, val: Value) -> Result<Value, DbError> {
+        return Ok(Value::Null);
     }
 
-    pub fn alloc(&mut self) -> PageId) {
+    // Read node metadata, for IndexPage only
+    pub fn peek(&self, id: PageId) -> IndexPage {
     }
+
+    // Modify node metadata, for IndexPage only
+    pub fn poke(&mut self, id: PageId) -> &mut IndexPage {
+        // Ensure to write to dirty cache
+    }
+    
+    // Clear out the cache and write it to disk
+    fn flush(&mut self) -> Result<(), DbError> {
+    }
+
+    // Construct page and serialize it
+    pub fn alloc(&mut self, page_type: PageType) -> PageId {
+        match page_type {
+            Index => {
+                new_page = 
+            },
+            Data => {
+            },
+        }
+    }
+    */
 }
