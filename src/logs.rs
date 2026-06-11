@@ -1,6 +1,7 @@
 use thiserror::Error;
 use std::io;
 use std::fs::File;
+use bincode_next;
 use log::LevelFilter;
 use simplelog::{WriteLogger, Config};
 
@@ -25,7 +26,13 @@ pub enum DbError {
     #[error("No value to delete at requested key")]
     BadDel,
     #[error("I/O error occurred: {0}")]
-    FileErr(#[from] io::Error),
+    IOErr(#[from] io::Error),
+    #[error("Bincode encoding error occured: {0}")]
+    EncodeErr(#[from] bincode_next::error::EncodeError),
+    #[error("Bincode decoding error occured: {0}")]
+    DecodeErr(#[from] bincode_next::error::DecodeError),
+    #[error("Filetype does not match kawikadb filetype")]
+    BadFile,
 }
 
 impl From<DbError> for io::Error {

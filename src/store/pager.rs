@@ -1,12 +1,13 @@
 use crate::VERSION;
+use crate::store::{DEFAULT_ORDER, DEFAULT_FILE};
 use crate::store::value::Value;
 use crate::logs::DbError;
 
 use bincode_next::{config, Encode, Decode};
-use std::fs::{File};
+use std::fs::File;
+use std::io::{Write, BufWriter, BufReader};
 use std::fmt;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 pub const PAGE_SIZE: usize = 4096;
 
@@ -67,7 +68,7 @@ pub struct DataPage {
 pub struct DbHeader {
     magic: [u8; 8],
     version: u32,
-    root_page: PageId,
+    root_page: Option<PageId>,
     order: usize,
     num_pages: usize,
     free_list_head: Option<PageId>,
@@ -80,22 +81,72 @@ struct CachedPage {
 
 pub struct Pager {
     file: File,
-    free_list: HashSet<PageId>,
+    free_list: Vec<PageId>,
     dirty_cache: HashMap<PageId, CachedPage>,
     pub num_pages: usize,
 }
 
+// TODO: write logs...
 impl Pager {
     // Function to create a new database file if none exists
-    pub fn new() -> Result<Self, DbError> {
+    pub fn new() -> Result<(Self, Option<PageId>, usize), DbError> {
         // TODO: add way to change database file name and path
-        let file = File::create("kawika.db")?;
+        let mut page = [0u8; PAGE_SIZE];
+        let new_head = DbHeader{
+            magic: MAGIC,
+            version: VERSION,
+            root_page: None, // None means no root
+            // TODO: add way to change db order
+            order: DEFAULT_ORDER,
+            num_pages: 0,
+            free_list_head: None,
+        };
 
+        let mut file = File::create(DEFAULT_FILE)?;
+        {
+            let mut writer = BufWriter::new(&mut file);
+            bincode_next::encode_into_slice(&new_head, &mut page, INDEX_CONFIG)?;
+            writer.write_all(&page)?;
+            writer.flush()?;
+        }
+
+        Ok((Pager {
+            file: file,
+            free_list: Vec::new(),
+            dirty_cache: HashMap::new(),
+            num_pages: 0,
+        }, new_head.root_page, new_head.order))
     }
+
+    // Function to open database if one exists
+    pub fn open(path: &str) -> Result<(Self, Option<PageId>, usize), DbError> {
+        // TODO: if no path, use default file (consider Option<&str>)
+        let mut file = File::open(path)?;
+        let mut reader = BufReader::new(&mut file);
+        let header: DbHeader = bincode_next::decode_from_std_read(&mut reader, INDEX_CONFIG)?;
+
+        if header.magic != MAGIC {
+            return Err(DbError::BadFile);
+        }
+
+        let mut free_list: Vec<PageId> = Vec::new();
+        let mut current = header.free_list_head;
+        while let Some(id) = current {
+            free_list.push(id);
+            // TODO: actually write this function
+            let next = somefunctiontoreadpages();
+            current = next;
+        }
+
+        Ok((Pager {
+            file: file,
+            free_list: free_list,
+            dirty_cache: HashMap::new(),
+            num_pages: header.num_pages,
+        }, header.root_page, header.order))
+    }
+
     /*
-    pub fn open(path: &str) -> Result<Self, DbError> {
-    }
-
     // Read a DataPage, Datapage only
     pub fn read(&self, id: &PageId) -> Result<Value, DbError> {
         return Ok(Value::Null);

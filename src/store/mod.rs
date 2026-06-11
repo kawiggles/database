@@ -8,6 +8,7 @@ use crate::logs::DbError;
 
 pub const PAGE_SIZE: usize = 4096;
 pub const DEFAULT_ORDER: usize = 256;
+pub const DEFAULT_FILE: &str = "kawika.db";
 
 // Buffer pool for database, holds cache?
 pub struct Store {
