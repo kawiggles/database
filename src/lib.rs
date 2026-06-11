@@ -8,6 +8,12 @@ use crate::logs::{init_logs, DbError};
 
 use log::{info, warn};
 
+pub const VERSION: u32 = encode_version((0,0,1));
+
+pub const fn encode_version(version: (u32, u32, u32)) -> u32 {
+    (version.0 << 24) | (version.1 << 16) | (version.2 << 8)
+}
+
 pub fn run() {
     init_logs();
     let mut db = Store::start();

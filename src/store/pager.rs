@@ -1,3 +1,4 @@
+use crate::VERSION;
 use crate::store::value::Value;
 use crate::logs::DbError;
 
@@ -19,6 +20,8 @@ const DATA_CONFIG: config::Configuration<config::BigEndian, config::Varint, conf
     config::standard()
     .with_big_endian()
     .with_limit::<4000>();
+
+const MAGIC: [u8; 8] = *b"KAWIKADB";
 
 #[derive(PartialEq, Encode, Decode, Clone, Copy)]
 pub struct PageId(pub usize);
@@ -83,6 +86,12 @@ pub struct Pager {
 }
 
 impl Pager {
+    // Function to create a new database file if none exists
+    pub fn new() -> Result<Self, DbError> {
+        // TODO: add way to change database file name and path
+        let file = File::create("kawika.db")?;
+
+    }
     /*
     pub fn open(path: &str) -> Result<Self, DbError> {
     }

@@ -1,4 +1,5 @@
-use std::fmt;
+use thiserror::Error;
+use std::io;
 use std::fs::File;
 use log::LevelFilter;
 use simplelog::{WriteLogger, Config};
@@ -11,29 +12,25 @@ pub fn init_logs() {
     ).unwrap();
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum DbError {
+    #[error("No value found at requested key")]
     NoValue,
+    #[error("Value input is invalid")]
     BadVal,
+    #[error("API call is malformed")]
     BadCall,
+    #[error("Put call was unsuccessful")]
     BadPut,
+    #[error("No value to delete at requested key")]
     BadDel,
+    #[error("I/O error occurred: {0}")]
+    FileErr(#[from] io::Error),
 }
 
-impl From<DbError> for fmt::Error {
-    fn from(_error: DbError) -> Self {
-        fmt::Error
+impl From<DbError> for io::Error {
+    fn from(err: DbError) -> Self {
+        io::Error::new(io::ErrorKind::Other, err)
     }
 }
 
-impl fmt::Display for DbError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", String::from(match self {
-            DbError::NoValue => "No value found at requested key",
-            DbError::BadVal => "Value input is invalid",
-            DbError::BadCall => "API call is malformed",
-            DbError::BadPut => "Put call was unsuccessful",
-            DbError::BadDel => "No value to delete at requested key",
-        }))
-    }
-}

@@ -66,6 +66,7 @@ impl BpTree {
                 },
             };
             self.nodes.push(node);
+            self.root = 0;
             return None;
         }
 
