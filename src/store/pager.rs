@@ -4,8 +4,8 @@ use crate::store::value::Value;
 use crate::logs::DbError;
 
 use bincode_next::{config, Encode, Decode};
-use std::fs::File;
-use std::io::{Write, Read, Seek, SeekFrom, BufWriter, BufReader};
+use std::fs::{File, OpenOptions};
+use std::io::{Write, Read, Seek, SeekFrom, BufReader};
 use std::fmt;
 use std::collections::HashMap;
 
@@ -39,7 +39,7 @@ pub enum PageType {
     Data,
 }
 
-// TODO: Make data representation more efficient
+// TODO: Make data representation more efficient (manual bincode)
 #[derive(Encode, Decode)]
 pub struct PageHeader {
     page_type: PageType, // 4 bytes
@@ -47,11 +47,39 @@ pub struct PageHeader {
     next_free: Option<PageId>, // 8 bytes (Option) + 8 bytes
 } // Total: 28 bytes
 
+pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> Result<(), DbError> {
+    file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
+    file.write_all(buf)?;
+    Ok(())
+}
+
 #[derive(Encode, Decode)]
 pub struct IndexPage {
     pub header: PageHeader, // 28 bytes
     pub keys: Vec<String>, // 8 + ? Bytes
     pub node_type: NodeType, // 28 + ? Bytes
+}
+
+impl IndexPage {
+    fn write(file: &mut File, new_page: &IndexPage) -> Result<(), DbError> {
+        let mut page = [0u8; PAGE_SIZE];
+        bincode_next::encode_into_slice(&new_page, &mut page, INDEX_CONFIG)?;
+        write_page(file, new_page.header.page_id, &page)?;
+        Ok(())
+    }
+
+    pub fn read(file: &mut File, id: PageId) -> Result<IndexPage, DbError> {
+        let mut buf = [0u8; PAGE_SIZE];
+        file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
+        file.read_exact(&mut buf)?;
+        let (page, size): (IndexPage, usize) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
+
+        if size > PAGE_SIZE {
+            return Err(DbError::ReadOverflow)
+        }
+
+        Ok(page)
+    }
 }
 
 #[derive(Encode, Decode)]
@@ -69,6 +97,28 @@ pub struct DataPage {
     value: Value,
 }
 
+impl DataPage {
+    fn write(file: &mut File, new_page: DataPage) -> Result<(), DbError> {
+        let mut page = [0u8; PAGE_SIZE];
+        bincode_next::encode_into_slice(&new_page, &mut page, DATA_CONFIG)?;
+        write_page(file, new_page.header.page_id, &page)?;
+        Ok(())
+    }
+
+    pub fn read(file: &mut File, id: PageId) -> Result<DataPage, DbError> {
+        let mut buf = [0u8; PAGE_SIZE];
+        file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
+        file.read_exact(&mut buf)?;
+        let (page, size): (DataPage, usize) = bincode_next::decode_from_slice(&buf, DATA_CONFIG)?;
+
+        if size > PAGE_SIZE {
+            return Err(DbError::ReadOverflow)
+        }
+
+        Ok(page)
+    }
+}
+
 #[derive(Encode, Decode)]
 pub struct DbHeader {
     magic: [u8; 8],
@@ -79,72 +129,27 @@ pub struct DbHeader {
     free_list_head: Option<PageId>,
 }
 
-struct CachedPage {
-    page: IndexPage,
-    dirty: bool,
+impl DbHeader {
+    fn write(&self, file: &mut File) -> Result<(), DbError> {
+        let mut page = [0u8; PAGE_SIZE];
+        bincode_next::encode_into_slice(self, &mut page, INDEX_CONFIG)?;
+        write_page(file, PageId(0), &page)?;
+        Ok(())
+    }
 }
 
 pub struct Pager {
     file: File,
     free_list: Vec<PageId>,
-    dirty_cache: HashMap<PageId, CachedPage>,
+    dirty_cache: HashMap<PageId, IndexPage>,
     pub num_pages: usize,
 }
 
-trait Page {
-    fn read_header(file: &mut File, id: PageId) -> Result<PageHeader, DbError>;
-    fn write(&self, file: &mut File, id: PageId) -> Result<(), DbError>;
-}
-
-fn read_page<T: Decode<()>>(file: &mut File, id: PageId) -> Result<T, DbError> {
-    let mut buf = [0u8; PAGE_SIZE];
-    file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
-    file.read_exact(&mut buf)?;
-    let (page, size): (T, usize) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
-
-    if size > PAGE_SIZE {
-        return Err(DbError::ReadOverflow)
-    }
-
-    Ok(page)
-}
-
-impl Page for IndexPage {
-    fn read_header(file: &mut File, id: PageId) -> Result<PageHeader, DbError> {
-        let page: IndexPage = read_page(file, id)?;
-        Ok(page.header)
-    }
-
-    fn write(&self, file: &mut File, id: PageId) -> Result<(), DbError> {
-    }
-}
-
-impl Page for DataPage {
-    fn read_header(file: &mut File, id: PageId) -> Result<PageHeader, DbError> {
-        let page: DataPage = read_page(file, id)?;
-        Ok(page.header)
-    }
-
-    fn write(&self, file: &mut File, id: PageId) -> Result<(), DbError> {
-    }
-}
-impl Page for DbHeader {
-    fn read_header(_file: &mut File, _id: PageId) -> Result<PageHeader, DbError> {
-        Ok(PageHeader {
-            page_type: PageType::Index, 
-            page_id: PageId(0), 
-            next_free: None, 
-        })
-    }
-
-    fn write(&self, file: &mut File, _id: PageId) -> Result<(), DbError> {
-        let mut page = [0u8; PAGE_SIZE];
-        let mut writer = BufWriter::new(file);
-        bincode_next::encode_into_slice(self, &mut page, INDEX_CONFIG);
-        writer.write_all(&page)?;
-        writer.flush()?;
-        Ok(())
-    }
+#[derive(Decode)]
+struct FreeListReader {
+    _page_type: PageType,
+    _page_id: PageId,
+    next_free: Option<PageId>,
 }
 
 // TODO: write logs...
@@ -158,12 +163,16 @@ impl Pager {
             root_page: None, // None means no root
             // TODO: add way to change db order (requires variable page size)
             order: DEFAULT_ORDER,
-            num_pages: 0,
+            num_pages: 1,
             free_list_head: None,
         };
 
-        let mut file = File::create(DEFAULT_FILE)?;
-        new_head.write(&mut file, PageId(0));
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(DEFAULT_FILE)?;
+        new_head.write(&mut file)?;
 
         Ok((Pager {
             file: file,
@@ -176,7 +185,10 @@ impl Pager {
     // Function to open database if one exists
     pub fn open(path: &str) -> Result<(Self, Option<PageId>, usize), DbError> {
         // TODO: if no path, use default file (consider Option<&str>)
-        let mut file = File::open(path)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?;
         let mut reader = BufReader::new(&mut file);
         let header: DbHeader = bincode_next::decode_from_std_read(&mut reader, INDEX_CONFIG)?;
 
@@ -191,8 +203,8 @@ impl Pager {
             let mut buf = [0u8; PAGE_SIZE];
             file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
             file.read_exact(&mut buf)?;
-            let (next, _): (Option<PageId>, _) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
-            current = next;
+            let (reader, _): (FreeListReader, _) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
+            current = reader.next_free;
         }
 
         Ok((Pager {
@@ -205,25 +217,20 @@ impl Pager {
 
     // Clear out the cache and write it to disk
     fn flush(&mut self) -> Result<(), DbError> {
+        for (_, page) in &mut self.dirty_cache.drain() {
+            IndexPage::write(&mut self.file, &page)?;
+        }
+        Ok(())
     }
 
     // Construct page and serialize it
-    pub fn alloc(&mut self, page_type: PageType) -> PageId {
-        match page_type {
-            Index => {
-                if self.free_list.is_empty() {
-                    // Create a new page
-                } else {
-                    // Pull from that page
-                }
-            },
-            Data => {
-                if self.free_list.is_empty() {
-                    // Create a new page
-                } else {
-                    // Pull from that page
-                }
-            },
+    pub fn alloc(&mut self) -> PageId {
+        if self.free_list.is_empty() {
+            let id = PageId(self.num_pages + 1);
+            self.num_pages += 1;
+            id
+        } else {
+            self.free_list.pop().unwrap()
         }
     }
 }
