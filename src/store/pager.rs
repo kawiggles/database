@@ -203,26 +203,6 @@ impl Pager {
         }, header.root_page, header.order))
     }
 
-    /*
-    // Read a DataPage, Datapage only
-    pub fn read(&self, id: &PageId) -> Result<Value, DbError> {
-        return Ok(Value::Null);
-    }
-
-    // Write to a DataPage, DataPage only
-    pub fn write(&mut self, id: PageId, val: Value) -> Result<Value, DbError> {
-        return Ok(Value::Null);
-    }
-
-    // Read node metadata, for IndexPage only
-    pub fn peek(&self, id: PageId) -> IndexPage {
-    }
-
-    // Modify node metadata, for IndexPage only
-    pub fn poke(&mut self, id: PageId) -> &mut IndexPage {
-        // Ensure to write to dirty cache
-    }
-    
     // Clear out the cache and write it to disk
     fn flush(&mut self) -> Result<(), DbError> {
     }
@@ -231,11 +211,19 @@ impl Pager {
     pub fn alloc(&mut self, page_type: PageType) -> PageId {
         match page_type {
             Index => {
-                new_page = 
+                if self.free_list.is_empty() {
+                    // Create a new page
+                } else {
+                    // Pull from that page
+                }
             },
             Data => {
+                if self.free_list.is_empty() {
+                    // Create a new page
+                } else {
+                    // Pull from that page
+                }
             },
         }
     }
-    */
 }
