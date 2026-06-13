@@ -725,7 +725,7 @@ impl BpTree {
         let mut iter = node.keys.iter().peekable();
         while let Some(key) = iter.next() {
             if let Some(next_key) = iter.peek() {
-                if key >= next_key {
+                if key >= *next_key {
                     return Err(TreeErr::NodeKeySeqErr);
                 }
             }

@@ -7,7 +7,7 @@ use crate::store::value::Value;
 use crate::logs::DbError;
 
 pub const PAGE_SIZE: usize = 4096;
-pub const DEFAULT_ORDER: usize = 256;
+pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
 pub const DEFAULT_FILE: &str = "kawika.db";
 
 // Buffer pool for database, holds cache?
@@ -31,6 +31,12 @@ impl Store {
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbError> {
+        if key.len() > 8 {
+            return Err(DbError::LongKey)
+        }
+
+        // TODO: Value Overflow logic
+
         let if_new = val.clone();
         match self.datamap.insert(key, val) {
             Some(x) => Ok(x),

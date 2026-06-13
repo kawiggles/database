@@ -13,6 +13,7 @@ pub fn init_logs() {
     ).unwrap();
 }
 
+// TODO: add values to some of these errors for better info
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("No value found at requested key")]
@@ -33,6 +34,13 @@ pub enum DbError {
     DecodeErr(#[from] bincode_next::error::DecodeError),
     #[error("Filetype does not match kawikadb filetype")]
     BadFile,
+    #[error("Key exceeds maximum length of 8 characters (sorry)")]
+    LongKey,
+    // need to find maximum length
+    #[error("Value exceeds maximum length of ")]
+    LongVal,
+    #[error("Page read overflow")]
+    ReadOverflow,
 }
 
 impl From<DbError> for io::Error {
