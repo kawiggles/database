@@ -247,7 +247,7 @@ impl Pager {
     // Construct page and serialize it
     pub fn alloc(&mut self) -> PageId {
         if self.free_list.is_empty() {
-            let id = PageId(self.num_pages + 1);
+            let id = PageId(self.num_pages);
             self.num_pages += 1;
             id
         } else {
@@ -275,15 +275,16 @@ impl Pager {
 
     // Write a new DbHeader and close the pager. 
     pub fn close(&mut self, root: Option<PageId>, order: usize) -> Result<(), DbError> {
-        let new_header = DbHeader {
+        let new_dbheader = DbHeader {
             magic: MAGIC,
             version: VERSION,
             root_page: root,
             order: order,
             num_pages: self.num_pages,
-            free_list_head: self.free_list.last().copied(),
+            free_list_head: self.free_list.first().copied(),
         };
-        new_header.write(&mut self.file)?;
+
+        new_dbheader.write(&mut self.file)?;
         Ok(())
     }
 }
@@ -340,12 +341,44 @@ mod tests {
         };
         Page::write(&mut pager.file, &new_page).unwrap();
 
+        let id2 = pager.alloc();
+        let new_page2 = IndexPage {
+            header: PageHeader { 
+                page_type: PageType::Index,
+                page_id: id2,
+                next_free: None,
+            },
+            keys: vec!["key1".into(), "key2".into()],
+            node_type: NodeType::Leaf {
+                pages: vec![], 
+                next: None,
+            }
+        };
+        Page::write(&mut pager.file, &new_page2).unwrap();
+        let id3 = pager.alloc();
+        let new_page3 = IndexPage {
+            header: PageHeader { 
+                page_type: PageType::Index,
+                page_id: id3,
+                next_free: None,
+            },
+            keys: vec!["key1".into(), "key2".into()],
+            node_type: NodeType::Leaf {
+                pages: vec![], 
+                next: None,
+            }
+        };
+        Page::write(&mut pager.file, &new_page3).unwrap();
+        pager.free(id2).unwrap();
+        pager.free(id3).unwrap();
+
         pager.close(Some(page_id), order).unwrap();
 
-        let (pager, root, order) = Pager::open(path).unwrap();
+        let (reopened, root, order) = Pager::open(path).unwrap();
         assert_eq!(root, Some(page_id));
         assert_eq!(order, DEFAULT_ORDER);
-        assert_eq!(pager.num_pages, 2);
+        assert_eq!(reopened.num_pages, 4);
+        assert_eq!(reopened.free_list, vec![id2, id3]);
     }
 
     #[test]
