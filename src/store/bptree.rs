@@ -527,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn stress_test() {
+    fn bptree_stress_test() {
         for order in [3, 4, 5, 10] {
             for n in [10, 20, 50, 100] {
                 let mut tree = BpTree::new(order);
@@ -552,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn show_tree() {
+    fn bptree_show_tree() {
         let tree = build_tree(4, 16);
         tree.print_tree();
         assert!(tree.validate().is_ok(), "Error is: {:?}", tree.validate());
