@@ -30,7 +30,7 @@ pub trait Page: Sized {
     fn read(file: &mut File, id: PageId) -> Result<Self, DbError>;
 }
 
-#[derive(Eq, Hash, PartialEq, Encode, Decode, Clone, Copy)]
+#[derive(Eq, Hash, PartialEq, Encode, Decode, Clone, Copy, Debug)]
 pub struct PageId(pub usize);
 
 impl fmt::Display for PageId {
@@ -273,7 +273,19 @@ impl Pager {
         Ok(())
     }
 
-    // TODO: write a close function that serializes a new dbheader
+    // Write a new DbHeader and close the pager. 
+    pub fn close(&mut self, root: Option<PageId>, order: usize) -> Result<(), DbError> {
+        let new_header = DbHeader {
+            magic: MAGIC,
+            version: VERSION,
+            root_page: root,
+            order: order,
+            num_pages: self.num_pages,
+            free_list_head: self.free_list.last().copied(),
+        };
+        new_header.write(&mut self.file)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -305,6 +317,35 @@ mod tests {
         assert!(root.is_none());
         assert_eq!(order, DEFAULT_ORDER);
         assert_eq!(pager.num_pages, 1);
+    }
+
+    #[test]
+    fn pager_open_and_close() {
+        let tmp = temp_path();
+        let path = tmp.path().to_str().unwrap();
+        let (mut pager, _, order) = Pager::new(path).unwrap();
+
+        let page_id = pager.alloc();
+        let new_page = IndexPage {
+            header: PageHeader { 
+                page_type: PageType::Index,
+                page_id: page_id,
+                next_free: None,
+            },
+            keys: vec!["key1".into(), "key2".into()],
+            node_type: NodeType::Leaf {
+                pages: vec![], 
+                next: None,
+            }
+        };
+        Page::write(&mut pager.file, &new_page).unwrap();
+
+        pager.close(Some(page_id), order).unwrap();
+
+        let (pager, root, order) = Pager::open(path).unwrap();
+        assert_eq!(root, Some(page_id));
+        assert_eq!(order, DEFAULT_ORDER);
+        assert_eq!(pager.num_pages, 2);
     }
 
     #[test]
