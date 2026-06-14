@@ -1,4 +1,5 @@
 use crate::store::value::Value;
+use crate::store::pager::{PageId};
 
 pub enum NodeType {
     Branch { children: Vec<usize> },
@@ -12,16 +13,16 @@ pub struct Node {
 
 pub struct BpTree {
     nodes: Vec<Node>, // nodes are reference by index to prevent weird borrow checker problems
-    root: usize,
+    root: Option<PageId>,
     order: usize,
 }
 
 impl BpTree {
     // Easiest method on the tree
-    pub fn new(order: usize) -> Self {
+    pub fn new(root: Option<PageId>, order: usize) -> Self {
         BpTree { 
             nodes: Vec::new(), 
-            root: 0, 
+            root,
             order 
         }
     }

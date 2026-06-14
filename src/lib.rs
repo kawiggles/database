@@ -16,7 +16,11 @@ pub const fn encode_version(version: (u32, u32, u32)) -> u32 {
 
 pub fn run() {
     init_logs();
-    let mut db = Store::start();
+    let mut db = match Store::start() {
+        Ok(x) => x,
+        Err(e) => panic!("Error starting database! {}", e),
+    };
+
     info!("Database initialized");
     loop {
         info!("Parsing Call");
