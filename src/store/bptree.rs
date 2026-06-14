@@ -171,7 +171,7 @@ impl BpTree {
 
     // Holy fucking shit (Tool reference)
     pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Result<Value, DbError> {
-        let return_val = Err(DbError::NoValue);
+        let mut return_val = Err(DbError::NoValue);
         // Handle empty tree case
         let Some(root) = self.root else {
             return Err(DbError::NoRoot);
@@ -205,8 +205,8 @@ impl BpTree {
                 page.keys.remove(i);
                 if let NodeType::Leaf { pages , .. } = &mut page.node_type {
                     let data: DataPage = Page::read(pager, pages.remove(i))?;
+                    pager.free(data.page_id())?;
                     return_val = Ok(data.value);
-                    pager.free(data.page_id());
                 }
             },
             Err(_) => return Err(DbError::NoValue),
@@ -326,7 +326,7 @@ impl BpTree {
                 }
             } else if right_surplus {
                 // For right, everything is popped differently
-                let sibling: IndexPage = Page::read(pager, r_sib.unwrap())?;
+                let mut sibling: IndexPage = Page::read(pager, r_sib.unwrap())?;
                 if sibling.keys.len() > min_keys {
                     if is_leaf {
                         let borrow_key = sibling.keys.remove(0);
@@ -366,7 +366,7 @@ impl BpTree {
                             parent.keys[pos] = new_key;
                             Page::write(pager, parent)?;
 
-                            let current: IndexPage = Page::read(pager, *idx)?;
+                            let mut current: IndexPage = Page::read(pager, *idx)?;
                             current.keys.push(sep_key);
                             if let NodeType::Branch { children } = &mut current.node_type {
                                 children.push(new_child);
@@ -403,10 +403,10 @@ impl BpTree {
                 if let NodeType::Branch { children } = &mut parent.node_type {
                     children.remove(pos + 1);
                 }
-                pager.free(r_sib.unwrap());
+                pager.free(r_sib.unwrap())?;
                 Page::write(pager, parent)?;
 
-                let current: IndexPage = Page::read(pager, *idx)?;
+                let mut current: IndexPage = Page::read(pager, *idx)?;
                 match &mut current.node_type {
                     NodeType::Leaf { pages, next } => {
                         if let Some(old_values) = old_values {
