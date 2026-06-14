@@ -41,6 +41,8 @@ pub enum DbError {
     LongVal,
     #[error("Page read overflow")]
     ReadOverflow,
+    #[error("The database b+ tree has no root")]
+    NoRoot
 }
 
 impl From<DbError> for io::Error {

@@ -34,11 +34,8 @@ impl Store {
         })
     }
 
-    pub fn get(&self, key: &str) -> Result<Value, DbError> {
-        match self.datamap.get(key) {
-            Some(x) => Ok(x),
-            None => Err(DbError::NoValue),
-        }
+    pub fn get(&mut self, key: &str) -> Result<Value, DbError> {
+        self.datamap.get(key, &mut self.pager)
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbError> {

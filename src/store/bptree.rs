@@ -1,15 +1,6 @@
+use crate::DbError;
 use crate::store::value::Value;
-use crate::store::pager::{PageId};
-
-pub enum NodeType {
-    Branch { children: Vec<usize> },
-    Leaf { values: Vec<Value>, next: Option<usize> },
-}
-
-pub struct Node {
-    keys: Vec<String>,
-    node_type: NodeType,
-}
+use crate::store::pager::{Page, PageId, Pager, DataPage, IndexPage, NodeType};
 
 pub struct BpTree {
     nodes: Vec<Node>, // nodes are reference by index to prevent weird borrow checker problems
@@ -28,13 +19,17 @@ impl BpTree {
     }
 
     // This function shows the basic pattern for searching the tree with a key
-    pub fn get(&self, key: &str) -> Option<Value> {
-        let mut current = self.root;
+    pub fn get(&self, key: &str, pager: &mut Pager) -> Result<Value, DbError> {
+        let mut current = match self.root {
+            Some(x) => x,
+            None => return Err(DbError::NoRoot),
+        };
+
         loop {
-            let node = &self.nodes[current];
-            match &node.node_type {
+            let page: IndexPage = Page::read(pager, current)?;
+            match &page.node_type {
                 NodeType::Branch { children } => {
-                    let i = match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                    let i = match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         // A hit guarentees the right node, because right is always >=
                         Ok(i) => i + 1,
                         // A miss returns the would be index, which is always the target
@@ -42,13 +37,12 @@ impl BpTree {
                     };
                     current = children[i];
                 },
-                NodeType::Leaf { values, .. } => {
-                    return match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-                        // TODO: When values get refactored, this will be a function that takes the
-                        // associated page id and returns the data, which will alter the return
-                        Ok(i) => Some(values[i].clone()),
-                        Err(_) => None
-                    }
+                NodeType::Leaf { pages, .. } => { 
+                    let data: DataPage = match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                        Ok(i) => Page::read(pager, pages[i])?,
+                        Err(_) => return Err(DbError::NoValue),
+                    };
+                    return Ok(data.value);
                 }
             }
         }
