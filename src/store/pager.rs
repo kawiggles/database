@@ -26,7 +26,7 @@ const MAGIC: [u8; 8] = *b"KAWIKADB";
 
 pub trait Page: Sized {
     fn page_id(&self) -> PageId;
-    fn write(pager: &mut Pager, page: &Self) -> Result<(), DbError>;
+    fn write(pager: &mut Pager, page: Self) -> Result<(), DbError>;
     fn read(pager: &mut Pager, id: PageId) -> Result<Self, DbError>;
 }
 
@@ -48,9 +48,9 @@ pub enum PageType {
 // TODO: Make data representation more efficient (manual bincode)
 #[derive(Encode, Decode)]
 pub struct PageHeader {
-    page_type: PageType, // 4 bytes
-    page_id: PageId, // 8 bytes
-    next_free: Option<PageId>, // 8 bytes (Option) + 8 bytes
+    pub page_type: PageType, // 4 bytes
+    pub page_id: PageId, // 8 bytes
+    pub next_free: Option<PageId>, // 8 bytes (Option) + 8 bytes
 } // Total: 28 bytes
 
 pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> Result<(), DbError> {
@@ -66,16 +66,44 @@ pub struct IndexPage {
     pub node_type: NodeType, // 28 + ? Bytes
 }
 
+impl IndexPage {
+    pub fn new_leaf(id: PageId, keys: Vec<String>, ids: Vec<PageId>, next: Option<PageId>) -> Self {
+        IndexPage { 
+            header: PageHeader {
+                page_type: PageType::Index,
+                page_id: id,
+                next_free: None,
+            },
+            keys: keys,
+            node_type: NodeType::Leaf {
+                pages: ids,
+                next: next,
+            }
+        }
+    }
+
+    pub fn new_branch(id: PageId, keys: Vec<String>, ids: Vec<PageId>) -> Self {
+        IndexPage { 
+            header: PageHeader {
+                page_type: PageType::Index,
+                page_id: id,
+                next_free: None,
+            },
+            keys: keys,
+            node_type: NodeType::Branch {
+                children: ids,
+            }
+        }
+    }
+}
+
 impl Page for IndexPage {
     fn page_id(&self) -> PageId {
         self.header.page_id
     }
 
-    fn write(pager: &mut Pager, new_page: &Self) -> Result<(), DbError> {
-        let file = &mut pager.file;
-        let mut page = [0u8; PAGE_SIZE];
-        bincode_next::encode_into_slice(&new_page, &mut page, INDEX_CONFIG)?;
-        write_page(file, new_page.header.page_id, &page)?;
+    fn write(pager: &mut Pager, new_page: Self) -> Result<(), DbError> {
+        pager.dirty_cache.insert(new_page.header.page_id, new_page);
         Ok(())
     }
 
@@ -105,8 +133,24 @@ pub enum NodeType { // 4 bytes
 
 #[derive(Encode, Decode)]
 pub struct DataPage {
-    header: PageHeader,
+    pub header: PageHeader,
     pub value: Value,
+}
+
+impl DataPage {
+    pub fn new(pager: &mut Pager, val: Value) -> Result<PageId, DbError> {
+        let id = pager.alloc();
+        let page = DataPage {
+            header: PageHeader {
+                page_type: PageType::Data,
+                page_id: id,
+                next_free: None,
+            },
+            value: val,
+        };
+        Page::write(pager, page)?;
+        Ok(id)
+    }
 }
 
 impl Page for DataPage {
@@ -114,7 +158,7 @@ impl Page for DataPage {
         self.header.page_id
     }
 
-    fn write(pager: &mut Pager, new_page: &Self) -> Result<(), DbError> {
+    fn write(pager: &mut Pager, new_page: Self) -> Result<(), DbError> {
         let file = &mut pager.file;
         let mut page = [0u8; PAGE_SIZE];
         bincode_next::encode_into_slice(&new_page, &mut page, DATA_CONFIG)?;
@@ -164,7 +208,7 @@ pub struct Pager {
 }
 
 #[derive(Decode)]
-struct FreeListReader {
+struct FreeListRead {
     _page_type: PageType,
     _page_id: PageId,
     next_free: Option<PageId>,
@@ -228,8 +272,8 @@ impl Pager {
             let mut buf = [0u8; PAGE_SIZE];
             file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
             file.read_exact(&mut buf)?;
-            let (reader, _): (FreeListReader, _) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
-            current = reader.next_free;
+            let (read, _): (FreeListRead, _) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
+            current = read.next_free;
         }
 
         Ok((Pager {
@@ -241,10 +285,13 @@ impl Pager {
     }
 
     // Clear out the cache and write it to disk
-    fn flush(&mut self) -> Result<(), DbError> {
+    pub fn flush(&mut self) -> Result<(), DbError> {
         let cache = std::mem::take(&mut self.dirty_cache);
         for (_, page) in cache {
-            IndexPage::write(self, &page)?;
+            let file = &mut self.file;
+            let mut new_page = [0u8; PAGE_SIZE];
+            bincode_next::encode_into_slice(&page, &mut new_page, INDEX_CONFIG)?;
+            write_page(file, page.header.page_id, &new_page)?;
         }
         Ok(())
     }
@@ -344,7 +391,7 @@ mod tests {
                 next: None,
             }
         };
-        Page::write(&mut pager, &new_page).unwrap();
+        Page::write(&mut pager, new_page).unwrap();
 
         let id2 = pager.alloc();
         let new_page2 = IndexPage {
@@ -359,7 +406,7 @@ mod tests {
                 next: None,
             }
         };
-        Page::write(&mut pager, &new_page2).unwrap();
+        Page::write(&mut pager, new_page2).unwrap();
         let id3 = pager.alloc();
         let new_page3 = IndexPage {
             header: PageHeader { 
@@ -373,7 +420,8 @@ mod tests {
                 next: None,
             }
         };
-        Page::write(&mut pager, &new_page3).unwrap();
+        Page::write(&mut pager, new_page3).unwrap();
+        pager.flush();
         pager.free(id2).unwrap();
         pager.free(id3).unwrap();
 
@@ -424,8 +472,9 @@ mod tests {
                 next: None,
             }
         };
+        Page::write(&mut pager, new_page).unwrap();
+        pager.flush();
 
-        Page::write(&mut pager, &new_page).unwrap();
         let read = IndexPage::read(&mut pager, page_id).unwrap();
         assert_eq!(read.keys, vec!["key1", "key2"]);
     }
@@ -475,7 +524,7 @@ mod tests {
             },
             value: Value::Int(3),
         };
-        Page::write(&mut pager, &page1).unwrap();
+        Page::write(&mut pager, page1).unwrap();
 
         let id2 = pager.alloc();
         let page2 = IndexPage {
@@ -490,7 +539,8 @@ mod tests {
                 next: None,
             }
         };
-        Page::write(&mut pager, &page2).unwrap();
+        Page::write(&mut pager, page2).unwrap();
+        pager.flush();
 
         pager.free(id2).unwrap();
         pager.free(id1).unwrap();
@@ -506,7 +556,7 @@ mod tests {
             },
             value: Value::Int(12),
         };
-        Page::write(&mut pager, &page3).unwrap();
+        Page::write(&mut pager, page3).unwrap();
 
         assert_eq!(pager.num_pages, 3);
         let read: DataPage = Page::read(&mut pager, id1).unwrap();

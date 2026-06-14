@@ -46,7 +46,7 @@ impl Store {
         // TODO: Value Overflow logic
 
         let if_new = val.clone();
-        match self.datamap.insert(key, val) {
+        match self.datamap.insert(key, val)? {
             Some(x) => Ok(x),
             None => Ok(if_new),
         }

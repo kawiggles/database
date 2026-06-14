@@ -1,9 +1,8 @@
 use crate::DbError;
 use crate::store::value::Value;
-use crate::store::pager::{Page, PageId, Pager, DataPage, IndexPage, NodeType};
+use crate::store::pager::{DataPage, IndexPage, NodeType, Page, PageType, PageHeader, PageId, Pager};
 
 pub struct BpTree {
-    nodes: Vec<Node>, // nodes are reference by index to prevent weird borrow checker problems
     root: Option<PageId>,
     order: usize,
 }
@@ -12,7 +11,6 @@ impl BpTree {
     // Easiest method on the tree
     pub fn new(root: Option<PageId>, order: usize) -> Self {
         BpTree { 
-            nodes: Vec::new(), 
             root,
             order 
         }
@@ -48,33 +46,34 @@ impl BpTree {
         }
     }
 
-    pub fn insert(&mut self, key: &str, val: Value) -> Option<Value> {
+    pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> Result<Option<Value>, DbError> {
         let mut return_val = None;
+        let val_copy = val.clone();
+
+        // Create a DataPage and write the value to it
+        let data_id = DataPage::new(pager, val)?;
         
         // If the tree is empty, create a new root
-        if self.nodes.is_empty() {
-            let node = Node {
-                keys: vec![key.to_string()],
-                node_type: NodeType::Leaf { 
-                    values: vec![val], 
-                    next: None, 
-                },
-            };
-            self.nodes.push(node);
-            self.root = 0;
-            return None;
-        }
+        let Some(root) = self.root else {
+            let new_id = pager.alloc();
+            let page = IndexPage::new_leaf(new_id, vec![key.to_string()], vec![data_id], None);
+            Page::write(pager, page)?;
+            pager.flush()?;
 
-        let mut path: Vec<usize> = Vec::new(); // for tracking nodes to edit if split is needed
+            self.root = Some(new_id);
+            return Ok(None);
+        };
+
+        let mut path: Vec<PageId> = Vec::new(); // for tracking nodes to edit if split is needed
 
         // First: find the leaf node while tracking path
-        let mut current = self.root;
+        let mut current = root;
         loop {
-            let node = &self.nodes[current];
-            match &node.node_type {
+            let page: IndexPage = Page::read(pager, current)?;
+            match &page.node_type {
                 NodeType::Branch { children } => {
                     path.push(current);
-                    let i = match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                    let i = match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         Ok(i) => i + 1,
                         Err(i) => i,
                     }; 
@@ -88,18 +87,17 @@ impl BpTree {
         }
 
         // Second: insert key into node
-        let node = &mut self.nodes[current];
-        if let NodeType::Leaf { values, .. } = &mut node.node_type {
-             match node.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+        let mut page: IndexPage = Page::read(pager, current)?;
+        if let NodeType::Leaf { pages, .. } = &mut page.node_type {
+             match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                 Ok(i) => {
-                    node.keys[i] = key.to_string();
-                    return_val = Some(val.clone());
-                    // TODO: See other todo, we need to insert a page id here instead of the value
-                    values[i] = val;
+                    page.keys[i] = key.to_string();
+                    return_val = Some(val_copy);
+                    pages[i] = data_id;
                 },
                 Err(i) => {
-                    node.keys.insert(i, key.to_string());
-                    values.insert(i, val);
+                    page.keys.insert(i, key.to_string());
+                    pages.insert(i, data_id);
                 }
              }
         }
@@ -109,83 +107,65 @@ impl BpTree {
         while let Some(index) = path_iter.next() {
             // First check if a split is necessary
             let split_result = {
-                let nodes_len = self.nodes.len();
-                let node = &mut self.nodes[*index];
-
-                if node.keys.len() >= self.order { // This is where max keys is defined
-
-                    let mut new_node = match &mut node.node_type {
-                        NodeType::Leaf { values, next } => {
-                            let mid = (node.keys.len() + 1) / 2; // ⌈m/2⌉ 
-                            let new_keys = node.keys.split_off(mid);
-                            let new_values = values.split_off(mid);
+                let page: IndexPage = Page::read(pager, *index)?;
+                if page.keys.len() >= self.order { // This is where max keys is defined
+                    let mut new_page = match &mut page.node_type {
+                        NodeType::Leaf { pages, next } => {
+                            let mid = (page.keys.len() + 1) / 2; // ⌈m/2⌉ 
+                            let new_keys = page.keys.split_off(mid);
+                            let new_values = pages.split_off(mid);
                             let old_next = *next;
-                            *next = Some(nodes_len);
-                            Node {
-                                keys: new_keys,
-                                node_type: NodeType::Leaf { 
-                                    values: new_values, 
-                                    next: old_next, 
-                                }
-                            }
+                            *next = Some(page.page_id());
+                            IndexPage::new_leaf(pager.alloc(), new_keys, new_values, old_next)
                         },
                         NodeType::Branch { children } => {
-                            let mid = node.keys.len() / 2; // m/2 for branches 
-                            let new_keys = node.keys.split_off(mid); 
+                            let mid = page.keys.len() / 2; // m/2 for branches 
+                            let new_keys = page.keys.split_off(mid); 
                             // increment by 1 because there are 1 more children than keys
                             let new_children = children.split_off(mid + 1);
-                            Node {
-                                keys: new_keys,
-                                node_type: NodeType::Branch { 
-                                    children: new_children, 
-                                }
-                            }
+                            IndexPage::new_branch(pager.alloc(), new_keys, new_children)
                         }
                     };
 
                     // The promoted key is the key that'll get pushed up to the parent
-                    let promoted = match &mut new_node.node_type {
-                        NodeType::Leaf { .. } => new_node.keys[0].clone(),
-                        NodeType::Branch { .. } => new_node.keys.remove(0),
+                    let promoted = match &mut new_page.node_type {
+                        NodeType::Leaf { .. } => new_page.keys[0].clone(),
+                        NodeType::Branch { .. } => new_page.keys.remove(0),
                     };
 
-                    Some((promoted, new_node))
+                    Some((promoted, new_page))
                 } else {
                     None
                 }
             };
 
             // If it is, insert the promoted key and new node into the parent and node vector
-            if let Some((promoted, new_node)) = split_result {
-                let new_node_idx = self.nodes.len();
-                self.nodes.push(new_node);
+            if let Some((promoted, new_page)) = split_result {
+                let new_page_id = new_page.page_id();
+                Page::write(pager, new_page)?;
 
                 // The parent is the next node in the path (since the iterator was reversed)
-                if let Some(&parent_idx) = path_iter.peek() {
-                    let parent = &mut self.nodes[*parent_idx];
+                if let Some(&parent_id) = path_iter.peek() {
+                    let mut parent: IndexPage = Page::read(pager, *parent_id)?;
                     let i = parent.keys.binary_search_by(|probe| probe.as_str().cmp(&promoted))
                         .unwrap_or_else(|i| i);
                     parent.keys.insert(i, promoted);
 
                     if let NodeType::Branch { children } = &mut parent.node_type {
-                        children.insert(i + 1, new_node_idx);
+                        children.insert(i + 1, new_page_id);
                     }
                 } else {
                     // If there's no parent, we make a new root
-                    let parent = Node {
-                        keys: vec![promoted],
-                        node_type: NodeType::Branch { 
-                            children: vec![*index, new_node_idx]
-                        }
-                    };
-
-                    self.nodes.push(parent);
-                    self.root = self.nodes.len() - 1;
+                    let parent = IndexPage::new_branch(
+                        pager.alloc(), vec![promoted], vec![*index, new_page_id]);
+                    self.root = Some(parent.page_id());
+                    Page::write(pager, parent)?;
                 }
             }
         }
 
-        return_val
+        pager.flush()?;
+        Ok(return_val)
     }
 
     // Holy fucking shit (Tool reference)
