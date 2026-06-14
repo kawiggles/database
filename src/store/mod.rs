@@ -53,10 +53,7 @@ impl Store {
     }
 
     pub fn del(&mut self, key: &str) -> Result<Value, DbError> {
-        match self.datamap.remove(key, &mut self.pager) {
-            Some(x) => Ok(x),
-            None => Err(DbError::BadDel),
-        }
+        self.datamap.remove(key, &mut self.pager)
     }
 }
 
