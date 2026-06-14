@@ -48,7 +48,6 @@ impl BpTree {
 
     pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> Result<Option<Value>, DbError> {
         let mut return_val = None;
-        let val_copy = val.clone();
 
         // Create a DataPage and write the value to it
         let data_id = DataPage::new(pager, val)?;
@@ -91,8 +90,9 @@ impl BpTree {
         if let NodeType::Leaf { pages, .. } = &mut page.node_type {
              match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                 Ok(i) => {
+                    let data: DataPage = Page::read(pager, pages[i])?;
+                    return_val = Some(data.value);
                     page.keys[i] = key.to_string();
-                    return_val = Some(val_copy);
                     pages[i] = data_id;
                 },
                 Err(i) => {
@@ -107,7 +107,7 @@ impl BpTree {
         while let Some(index) = path_iter.next() {
             // First check if a split is necessary
             let split_result = {
-                let page: IndexPage = Page::read(pager, *index)?;
+                let mut page: IndexPage = Page::read(pager, *index)?;
                 if page.keys.len() >= self.order { // This is where max keys is defined
                     let mut new_page = match &mut page.node_type {
                         NodeType::Leaf { pages, next } => {
@@ -115,8 +115,9 @@ impl BpTree {
                             let new_keys = page.keys.split_off(mid);
                             let new_values = pages.split_off(mid);
                             let old_next = *next;
-                            *next = Some(page.page_id());
-                            IndexPage::new_leaf(pager.alloc(), new_keys, new_values, old_next)
+                            let new_id = pager.alloc();
+                            *next = Some(new_id);
+                            IndexPage::new_leaf(new_id, new_keys, new_values, old_next)
                         },
                         NodeType::Branch { children } => {
                             let mid = page.keys.len() / 2; // m/2 for branches 
@@ -169,7 +170,7 @@ impl BpTree {
     }
 
     // Holy fucking shit (Tool reference)
-    pub fn remove(&mut self, key: &str) -> Option<Value> {
+    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Option<Value> {
         let mut return_val = None;
 
         // Handle empty tree case

@@ -46,14 +46,14 @@ impl Store {
         // TODO: Value Overflow logic
 
         let if_new = val.clone();
-        match self.datamap.insert(key, val)? {
+        match self.datamap.insert(key, val, &mut self.pager)? {
             Some(x) => Ok(x),
             None => Ok(if_new),
         }
     }
 
     pub fn del(&mut self, key: &str) -> Result<Value, DbError> {
-        match self.datamap.remove(key) {
+        match self.datamap.remove(key, &mut self.pager) {
             Some(x) => Ok(x),
             None => Err(DbError::BadDel),
         }
