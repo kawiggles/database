@@ -1,12 +1,14 @@
 pub mod store;
 pub mod cli;
 pub mod logs;
+pub mod tcp;
+
+use log::{info};
+use std::net::TcpListener;
 
 use crate::store::{DEFAULT_FILE, Store};
-use crate::cli::{get_input, Call};
 use crate::logs::{init_logs, DbError};
-
-use log::{info, warn};
+use crate::tcp::handle_client;
 
 pub const VERSION: u32 = encode_version((0,0,1));
 
@@ -14,42 +16,22 @@ pub const fn encode_version(version: (u32, u32, u32)) -> u32 {
     (version.0 << 24) | (version.1 << 16) | (version.2 << 8)
 }
 
-pub fn run() {
+pub fn run() -> Result<(), DbError> {
     init_logs();
-    let mut db = match Store::start(DEFAULT_FILE) {
-        Ok(x) => x,
-        Err(e) => panic!("Error starting database! {}", e),
-    };
-
+    let mut db = Store::start(DEFAULT_FILE)?;
     info!("Database initialized");
-    loop {
-        info!("Parsing Call");
-        let call_result: Result<Call, DbError> = Call::parse(get_input().as_str());
 
-        match call_result {
-            Ok(call) => {
-                match call.execute(&mut db) {
-                    Ok(value) => {
-                        let val = value.print();
-                        info!("Value retrieved: {}", val);
-                        println!("{}", val);
-                    },
-                    Err(err) => {
-                        warn!("Error in call execution: {}", err);
-                        eprintln!("Error: {}", err);
-                    }
-                }
-                if call == Call::Exit {
-                    info!("Exit call parsed");
-                    break;
-                }
-            }
-            Err(err) => {
-                warn!("Invalid call made: {}", err);
-                eprintln!("Error: {}", err);
-            }
+    let listener = TcpListener::bind("127.0.0.1:55555")?;
+    info!("Server listening on port");
+
+    let mut run = true;
+    while run {
+        for stream in listener.incoming() {
+            run = handle_client(stream?, &mut db);
         }
     }
+    info!("Server stopping!");
     println!("Exiting program...");
+    Ok(())
 }
 
