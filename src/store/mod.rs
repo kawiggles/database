@@ -20,11 +20,15 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn start() -> Result<Self, DbError> {
-        let (pager, root, order) = match fs::exists(DEFAULT_FILE) {
-            Ok(true) => Pager::open(DEFAULT_FILE)?,
-            Ok(false) => Pager::new(DEFAULT_FILE)?,
-            Err(e) => return Err(DbError::IOErr(e)),
+    pub fn start(filepath: &str) -> Result<Self, DbError> {
+        let is_initialized = fs::metadata(filepath)
+            .map(|m| m.len() >= PAGE_SIZE as u64)
+            .unwrap_or(false);
+
+        let (pager, root, order) = if is_initialized {
+            Pager::open(filepath)?
+        } else {
+            Pager::new(filepath)?
         };
         
         let datamap = BpTree::new(root, order);
@@ -55,22 +59,32 @@ impl Store {
     pub fn del(&mut self, key: &str) -> Result<Value, DbError> {
         self.datamap.remove(key, &mut self.pager)
     }
+
+    pub fn exit(&mut self) -> Result<(), DbError> {
+        self.pager.close(self.datamap.root, self.datamap.order)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn insert_and_get() {
-        let mut db = Store::start().unwrap();
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let mut db = Store::start(path).unwrap();
         let put = db.put("key", Value::Text("test".to_string()));
         assert_eq!(put.unwrap(), db.get("key").unwrap());
     }
 
     #[test]
     fn insert_and_remove() {
-        let mut db = Store::start().unwrap();
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let mut db = Store::start(path).unwrap();
         let put = db.put("key", Value::Text("test".to_string()));
         assert_eq!(put.unwrap(), db.get("key").unwrap());
     }

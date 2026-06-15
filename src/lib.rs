@@ -2,7 +2,7 @@ pub mod store;
 pub mod cli;
 pub mod logs;
 
-use crate::store::Store;
+use crate::store::{DEFAULT_FILE, Store};
 use crate::cli::{get_input, Call};
 use crate::logs::{init_logs, DbError};
 
@@ -16,7 +16,7 @@ pub const fn encode_version(version: (u32, u32, u32)) -> u32 {
 
 pub fn run() {
     init_logs();
-    let mut db = match Store::start() {
+    let mut db = match Store::start(DEFAULT_FILE) {
         Ok(x) => x,
         Err(e) => panic!("Error starting database! {}", e),
     };
@@ -28,19 +28,6 @@ pub fn run() {
 
         match call_result {
             Ok(call) => {
-                if call == Call::Exit {
-                    info!("Exit call parsed");
-                    break;
-                }
-                if call == Call::Help {
-                    info!("Help call parsed");
-                    println!("<call> key value value_type");
-                    println!("Valid calls: get, put, del");
-                    println!("Valid value types: text, int, float, blob");
-                    println!(" - Format blobs with as [1,2,3]");
-                    println!(" - put defaults to value_type text");
-                    continue;
-                }
                 match call.execute(&mut db) {
                     Ok(value) => {
                         let val = value.print();
@@ -51,6 +38,10 @@ pub fn run() {
                         warn!("Error in call execution: {}", err);
                         eprintln!("Error: {}", err);
                     }
+                }
+                if call == Call::Exit {
+                    info!("Exit call parsed");
+                    break;
                 }
             }
             Err(err) => {

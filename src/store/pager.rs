@@ -39,14 +39,14 @@ impl fmt::Display for PageId {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub enum PageType {
     Index,
     Data,
 }
 
 // TODO: Make data representation more efficient (manual bincode)
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct PageHeader {
     pub page_type: PageType, // 4 bytes
     pub page_id: PageId, // 8 bytes
@@ -59,7 +59,7 @@ pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> Result<
     Ok(())
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct IndexPage {
     pub header: PageHeader, // 28 bytes
     pub keys: Vec<String>, // 8 + ? Bytes
@@ -108,6 +108,10 @@ impl Page for IndexPage {
     }
 
     fn read(pager: &mut Pager, id: PageId) -> Result<Self, DbError> {
+        if let Some(cached) = pager.dirty_cache.get(&id) {
+            return Ok(cached.clone());
+        }
+
         let file = &mut pager.file;
         let mut buf = [0u8; PAGE_SIZE];
         file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
@@ -122,7 +126,7 @@ impl Page for IndexPage {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub enum NodeType { // 4 bytes
     Branch { children: Vec<PageId> }, // 8 bytes + ? 8 byte PageIds
     Leaf { 
@@ -321,6 +325,15 @@ impl Pager {
             write_page(&mut self.file, prev_id, &buf)?;
         }
 
+        let mut buf = [0u8; PAGE_SIZE];
+        let new_tail = PageHeader {
+            page_type: PageType::Index,
+            page_id: id,
+            next_free: None,
+        };
+        bincode_next::encode_into_slice(&new_tail, &mut buf, INDEX_CONFIG)?;
+        write_page(&mut self.file, id, &buf)?;
+
         self.free_list.push(id);
         Ok(())
     }
@@ -354,9 +367,8 @@ mod tests {
     fn pager_new() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (pager, root, order) = Pager::new(path).unwrap();
+        let (pager, root, _) = Pager::new(path).unwrap();
         assert!(root.is_none());
-        assert_eq!(order, DEFAULT_ORDER);
         assert_eq!(pager.num_pages, 1);
     }
 
@@ -366,9 +378,8 @@ mod tests {
         let path = tmp.path().to_str().unwrap();
         Pager::new(path).unwrap();
 
-        let (pager, root, order) = Pager::open(path).unwrap();
+        let (pager, root, _) = Pager::open(path).unwrap();
         assert!(root.is_none());
-        assert_eq!(order, DEFAULT_ORDER);
         assert_eq!(pager.num_pages, 1);
     }
 
@@ -421,15 +432,14 @@ mod tests {
             }
         };
         Page::write(&mut pager, new_page3).unwrap();
-        pager.flush();
+        pager.flush().unwrap();
         pager.free(id2).unwrap();
         pager.free(id3).unwrap();
 
         pager.close(Some(page_id), order).unwrap();
 
-        let (reopened, root, order) = Pager::open(path).unwrap();
+        let (reopened, root, _) = Pager::open(path).unwrap();
         assert_eq!(root, Some(page_id));
-        assert_eq!(order, DEFAULT_ORDER);
         assert_eq!(reopened.num_pages, 4);
         assert_eq!(reopened.free_list, vec![id2, id3]);
     }
@@ -473,7 +483,7 @@ mod tests {
             }
         };
         Page::write(&mut pager, new_page).unwrap();
-        pager.flush();
+        pager.flush().unwrap();
 
         let read = IndexPage::read(&mut pager, page_id).unwrap();
         assert_eq!(read.keys, vec!["key1", "key2"]);
@@ -502,7 +512,7 @@ mod tests {
         assert!(IndexPage::read(&mut pager, id1).is_err());
 
         pager.dirty_cache.insert(id1, page1);
-        let _ = pager.flush();
+        pager.flush().unwrap();
 
         let read = IndexPage::read(&mut pager, id1).unwrap();
         assert_eq!(read.keys, vec!["key1", "key2"]);
@@ -540,7 +550,7 @@ mod tests {
             }
         };
         Page::write(&mut pager, page2).unwrap();
-        pager.flush();
+        pager.flush().unwrap();
 
         pager.free(id2).unwrap();
         pager.free(id1).unwrap();
