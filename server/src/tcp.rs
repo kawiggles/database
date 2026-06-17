@@ -4,7 +4,7 @@ use log::{info, warn};
 
 use crate::cli::Call;
 use crate::logs::DbError;
-use crate::store::{Store, value::Value};
+use crate::store::{Store};
 
 pub fn handle_client(mut stream: TcpStream, db: &mut Store) -> Result<bool, DbError> {
     info!("Parsing Call");
@@ -12,10 +12,10 @@ pub fn handle_client(mut stream: TcpStream, db: &mut Store) -> Result<bool, DbEr
 
     match call_result {
         Ok(call) => {
-            let response = make_response(call.execute(db))?;
+            let response = call.execute(db)?.print();
             info!("Sending response: {}", response);
             stream.write_all(response.as_bytes())?;
-            stream.flush();
+            stream.flush()?;
 
             if call == Call::Exit {
                 info!("Exit call parsed");
@@ -31,12 +31,9 @@ pub fn handle_client(mut stream: TcpStream, db: &mut Store) -> Result<bool, DbEr
 }
 
 fn stream_as_string(stream: &TcpStream) -> Result<String, DbError> {
-    let mut reader = BufReader::new(*stream);
+    let mut reader = BufReader::new(stream);
 
     let mut line = String::new();
     reader.read_to_string(&mut line)?;
     Ok(line)
-}
-
-fn make_response(result: Result<Value, DbError>) -> Result<String, DbError> {
 }

@@ -1,3 +1,6 @@
 server/target
 server/db.log
 server/kawika.db
+
+client/client
+client/dist

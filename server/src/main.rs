@@ -1,3 +1,3 @@
 fn main() {
-    database::run();
+    let _ = database::run();
 }
