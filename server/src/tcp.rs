@@ -1,5 +1,5 @@
 use std::net::TcpStream;
-use std::io::{Read, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use log::{info, warn};
 
 use crate::cli::Call;
@@ -7,6 +7,7 @@ use crate::logs::DbError;
 use crate::store::{Store};
 
 // TODO: refactor to handle different classes of errors better
+// TODO: place loop inside of this function instead of outside
 pub fn handle_client(mut stream: TcpStream, db: &mut Store) -> bool {
     let incoming = stream_as_string(&stream).unwrap();
     info!("Recieved API call: {}", incoming);
@@ -40,6 +41,6 @@ fn stream_as_string(stream: &TcpStream) -> Result<String, DbError> {
     let mut reader = BufReader::new(stream);
 
     let mut line = String::new();
-    reader.read_to_string(&mut line)?;
-    Ok(line)
+    reader.read_line(&mut line)?;
+    Ok(line.trim().to_string())
 }
