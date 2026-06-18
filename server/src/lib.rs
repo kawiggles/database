@@ -27,7 +27,7 @@ pub fn run() -> Result<(), DbError> {
     let mut run = true;
     while run {
         for stream in listener.incoming() {
-            run = handle_client(stream?, &mut db)?;
+            run = handle_client(stream?, &mut db);
         }
     }
     info!("Server stopping!");

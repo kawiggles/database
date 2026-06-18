@@ -6,20 +6,26 @@ use crate::cli::Call;
 use crate::logs::DbError;
 use crate::store::{Store};
 
-pub fn handle_client(mut stream: TcpStream, db: &mut Store) -> Result<bool, DbError> {
-    info!("Parsing Call");
-    let call_result: Result<Call, DbError> = Call::parse(&stream_as_string(&stream)?);
+// TODO: refactor to handle different classes of errors better
+pub fn handle_client(mut stream: TcpStream, db: &mut Store) -> bool {
+    let incoming = stream_as_string(&stream).unwrap();
+    info!("Recieved API call: {}", incoming);
+    let call_result: Result<Call, DbError> = Call::parse(&incoming);
+    info!("Parsing call");
 
     match call_result {
         Ok(call) => {
-            let response = call.execute(db)?.print();
+            let response = match call.execute(db) {
+                Ok(x) => x.print(),
+                Err(x) => format!("Error encountered: {}", x).to_string(),
+            };
             info!("Sending response: {}", response);
-            stream.write_all(response.as_bytes())?;
-            stream.flush()?;
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
 
             if call == Call::Exit {
                 info!("Exit call parsed");
-                return Ok(false);
+                return false;
             }
         },
         Err(err) => {
@@ -27,7 +33,7 @@ pub fn handle_client(mut stream: TcpStream, db: &mut Store) -> Result<bool, DbEr
             eprintln!("Error: {}", err);
         },
     }
-    Ok(true)
+    true
 }
 
 fn stream_as_string(stream: &TcpStream) -> Result<String, DbError> {

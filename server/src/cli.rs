@@ -29,7 +29,7 @@ impl Call {
         let args: Vec<&str> = input.trim().split_whitespace().collect();
         match args.as_slice() {
             ["GET", key] => {
-                info!("Input parsed as SET");
+                info!("Input parsed as GET");
                 Ok(Call::Get(key.to_string()))
             },
             ["SET", key, val] => {
