@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 )
 
 func main() {
@@ -19,30 +18,16 @@ func main() {
 
 	defer conn.Close()
 
-	message := getMessage()
-	payload := []byte(message)
-
-	bytesWritten, err := conn.Write(payload)
-	if err != nil {
-		fmt.Printf("Error writing to socket: %v\n", err)
-	}
-}
-
-func getMessage() string {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Print("Database prompt: ")
-	
-	if scanner.Scan() {
-		input := strings.Fields(scanner.Text())
-		switch input {
-		case "GET":
-		case "SET":
-		case "DEL":
-		case "HELP":
-		case "EXIT":
-		default:
+
+	for scanner.Scan() {
+		payload := []byte(scanner.Text())
+		fmt.Print("Database prompt: ")
+		_, err := conn.Write(payload)
+		if err != nil {
+			fmt.Printf("Error writing to socket: %v\n", err)
 		}
 	}
 
 }
-
