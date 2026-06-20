@@ -5,6 +5,8 @@ pub mod tcp;
 
 use log::{info};
 use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use crate::store::{DEFAULT_FILE, Store};
 use crate::logs::{init_logs, DbError};
@@ -18,18 +20,19 @@ pub const fn encode_version(version: (u32, u32, u32)) -> u32 {
 
 pub fn run() -> Result<(), DbError> {
     init_logs();
-    let mut db = Store::start(DEFAULT_FILE)?;
+    let db = Arc::new(Mutex::new(Store::start(DEFAULT_FILE)?));
     info!("Database initialized");
 
     let listener = TcpListener::bind("127.0.0.1:55555")?;
     info!("Server listening on port");
 
-    let mut run = true;
-    while run {
-        for stream in listener.incoming() {
-            run = handle_client(stream?, &mut db);
-        }
+    for stream in listener.incoming() {
+        let db = Arc::clone(&db);
+        thread::spawn(move || {
+            handle_client(stream.unwrap(), &mut db.lock().unwrap());
+        });
     }
+
     info!("Server stopping!");
     println!("Exiting program...");
     Ok(())
