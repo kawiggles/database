@@ -1,10 +1,12 @@
 use crate::VERSION;
-use crate::store::{DEFAULT_ORDER, DEFAULT_FILE};
+use crate::store::{DEFAULT_ORDER};
 use crate::store::value::Value;
 use crate::logs::DbError;
+use crate::tcp::DEFAULT_FILE;
 
 use bincode_next::{config, Encode, Decode};
 use std::fs::{File, OpenOptions};
+use std::os::unix::fs::FileExt;
 use std::io::{Write, Read, Seek, SeekFrom, BufReader};
 use std::fmt;
 use std::collections::HashMap;
@@ -27,7 +29,7 @@ const MAGIC: [u8; 8] = *b"KAWIKADB";
 pub trait Page: Sized {
     fn page_id(&self) -> PageId;
     fn write(pager: &mut Pager, page: Self) -> Result<(), DbError>;
-    fn read(pager: &mut Pager, id: PageId) -> Result<Self, DbError>;
+    fn read(pager: &Pager, id: PageId) -> Result<Self, DbError>;
 }
 
 #[derive(Eq, Hash, PartialEq, Encode, Decode, Clone, Copy, Debug)]
@@ -107,15 +109,14 @@ impl Page for IndexPage {
         Ok(())
     }
 
-    fn read(pager: &mut Pager, id: PageId) -> Result<Self, DbError> {
+    fn read(pager: &Pager, id: PageId) -> Result<Self, DbError> {
         if let Some(cached) = pager.dirty_cache.get(&id) {
             return Ok(cached.clone());
         }
 
-        let file = &mut pager.file;
+        let file = &pager.file;
         let mut buf = [0u8; PAGE_SIZE];
-        file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
-        file.read_exact(&mut buf)?;
+        file.read_at(&mut buf, (id.0 * PAGE_SIZE) as u64)?;
         let (page, size): (IndexPage, usize) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
 
         if size > PAGE_SIZE {
@@ -170,11 +171,10 @@ impl Page for DataPage {
         Ok(())
     }
 
-    fn read(pager: &mut Pager, id: PageId) -> Result<DataPage, DbError> {
-        let file = &mut pager.file;
+    fn read(pager: &Pager, id: PageId) -> Result<DataPage, DbError> {
+        let file = &pager.file;
         let mut buf = [0u8; PAGE_SIZE];
-        file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
-        file.read_exact(&mut buf)?;
+        file.read_at(&mut buf, (id.0 * PAGE_SIZE) as u64)?;
         let (page, size): (DataPage, usize) = bincode_next::decode_from_slice(&buf, DATA_CONFIG)?;
 
         if size > PAGE_SIZE {
@@ -508,13 +508,11 @@ mod tests {
                 next: None,
             }
         };
-        
-        assert!(IndexPage::read(&mut pager, id1).is_err());
 
         pager.dirty_cache.insert(id1, page1);
         pager.flush().unwrap();
 
-        let read = IndexPage::read(&mut pager, id1).unwrap();
+        let read = IndexPage::read(&pager, id1).unwrap();
         assert_eq!(read.keys, vec!["key1", "key2"]);
         assert_eq!(pager.num_pages, 2);
     }

@@ -2,16 +2,16 @@ pub mod value;
 pub mod bptree;
 pub mod pager;
 
+use std::fs;
+use log::{info, warn};
+
 use crate::store::bptree::BpTree;
 use crate::store::value::Value;
 use crate::store::pager::Pager;
 use crate::logs::DbError;
 
-use std::fs;
-
 pub const PAGE_SIZE: usize = 4096;
 pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
-pub const DEFAULT_FILE: &str = "kawika.db";
 
 // Buffer pool for database, holds cache?
 pub struct Store {
@@ -26,8 +26,10 @@ impl Store {
             .unwrap_or(false);
 
         let (pager, root, order) = if is_initialized {
+            info!("Opening existing database at {}", filepath);
             Pager::open(filepath)?
         } else {
+            warn!("Database not found at path, creating new database at {}", filepath);
             Pager::new(filepath)?
         };
         
@@ -38,8 +40,8 @@ impl Store {
         })
     }
 
-    pub fn get(&mut self, key: &str) -> Result<Value, DbError> {
-        self.datamap.get(key, &mut self.pager)
+    pub fn get(&self, key: &str) -> Result<Value, DbError> {
+        self.datamap.get(key, &self.pager)
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbError> {

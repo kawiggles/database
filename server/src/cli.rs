@@ -1,16 +1,8 @@
-use std::io;
+use std::sync::{Arc, RwLock};
 use log::info;
 
 use crate::store::{Store, value::Value};
 use crate::logs::DbError;
-
-pub fn get_input() -> String {
-    println!("Enter an API call: ");
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).expect("Failed to read line");
-    info!("Input entered: {}", input);
-    input
-}
 
 #[derive(Debug, PartialEq)]
 pub enum Call {
@@ -64,15 +56,15 @@ impl Call {
         }
     }
 
-    pub fn execute(&self, db: &mut Store) -> Result<Value, DbError> {
+    pub fn execute(&self, db: &Arc<RwLock<Store>>) -> Result<Value, DbError> {
         info!("Executing call");
         match self {
-            Call::Get(key) => db.get(&key),
+            Call::Get(key) => db.read().unwrap().get(&key),
             Call::Put { key, value } => {
-                db.put(&key, value.to_owned())
+                db.write().unwrap().put(&key, value.to_owned())
             },
             Call::Del(key) => {
-                db.del(&key)
+                db.write().unwrap().del(&key)
             },
             Call::Help => {
                 info!("Help call parsed");
@@ -84,7 +76,7 @@ impl Call {
                 Ok(Value::Null)
             },
             Call::Exit => {
-                db.exit()?;
+                db.write().unwrap().exit()?;
                 Ok(Value::Null)
             },
         }
@@ -100,29 +92,29 @@ mod tests {
     fn cli_parse_get() {
         let tmp = NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap();
-        let mut db = Store::start(path).unwrap();
-        let _ = db.put("key", Value::Text(String::from("test")));
+        let db = Arc::new(RwLock::new(Store::start(path).unwrap()));
+        let _ = db.write().unwrap().put("key", Value::Text("test".to_string()));
         let test: Call = Call::parse("GET key").unwrap();
-        assert_eq!(test.execute(&mut db).unwrap(), db.get("key").unwrap());
+        assert_eq!(test.execute(&db).unwrap(), Value::Text("test".to_string()));
     }
 
     #[test]
     fn cli_parse_put() {
         let tmp = NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap();
-        let mut db = Store::start(path).unwrap();
+        let db = Arc::new(RwLock::new(Store::start(path).unwrap()));
         let test: Call = Call::parse("SET key value").unwrap();
-        assert_eq!(test.execute(&mut db).unwrap(), db.get("key").unwrap());
+        assert_eq!(test.execute(&db).unwrap(), Value::Text("value".to_string()));
     }
 
     #[test]
     fn cli_parse_del() {
         let tmp = NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap();
-        let mut db = Store::start(path).unwrap();
-        let _ = db.put("key", Value::Int(3));
+        let db = Arc::new(RwLock::new(Store::start(path).unwrap()));
+        let _ = db.write().unwrap().put("key", Value::Int(3));
         let test: Call = Call::parse("DEL key").unwrap();
-        assert_eq!(Value::Int(3), test.execute(&mut db).unwrap());
-        assert!(db.get("key").is_err());
+        assert_eq!(Value::Int(3), test.execute(&db).unwrap());
+        assert!(db.read().unwrap().get("key").is_err());
     }
 }
