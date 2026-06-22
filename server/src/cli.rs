@@ -12,6 +12,7 @@ pub enum Call {
         value: Value,
     },
     Del(String),
+    Info, // Could also have this be a string
     Help,
     Exit,
 }
@@ -50,6 +51,7 @@ impl Call {
                 }
             }
             ["DEL", key] => Ok(Call::Del(key.to_string())),
+            ["INFO"] => Ok(Call::Info),
             ["HELP"] => Ok(Call::Help),
             ["EXIT"] => Ok(Call::Exit),
             _ => Err(DbError::BadCall),
@@ -65,6 +67,10 @@ impl Call {
             },
             Call::Del(key) => {
                 db.write().unwrap().del(&key)
+            },
+            Call::Info => { 
+                Ok(Value::Null) // potentially create new value type, or instead
+                                // have it return Value::Text with the metadata json
             },
             Call::Help => {
                 info!("Help call parsed");
