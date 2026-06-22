@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"encoding/binary"
+	"bytes"
 )
 
 func main() {
@@ -44,4 +46,44 @@ func main() {
 	if err := scanner.Err(); err != nil {
 		fmt.Printf("Error closing scanner: %T", err)
 	}
+}
+
+func sendFile(path string) [][]byte {
+	info, err := os.Stat(path)
+	if err != nil {
+		fmt.Printf("Error reading file: %v\n", err)
+	}
+
+	fileSize := info.Size()
+	// Now need to calculate DataPage value size
+}
+
+type DbInfo struct {
+	Version uint32
+	pageSize uint
+}
+
+func getDbInfo(conn net.Conn) DbInfo {
+	_, err := conn.Write([]byte("INFO\n"))
+	if err != nil {
+		fmt.Printf("Error retrieving metadata from database: %v\n", err)
+		os.Exit(1)
+	}
+	
+	response := make([]byte, 4096)
+	_, err = conn.Read(response)
+	if err != nil {
+		fmt.Printf("Error retrieving metadata from database: %v\n", err)
+		os.Exit(1)
+	}
+
+	var info DbInfo
+
+	reader := bytes.NewReader(response)
+	err = binary.Read(reader, binary.NativeEndian, &info)
+	if err != nil {
+		fmt.Printf("Error when reading metadata response: %v\n", err)
+		os.Exit(1)
+	}
+	return info
 }
