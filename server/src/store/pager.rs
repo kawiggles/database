@@ -11,6 +11,7 @@ use std::io::{Write, Read, Seek, SeekFrom, BufReader};
 use std::fmt;
 use std::collections::HashMap;
 
+// TODO: replace PAGE_SIZE instances with the page_size metadata for choices of page sizes
 pub const PAGE_SIZE: usize = 4096;
 
 const INDEX_CONFIG: config::Configuration<config::BigEndian, config::Fixint, config::Limit<4096>> = 
@@ -53,7 +54,8 @@ pub struct PageHeader {
     pub page_type: PageType, // 4 bytes
     pub page_id: PageId, // 8 bytes
     pub next_free: Option<PageId>, // 8 bytes (Option) + 8 bytes
-} // Total: 28 bytes
+    pub next_over: Option<PageId>, // 16 Bytes
+} // Total: 44 bytes
 
 pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> Result<(), DbError> {
     file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
@@ -63,9 +65,10 @@ pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> Result<
 
 #[derive(Encode, Decode, Clone)]
 pub struct IndexPage {
-    pub header: PageHeader, // 28 bytes
+    pub header: PageHeader, // 44 bytes
     pub keys: Vec<String>, // 8 + ? Bytes
     pub node_type: NodeType, // 28 + ? Bytes
+                             // Max order is 251 (trust this math) with PAGE_SIZE 4096
 }
 
 impl IndexPage {
@@ -75,6 +78,7 @@ impl IndexPage {
                 page_type: PageType::Index,
                 page_id: id,
                 next_free: None,
+                next_over: None,
             },
             keys: keys,
             node_type: NodeType::Leaf {
@@ -90,6 +94,7 @@ impl IndexPage {
                 page_type: PageType::Index,
                 page_id: id,
                 next_free: None,
+                next_over: None,
             },
             keys: keys,
             node_type: NodeType::Branch {
@@ -127,18 +132,18 @@ impl Page for IndexPage {
     }
 }
 
-#[derive(Encode, Decode, Clone)]
+#[derive(Encode, Decode, Clone)] // Trust this math
 pub enum NodeType { // 4 bytes
     Branch { children: Vec<PageId> }, // 8 bytes + ? 8 byte PageIds
     Leaf { 
         pages: Vec<PageId>, // 8 bytes + ? 8 byte PageIds
         next: Option<PageId> // 8 bytes (Option) + 8 bytes
-    } // 24 + 8? Bytes
-} // max 28 + 8? Bytes
+    } // 28 + 8? Bytes
+} // max 28 + 8? Bytes where "?" is number of keys
 
 #[derive(Encode, Decode)]
 pub struct DataPage {
-    pub header: PageHeader,
+    pub header: PageHeader, // 44 bytes
     pub value: Value,
 }
 
@@ -150,6 +155,7 @@ impl DataPage {
                 page_type: PageType::Data,
                 page_id: id,
                 next_free: None,
+                next_over: None, // writeover logic could happen at later point
             },
             value: val,
         };
@@ -189,6 +195,7 @@ impl Page for DataPage {
 pub struct DbHeader {
     magic: [u8; 8],
     version: u32,
+    page_size: usize,
     root_page: Option<PageId>,
     order: usize,
     num_pages: usize,
@@ -233,6 +240,7 @@ impl Pager {
         let new_head = DbHeader{
             magic: MAGIC,
             version: VERSION,
+            page_size: PAGE_SIZE,
             root_page: None, // None means no root
             // TODO: add way to change db order (requires variable page size)
             order: DEFAULT_ORDER,
@@ -319,6 +327,7 @@ impl Pager {
                 page_type: PageType::Index, // This shouldn't matter
                 page_id: prev_id,
                 next_free: Some(id),
+                next_over: None,
             };
 
             bincode_next::encode_into_slice(&new_header, &mut buf, INDEX_CONFIG)?;
@@ -330,6 +339,7 @@ impl Pager {
             page_type: PageType::Index,
             page_id: id,
             next_free: None,
+            next_over: None,
         };
         bincode_next::encode_into_slice(&new_tail, &mut buf, INDEX_CONFIG)?;
         write_page(&mut self.file, id, &buf)?;
@@ -343,6 +353,7 @@ impl Pager {
         let new_dbheader = DbHeader {
             magic: MAGIC,
             version: VERSION,
+            page_size: PAGE_SIZE,
             root_page: root,
             order: order,
             num_pages: self.num_pages,
@@ -395,6 +406,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: page_id,
                 next_free: None,
+                next_over: None,
             },
             keys: vec!["key1".into(), "key2".into()],
             node_type: NodeType::Leaf {
@@ -410,6 +422,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: id2,
                 next_free: None,
+                next_over: None,
             },
             keys: vec!["key1".into(), "key2".into()],
             node_type: NodeType::Leaf {
@@ -424,6 +437,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: id3,
                 next_free: None,
+                next_over: None,
             },
             keys: vec!["key1".into(), "key2".into()],
             node_type: NodeType::Leaf {
@@ -475,6 +489,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: page_id,
                 next_free: None,
+                next_over: None,
             },
             keys: vec!["key1".into(), "key2".into()],
             node_type: NodeType::Leaf {
@@ -501,6 +516,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: id1,
                 next_free: None,
+                next_over: None,
             },
             keys: vec!["key1".into(), "key2".into()],
             node_type: NodeType::Leaf {
@@ -529,6 +545,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: id1,
                 next_free: None,
+                next_over: None,
             },
             value: Value::Int(3),
         };
@@ -540,6 +557,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: id2,
                 next_free: None,
+                next_over: None,
             },
             keys: vec!["key1".into()],
             node_type: NodeType::Leaf {
@@ -561,6 +579,7 @@ mod tests {
                 page_type: PageType::Index,
                 page_id: id3,
                 next_free: None,
+                next_over: None,
             },
             value: Value::Int(12),
         };

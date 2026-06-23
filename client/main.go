@@ -2,12 +2,16 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
-	"encoding/binary"
-	"bytes"
+	"slices"
 )
+
+const HEADER_SIZE = 44
 
 func main() {
 	addr := "localhost:55555"
@@ -17,6 +21,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer conn.Close()
+
+	info := getDbInfo(conn)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
@@ -28,7 +34,10 @@ func main() {
 				break;
 			}
 
-			_, err := conn.Write([]byte(input + "\n"))
+			call := parseInput(input)
+
+			// This will go inside some call execution function
+			_, err := conn.Write(call[0])
 			if err != nil {
 				fmt.Printf("Error writing to socket: %v\n", err)
 			}
@@ -39,6 +48,7 @@ func main() {
 				fmt.Printf("Error reading server response: %v\n", err)
 			}
 
+			// TODO: function to potentially create new file from response (will depend on some bit)
 			fmt.Println(string(response[:n]))
 		}
 	}
@@ -48,19 +58,65 @@ func main() {
 	}
 }
 
-func sendFile(path string) [][]byte {
+// Function to convert user input to output
+func parseInput(input string) [][]byte {
+}
+
+func sendFile(path string, dbInfo DbInfo) ([][]byte, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		fmt.Printf("Error reading file: %v\n", err)
+		return nil, err
 	}
 
 	fileSize := info.Size()
-	// Now need to calculate DataPage value size
+	file, err := os.Open(path)
+	if err !=nil {
+		fmt.Printf("Error reading file: %v\n", err)
+		return nil, err
+	}
+
+	defer file.Close()
+
+	var messages [][]byte
+
+	if fileSize > int64(dbInfo.ValueSize) {
+		var chunks [][]byte
+
+		buf := make([]byte, dbInfo.ValueSize)
+
+		for {
+			n, err := file.Read(buf)
+			if n > 0 {
+				chunks = append(chunks, buf[:n])
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		for i, chunk := range chunks {
+			var message string
+			if i == 0 {
+				// header message here has to say that this is a multi message file
+			}
+			// then the rest have a common header message
+
+			messages = slices.Insert(messages, i, []byte(message))
+		}
+	}
+
+	return messages, nil
 }
 
 type DbInfo struct {
-	Version uint32
-	pageSize uint
+	Version uint32 `json:"version"`
+	PageSize uint `json:"page_size"`
+	ValueSize uint `json:"-"`
+
 }
 
 func getDbInfo(conn net.Conn) DbInfo {
@@ -79,11 +135,14 @@ func getDbInfo(conn net.Conn) DbInfo {
 
 	var info DbInfo
 
-	reader := bytes.NewReader(response)
-	err = binary.Read(reader, binary.NativeEndian, &info)
+	err = json.Unmarshal(response, &info)
 	if err != nil {
 		fmt.Printf("Error when reading metadata response: %v\n", err)
 		os.Exit(1)
 	}
+
+	info.ValueSize = info.PageSize - HEADER_SIZE
+
+	fmt.Println("Metadata retrieved!")
 	return info
 }
