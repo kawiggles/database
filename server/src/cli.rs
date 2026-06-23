@@ -26,11 +26,11 @@ impl Call {
                 Ok(Call::Get(key.to_string()))
             },
             ["SET", key, val] => {
-                info!("Input parsed as basic SET");
-                Ok(Call::Put { key: key.to_string(), value: Value::Text(val.to_string()) })
-            }
-            ["SET", key, val, type_tag] => {
                 info!("Input parsed as SET");
+                Ok(Call::Put { key: key.to_string(), value: Value::Text(val.to_string()) })
+            },
+            ["SET", key, val, type_tag] => {
+                info!("Input parsed as typed SET");
                 let value: Option::<Value> = match *type_tag {
                     "int" => Some(Value::Int(val.parse::<i64>().map_err(|_| DbError::BadVal)?)),
                     "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| DbError::BadVal)?)),
@@ -49,7 +49,10 @@ impl Call {
                     Some(x) => Ok(Call::Put { key: key.to_string(), value: x }),
                     None => Err(DbError::BadVal),
                 }
-            }
+            },
+            ["SET", key, length, "\n", bytes] => {
+                info!("Input parsed as multi SET");
+            },
             ["DEL", key] => Ok(Call::Del(key.to_string())),
             ["INFO"] => Ok(Call::Info),
             ["HELP"] => Ok(Call::Help),

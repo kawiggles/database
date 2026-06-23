@@ -3,12 +3,12 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"slices"
+	"strings"
 )
 
 const HEADER_SIZE = 44
@@ -60,6 +60,18 @@ func main() {
 
 // Function to convert user input to output
 func parseInput(input string) [][]byte {
+	args := strings.Fields(input)
+	// command key value
+	command := strings.ToLower(args[0])
+	switch command {
+	case "get":
+	case "set":
+	case "setfile":
+	case "del":
+	case "help":
+	case "exit":
+	default:
+	}
 }
 
 func sendFile(path string, dbInfo DbInfo) ([][]byte, error) {
