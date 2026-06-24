@@ -2,6 +2,7 @@ pub mod store;
 pub mod cli;
 pub mod logs;
 pub mod tcp;
+pub mod message;
 
 use crate::tcp::Server;
 
