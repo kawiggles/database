@@ -1,4 +1,4 @@
-use crate::logs::DbError;
+use crate::logs::{DbError, Result};
 use crate::store::value::Value;
 use crate::store::pager::{DataPage, IndexPage, NodeType, Page, PageId, Pager};
 
@@ -17,7 +17,7 @@ impl BpTree {
     }
 
     // This function shows the basic pattern for searching the tree with a key
-    pub fn get(&self, key: &str, pager: &Pager) -> Result<Value, DbError> {
+    pub fn get(&self, key: &str, pager: &Pager) -> Result<Value> {
         let mut current = match self.root {
             Some(x) => x,
             None => return Err(DbError::NoRoot),
@@ -49,7 +49,7 @@ impl BpTree {
     }
 
     pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager)
-        -> Result<Option<Value>, DbError> {
+        -> Result<Option<Value>> {
 
         let mut return_val = None;
 
@@ -177,7 +177,7 @@ impl BpTree {
     }
 
     // Holy fucking shit (Tool reference)
-    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Result<Value, DbError> {
+    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Result<Value> {
         let mut return_val = Err(DbError::NoValue);
         // Handle empty tree case
         let Some(root) = self.root else {
@@ -651,7 +651,7 @@ impl BpTree {
     }
 
     // Function to check if a tree is valid
-    fn validate(&self, pager: &mut Pager) -> Result<(), TreeErr> {
+    fn validate(&self, pager: &mut Pager) -> Result<()> {
         let Some(root) = self.root else {
             return Err(TreeErr::Empty);
         };
@@ -707,7 +707,7 @@ impl BpTree {
 
     fn validate_page(&self, idx: PageId, depth: usize, leaf_depth: usize, 
         min_bound: Option<&str>, max_bound: Option<&str>, pager: &mut Pager)
-        -> Result<(), TreeErr> {
+        -> Result<()> {
         
         let current: IndexPage = Page::read(pager, idx).unwrap();
         

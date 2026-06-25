@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 use log::info;
 
 use crate::store::{Store, value::Value};
-use crate::logs::DbError;
+use crate::logs::{DbError, Result};
 
 #[derive(Debug, PartialEq)]
 pub enum Call {
@@ -18,7 +18,7 @@ pub enum Call {
 }
 
 impl Call {
-    pub fn parse(input: &str) -> Result<Self, DbError> {
+    pub fn parse(input: &str) -> Result<Self> {
         let args: Vec<&str> = input.trim().split_whitespace().collect();
         match args.as_slice() {
             ["GET", key] => {
@@ -36,7 +36,7 @@ impl Call {
                     "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| DbError::BadVal)?)),
                     "text" => Some(Value::Text(val.to_string())),
                     "blob" => {
-                        let bytes: Result<Vec<u8>, DbError> = val
+                        let bytes: Result<Vec<u8>> = val
                             .trim_matches(&['[', ']'])
                             .split(',')
                             .map(|s| s.parse::<u8>().map_err(|_| DbError::BadVal))
@@ -50,9 +50,6 @@ impl Call {
                     None => Err(DbError::BadVal),
                 }
             },
-            ["SET", key, length, "\n", bytes] => {
-                info!("Input parsed as multi SET");
-            },
             ["DEL", key] => Ok(Call::Del(key.to_string())),
             ["INFO"] => Ok(Call::Info),
             ["HELP"] => Ok(Call::Help),
@@ -61,7 +58,7 @@ impl Call {
         }
     }
 
-    pub fn execute(&self, db: &Arc<RwLock<Store>>) -> Result<Value, DbError> {
+    pub fn execute(&self, db: &Arc<RwLock<Store>>) -> Result<Value> {
         info!("Executing call");
         match self {
             Call::Get(key) => db.read().unwrap().get(&key),

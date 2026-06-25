@@ -42,7 +42,9 @@ pub enum DbError {
     #[error("Page read overflow")]
     ReadOverflow,
     #[error("The database b+ tree has no root")]
-    NoRoot
+    NoRoot,
+    #[error("Error encountered when validating b+ tree, fix that shit")]
+    TreeErr,
 }
 
 impl From<DbError> for io::Error {
@@ -51,3 +53,4 @@ impl From<DbError> for io::Error {
     }
 }
 
+pub type Result<T> = std::result::Result<T>;

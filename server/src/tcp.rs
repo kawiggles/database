@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Write, stdin, stdout};
 use log::{info, warn};
 
 use crate::cli::Call;
-use crate::logs::{init_logs, DbError};
+use crate::logs::{init_logs, Result};
 use crate::store::{Store};
 
 pub const DEFAULT_FILE: &str = "kawika.db";
@@ -25,7 +25,7 @@ impl Drop for Server {
 }
 
 impl Server {
-    pub fn start() -> Result<Self, DbError> {
+    pub fn start() -> Result<Self> {
         init_logs();
 
         // TODO: add way to configure file selection
@@ -98,7 +98,7 @@ fn handle_client(mut stream: TcpStream, mut db: Arc<RwLock<Store>>) {
             stream.write_all(msg.as_bytes()).is_ok() && stream.flush().is_ok()
         };
         info!("Recieved API call: {}", incoming);
-        let call_result: Result<Call, DbError> = Call::parse(&incoming);
+        let call_result: Result<Call> = Call::parse(&incoming);
 
         match call_result {
             Ok(call) => {
@@ -123,7 +123,7 @@ fn handle_client(mut stream: TcpStream, mut db: Arc<RwLock<Store>>) {
     }
 }
 
-fn stream_as_string(stream: &TcpStream) -> Result<String, DbError> {
+fn stream_as_string(stream: &TcpStream) -> Result<String> {
     let mut reader = BufReader::new(stream);
 
     let mut line = String::new();
