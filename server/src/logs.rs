@@ -53,4 +53,4 @@ impl From<DbError> for io::Error {
     }
 }
 
-pub type Result<T> = std::result::Result<T>;
+pub type Result<T> = std::result::Result<T, DbError>;

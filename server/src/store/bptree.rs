@@ -119,6 +119,7 @@ impl BpTree {
                             let mid = (page.keys.len() + 1) / 2; // ⌈m/2⌉ 
                             let new_keys = page.keys.split_off(mid);
                             let new_values = pages.split_off(mid);
+                            // TODO: Fix bug, the fix is pattern matching 
                             let old_next = *next;
                             let new_id = pager.alloc();
                             *next = Some(new_id);
@@ -536,7 +537,7 @@ mod tests {
         }
     }
 
-    fn build_store(n: i64) -> Store {
+    fn build_store(n: isize) -> Store {
         let mut store = setup();
         let tree = &mut store.datamap;
         println!("{}", tree.order);
