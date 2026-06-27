@@ -8,7 +8,6 @@ pub struct StartupMessage(usize); // where value is version
 
 #[derive(Debug)]
 pub enum Request {
-    // TODO: Handle Protocol version
     Query(Call),
 }
 

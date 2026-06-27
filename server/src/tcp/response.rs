@@ -13,13 +13,15 @@ pub enum Response {
         pid: usize,
         key: Vec<u8>,
     },
-    ReadyForQuery { 
-        state: ServerState
+    ReadyForQuery(ServerState),
+    ParameterStatus {
+        name: String,
+        val: String,
     },
 }
 
 #[derive(Debug)]
-enum ServerState {
+pub enum ServerState {
     Idle,
     Transaction,
     Error,
@@ -39,7 +41,8 @@ pub fn encode(response: Response) -> Result<Vec<u8>> {
         Response::ErrorResponse => Ok(enc_error_response()),
         Response::AuthenticationOk => Ok(enc_authentication_ok()),
         Response::BackendKeyData { pid, key } => enc_backend_key_data(pid, key),
-        Response::ReadyForQuery { state } => Ok(enc_ready_for_query(state)),
+        Response::ReadyForQuery(state) => Ok(enc_ready_for_query(state)),
+        Response::ParameterStatus { name, val } => enc_parameter_status(name, val),
     }
 }
 
@@ -78,4 +81,14 @@ fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
         ServerState::Error => buf.push(b'E'),
     }
     buf
+}
+
+fn enc_parameter_status(name: String, val: String) -> Result<Vec<u8>> {
+    let mut buf: Vec<u8> = Vec::new();
+    let len = i32::try_from(name.len() + val.len() + 4)?;
+    buf.push(b'S');
+    buf.extend(len.to_be_bytes());
+    buf.extend(name.into_bytes());
+    buf.extend(val.into_bytes());
+    Ok(buf)
 }

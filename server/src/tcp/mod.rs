@@ -86,7 +86,7 @@ impl Server {
             let db = Arc::clone(&self.store);
             thread::spawn(move || {
                 // TODO: Replace this with handle_startup and a handle_request loop
-                handle_startup(stream.unwrap(), db);
+                handle_connection(stream.unwrap(), db);
             });
         }
     }
@@ -95,13 +95,16 @@ impl Server {
 // TODO: refactor to handle different classes of errors better
 // The idea is that this is where error messages decide how they get dispatched,
 // depending on what kind of error they are, and who fucked up
-fn handle_startup<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>) {
+fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>) {
     let startup = decode_startup(&mut stream).unwrap(); // Handle this error 
-    let response = translate_startup(startup, &mut db).unwrap(); // Especially this one
-    stream.write_all(encode(response).unwrap().as_slice()); // And this one
+    let responses = translate_startup(startup, &mut db);
+    for response in responses {
+        stream.write_all(encode(response).unwrap().as_slice()); // And this one
+    }
     
     loop {
-        let request = decode_request(&mut stream).unwrap(); // TODO: Handle this unwrap
+        // Same schtick with error handling here
+        let request = decode_request(&mut stream).unwrap();
         let response = translate(request, &mut db).unwrap();
         stream.write_all(encode(response).unwrap().as_slice());
     }
