@@ -32,7 +32,7 @@ impl Call {
             ["SET", key, val, type_tag] => {
                 info!("Input parsed as typed SET");
                 let value: Option::<Value> = match *type_tag {
-                    "int" => Some(Value::Int(val.parse::<i64>().map_err(|_| DbError::BadVal)?)),
+                    "int" => Some(Value::Int(val.parse::<isize>().map_err(|_| DbError::BadVal)?)),
                     "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| DbError::BadVal)?)),
                     "text" => Some(Value::Text(val.to_string())),
                     "blob" => {

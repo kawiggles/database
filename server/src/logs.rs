@@ -45,6 +45,14 @@ pub enum DbError {
     NoRoot,
     #[error("Error encountered when validating b+ tree, fix that shit")]
     TreeErr,
+    #[error("Error encountered when decoding incoming message")]
+    TryFromIntError(#[from] std::num::TryFromIntError),
+    #[error("Error encountered when decoding incoming message length")]
+    MessageLenError,
+    #[error("Incoming message has an unrecognized type")]
+    BadMessageType,
+    #[error("Error processing query bytes")]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
 }
 
 impl From<DbError> for io::Error {

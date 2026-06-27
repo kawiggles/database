@@ -131,6 +131,7 @@ type DbInfo struct {
 
 }
 
+// TODO: Replace this with sqx 
 func getDbInfo(conn net.Conn) DbInfo {
 	_, err := conn.Write([]byte("INFO\n"))
 	if err != nil {

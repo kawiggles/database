@@ -1,19 +1,4 @@
-use crate::store::PAGE_SIZE;
-use crate::logs::{DbError, Result};
-
-use std::io::Read;
-
-#[derive(Debug)]
-pub enum Request {
-    CopyData {
-        bytes: [u8; PAGE_SIZE - 9],
-    },
-}
-
-impl Request {
-    pub fn decode<T: Read>(stream: &mut T) -> Self {
-    }
-}
+use crate::logs::{Result};
 
 #[derive(Debug)]
 pub enum Response {
@@ -49,14 +34,12 @@ enum ErrorFieldType {
 
 */
 
-impl Response {
-    pub fn encode(&self) -> Vec<u8>  {
-        match self {
-            Self::ErrorResponse => enc_error_response(),
-            Self::AuthenticationOk => enc_authentication_ok(),
-            Self::BackendKeyData { pid, key } => enc_backend_key_data(*pid, key),
-            Self::ReadyForQuery { state } => enc_ready_for_query(state),
-        }
+pub fn encode(response: Response) -> Result<Vec<u8>> {
+    match response {
+        Response::ErrorResponse => Ok(enc_error_response()),
+        Response::AuthenticationOk => Ok(enc_authentication_ok()),
+        Response::BackendKeyData { pid, key } => enc_backend_key_data(pid, key),
+        Response::ReadyForQuery { state } => Ok(enc_ready_for_query(state)),
     }
 }
 
@@ -75,17 +58,17 @@ fn enc_authentication_ok() -> Vec<u8> {
     buf
 }
 
-fn enc_backend_key_data(pid: usize, key: &Vec<u8>) -> Vec<u8> {
+fn enc_backend_key_data(pid: usize, key: Vec<u8>) -> Result<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
-    let len = i32::try_from(key.len() + 8).unwrap(); // Should always work
+    let len = i32::try_from(key.len() + 8)?; // Should always work
     buf.push(b'K');
     buf.extend(len.to_be_bytes());
-    buf.extend(i32::try_from(pid).unwrap().to_be_bytes()); // FUCK YEAH RUST!
+    buf.extend(i32::try_from(pid)?.to_be_bytes()); // FUCK YEAH RUST!
     buf.extend(key.iter());
-    buf
+    Ok(buf)
 }
 
-fn enc_ready_for_query(state: &ServerState) -> Vec<u8> {
+fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'Z');
     buf.extend(5i32.to_be_bytes());

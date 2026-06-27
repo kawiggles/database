@@ -1,12 +1,19 @@
-use std::net::{TcpStream, TcpListener};
+pub mod request;
+pub mod response;
+pub mod translation;
+
+use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::io::{BufRead, BufReader, Write, stdin, stdout};
+use std::io::{BufRead, BufReader, Read, Write, stdin, stdout};
 use log::{info, warn};
 
 use crate::cli::Call;
 use crate::logs::{init_logs, Result};
-use crate::store::{Store};
+use crate::store::Store;
+use crate::tcp::request::{decode_startup, decode_request};
+use crate::tcp::response::encode;
+use crate::tcp::translation::{translate, translate_startup};
 
 pub const DEFAULT_FILE: &str = "kawika.db";
 pub const DEFAULT_PORT: &str = "127.0.0.1:55555";
@@ -46,6 +53,7 @@ impl Server {
         thread::spawn(move || {
             let mut scanner = BufReader::new(stdin());
             let stdout = stdout();
+            // TODO: get rid of this attrocity and put it into cli.rs
             loop {
                 print!("Database prompt: ");
                 stdout.lock().flush().unwrap();
@@ -77,56 +85,24 @@ impl Server {
         for stream in self.listener.incoming() {
             let db = Arc::clone(&self.store);
             thread::spawn(move || {
-                handle_client(stream.unwrap(), db);
+                // TODO: Replace this with handle_startup and a handle_request loop
+                handle_startup(stream.unwrap(), db);
             });
         }
     }
 }
 
 // TODO: refactor to handle different classes of errors better
-fn handle_client(mut stream: TcpStream, mut db: Arc<RwLock<Store>>) {
+// The idea is that this is where error messages decide how they get dispatched,
+// depending on what kind of error they are, and who fucked up
+fn handle_startup<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>) {
+    let startup = decode_startup(&mut stream).unwrap(); // Handle this error 
+    let response = translate_startup(startup, &mut db).unwrap(); // Especially this one
+    stream.write_all(encode(response).unwrap().as_slice()); // And this one
+    
     loop {
-        let incoming = match stream_as_string(&stream) {
-            Ok(s) => s,
-            Err(_) => {
-                info!("Client disconnected");
-                return;
-            },
-        };
-
-        let mut respond = |msg: &str| -> bool {
-            stream.write_all(msg.as_bytes()).is_ok() && stream.flush().is_ok()
-        };
-        info!("Recieved API call: {}", incoming);
-        let call_result: Result<Call> = Call::parse(&incoming);
-
-        match call_result {
-            Ok(call) => {
-                let response = match call.execute(&mut db) {
-                    Ok(x) => x.print(),
-                    Err(x) => format!("Error encountered: {}", x),
-                };
-                info!("Sending response: {}", response);
-                if !respond(&response) { return; }
-
-                if call == Call::Exit {
-                    info!("Exit call parsed");
-                    return;
-                }
-            },
-            Err(err) => {
-                warn!("Invalid call made: {}", err);
-                let response = format!("Error: {}\n", err);
-                if !respond(&response) { return; }
-            },
-        }
+        let request = decode_request(&mut stream).unwrap(); // TODO: Handle this unwrap
+        let response = translate(request, &mut db).unwrap();
+        stream.write_all(encode(response).unwrap().as_slice());
     }
-}
-
-fn stream_as_string(stream: &TcpStream) -> Result<String> {
-    let mut reader = BufReader::new(stream);
-
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
 }
