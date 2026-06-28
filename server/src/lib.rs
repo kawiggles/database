@@ -1,7 +1,8 @@
 pub mod store;
-pub mod cli;
-pub mod logs;
 pub mod tcp;
+pub mod query;
+pub mod logs;
+pub mod cli;
 
 use crate::tcp::Server;
 

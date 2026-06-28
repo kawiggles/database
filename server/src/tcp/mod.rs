@@ -31,6 +31,7 @@ impl Drop for Server {
     }
 }
 
+// TODO: switch all the async out for tokio
 impl Server {
     pub fn start() -> Result<Self> {
         init_logs();
@@ -105,7 +106,9 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
     loop {
         // Same schtick with error handling here
         let request = decode_request(&mut stream).unwrap();
-        let response = translate(request, &mut db).unwrap();
-        stream.write_all(encode(response).unwrap().as_slice());
+        let responses = translate(request, &mut db).unwrap();
+        for response in responses {
+            stream.write_all(encode(response).unwrap().as_slice());
+        }
     }
 }

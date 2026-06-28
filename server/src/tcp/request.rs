@@ -34,13 +34,12 @@ pub fn decode_request<T: Read>(stream: &mut T) -> Result<Request> {
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf)?;
     let len = buf[0] as i32;
+    let mut contents = vec![0; len as usize];
+    stream.read_exact(&mut contents)?;
 
     match message_type {
-        'Q' => {
-            let mut buf = vec![0; len as usize];
-            stream.read_exact(&mut buf)?;
-            Ok(Request::Query(Call::parse(&String::from_utf8(buf)?)?))
-        },
+        // TODO: replace with updated querying system
+        'Q' => Ok(Request::Query(Call::parse(&String::from_utf8(contents)?)?)),
         _ => Err(DbError::BadMessageType)
     }
 }
