@@ -3,6 +3,7 @@ use crate::tcp::request::{Request, StartupMessage};
 use crate::tcp::response::{Response, ServerState};
 use crate::store::Store;
 use crate::logs::Result;
+use crate::query::Query;
 
 use std::sync::{Arc, RwLock};
 
@@ -22,7 +23,8 @@ pub fn translate_startup(_message: StartupMessage, _db: &mut Arc<RwLock<Store>>)
 
 pub fn translate(request: Request, db: &mut Arc<RwLock<Store>>) -> Result<Vec<Response>> {
     match request {
-        Request::Query(call) => {
+        Request::Query(query) => {
+            let val = query.execute()?;
         },
     }
 }

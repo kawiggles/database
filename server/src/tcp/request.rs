@@ -1,5 +1,5 @@
 use crate::logs::{DbError, Result};
-use crate::cli::Call;
+use crate::query::Query;
 
 use std::io::Read;
 
@@ -8,7 +8,7 @@ pub struct StartupMessage(usize); // where value is version
 
 #[derive(Debug)]
 pub enum Request {
-    Query(Call),
+    Query(Query),
 }
 
 pub fn decode_startup<T: Read>(stream: &mut T) -> Result<StartupMessage> {
@@ -39,7 +39,7 @@ pub fn decode_request<T: Read>(stream: &mut T) -> Result<Request> {
 
     match message_type {
         // TODO: replace with updated querying system
-        'Q' => Ok(Request::Query(Call::parse(&String::from_utf8(contents)?)?)),
+        'Q' => Ok(Request::Query(Query::parse(&String::from_utf8(contents)?)?)),
         _ => Err(DbError::BadMessageType)
     }
 }

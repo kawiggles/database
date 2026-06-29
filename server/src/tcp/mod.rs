@@ -5,10 +5,9 @@ pub mod translation;
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::io::{BufRead, BufReader, Read, Write, stdin, stdout};
-use log::{info, warn};
+use std::io::{Read, Write};
+use log::{info};
 
-use crate::cli::Call;
 use crate::logs::{init_logs, Result};
 use crate::store::Store;
 use crate::tcp::request::{decode_startup, decode_request};
@@ -50,43 +49,11 @@ impl Server {
     }
 
     pub fn run(self) {
-        let mut local = Arc::clone(&self.store);
-        thread::spawn(move || {
-            let mut scanner = BufReader::new(stdin());
-            let stdout = stdout();
-            // TODO: get rid of this attrocity and put it into cli.rs
-            loop {
-                print!("Database prompt: ");
-                stdout.lock().flush().unwrap();
-
-                let mut line = String::new();
-                scanner.read_line(&mut line).unwrap_or_else(|err| {
-                    warn!("Error reading server cli: {}", err);
-                    0
-                });
-
-                let call = Call::parse(line.trim());
-                match call {
-                    Ok(call) => {
-                        let response = match call.execute(&mut local) {
-                            Ok(x) => x.print(),
-                            Err(e) => format!("Error encountered: {}", e),
-                        };
-                        println!("{}", response);
-
-                        if call == Call::Exit {
-                            break;
-                        }
-                    },
-                    Err(err) => eprintln!("Error: {}", err),
-                }
-            }
-        });
+        // TODO: add thread for local cli interfacing
 
         for stream in self.listener.incoming() {
             let db = Arc::clone(&self.store);
             thread::spawn(move || {
-                // TODO: Replace this with handle_startup and a handle_request loop
                 handle_connection(stream.unwrap(), db);
             });
         }
