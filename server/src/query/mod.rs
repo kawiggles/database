@@ -1,6 +1,8 @@
-use crate::store::value::Value;
+use crate::store::{Store, value::Value};
 use crate::logs::{Result, DbError};
+
 use log::{info};
+use std::sync::RwLock;
 
 #[derive(Debug, PartialEq)]
 pub enum Query {
@@ -10,7 +12,6 @@ pub enum Query {
         value: Value,
     },
     Del(String),
-    Info, // Could also have this be a string
 }
 
 impl Query {
@@ -49,6 +50,15 @@ impl Query {
             },
             ["DEL", key] => Ok(Query::Del(key.to_string())),
             _ => Err(DbError::BadCall), // TODO: rename to BadQuery
+        }
+    }
+
+    pub fn execute(self, db: &RwLock<Store>) -> Result<Value> {
+        info!("Executing call");
+        match self {
+            Query::Get(key) => db.read().unwrap().get(&key),
+            Query::Put { key, value } => db.write().unwrap().put(&key, value),
+            Query::Del(key) => db.write().unwrap().del(&key),
         }
     }
 }

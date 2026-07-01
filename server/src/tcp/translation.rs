@@ -24,7 +24,8 @@ pub fn translate_startup(_message: StartupMessage, _db: &mut Arc<RwLock<Store>>)
 pub fn translate(request: Request, db: &mut Arc<RwLock<Store>>) -> Result<Vec<Response>> {
     match request {
         Request::Query(query) => {
-            let val = query.execute()?;
+            let val = query.execute(db.as_ref())?;
+
         },
     }
 }
