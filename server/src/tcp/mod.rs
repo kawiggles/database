@@ -67,7 +67,7 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
     let startup = decode_startup(&mut stream).unwrap(); // Handle this error 
     let responses = translate_startup(startup, &mut db);
     for response in responses {
-        stream.write_all(encode(response).unwrap().as_slice()); // And this one
+        stream.write_all(encode(response).unwrap().as_slice()).unwrap(); // And this one
     }
     
     loop {
@@ -75,7 +75,8 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
         let request = decode_request(&mut stream).unwrap();
         let responses = translate(request, &mut db).unwrap();
         for response in responses {
-            stream.write_all(encode(response).unwrap().as_slice());
+            // Inner unwrap will determine whether an errorresponse is written
+            stream.write_all(encode(response).unwrap().as_slice()).unwrap();
         }
     }
 }

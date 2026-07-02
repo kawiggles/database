@@ -2,8 +2,8 @@ use crate::VERSION;
 use crate::tcp::request::{Request, StartupMessage};
 use crate::tcp::response::{Response, ServerState};
 use crate::store::Store;
+use crate::store::value::Value;
 use crate::logs::Result;
-use crate::query::Query;
 
 use std::sync::{Arc, RwLock};
 
@@ -24,8 +24,15 @@ pub fn translate_startup(_message: StartupMessage, _db: &mut Arc<RwLock<Store>>)
 pub fn translate(request: Request, db: &mut Arc<RwLock<Store>>) -> Result<Vec<Response>> {
     match request {
         Request::Query(query) => {
-            let val = query.execute(db.as_ref())?;
-
+            let val: Value = query.execute(db.as_ref())?;
+            Ok(vec![
+                Response::DataRow { 
+                    column_count: 1, // This is one for now, but needs to be alterable
+                    cells: vec![Some(val.to_bytes())],
+                },
+                Response::CommandComplete("".to_string()), // Need to pass original request here
+                Response::ReadyForQuery(ServerState::Idle)
+            ])
         },
     }
 }

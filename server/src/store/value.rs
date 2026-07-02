@@ -6,8 +6,6 @@ pub enum Value {
     Float(f64),
     Text(String),
     Blob(Vec<u8>),
-    // Not sure if this is necessary yet, check Call::execute for current usage
-    Null
 }
 
 impl Value {
@@ -25,8 +23,18 @@ impl Value {
                 .map(|byte| byte.to_string())
                 .collect::<Vec<String>>()
                 .join(",")),
-            Value::Null => "null".to_string(),
         }
+    }
+
+    pub fn to_bytes(self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        match self {
+            Value::Int(x) => buf.extend(x.to_be_bytes()),
+            Value::Float(x) => buf.extend(x.to_be_bytes()),
+            Value::Text(x) => buf.extend(x.as_bytes()),
+            Value::Blob(x) => buf.extend(x),
+        }
+        buf
     }
 }
 

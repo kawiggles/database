@@ -38,10 +38,10 @@ pub enum ServerState {
 }
 
 #[derive(Debug)]
-struct RowField {
+pub struct RowField {
     name: String,
     table_id: i32,
-    attr_num: i16,
+    _attr_num: i16,
     data_type_id: i32,
     data_type_size: i16,
     type_mod: i32,
