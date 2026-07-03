@@ -12,9 +12,7 @@ pub const fn encode_version(version: (u32, u32, u32)) -> u32 {
 }
 
 pub fn run() {
-    let server = Server::start().unwrap_or_else(|err| {
-        panic!("Error starting server: {}", err);
-    });
+    let server = Server::start();
 
     server.run();
 

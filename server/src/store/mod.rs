@@ -8,7 +8,7 @@ use log::{info, warn};
 use crate::store::bptree::BpTree;
 use crate::store::value::Value;
 use crate::store::pager::Pager;
-use crate::logs::{Result, DbError};
+use crate::logs::{DbErr, UserErr};
 
 pub const PAGE_SIZE: usize = 4096;
 pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
@@ -20,7 +20,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn start(filepath: &str) -> Result<Self> {
+    pub fn start(filepath: &str) -> Result<Self, DbErr> {
         let is_initialized = fs::metadata(filepath)
             .map(|m| m.len() >= PAGE_SIZE as u64)
             .unwrap_or(false);
@@ -40,13 +40,13 @@ impl Store {
         })
     }
 
-    pub fn get(&self, key: &str) -> Result<Value> {
+    pub fn get(&self, key: &str) -> Result<Value, DbErr> {
         self.datamap.get(key, &self.pager)
     }
 
-    pub fn put(&mut self, key: &str, val: Value) -> Result<Value> {
+    pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbErr> {
         if key.len() > 8 {
-            return Err(DbError::LongKey)
+            return Err(UserErr::LongKey)?
         }
 
         // TODO: Value Overflow logic
@@ -58,11 +58,11 @@ impl Store {
         }
     }
 
-    pub fn del(&mut self, key: &str) -> Result<Value> {
+    pub fn del(&mut self, key: &str) -> Result<Value, DbErr> {
         self.datamap.remove(key, &mut self.pager)
     }
 
-    pub fn exit(&mut self) -> Result<()> {
+    pub fn exit(&mut self) -> Result<(), DbErr> {
         self.pager.close(self.datamap.root, self.datamap.order)?;
         Ok(())
     }

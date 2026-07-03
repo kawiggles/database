@@ -1,4 +1,4 @@
-use crate::logs::{DbError, Result};
+use crate::logs::{DbErr, UserErr};
 use crate::store::value::Value;
 use crate::store::pager::{DataPage, IndexPage, NodeType, Page, PageId, Pager};
 
@@ -17,10 +17,10 @@ impl BpTree {
     }
 
     // This function shows the basic pattern for searching the tree with a key
-    pub fn get(&self, key: &str, pager: &Pager) -> Result<Value> {
+    pub fn get(&self, key: &str, pager: &Pager) -> Result<Value, DbErr> {
         let mut current = match self.root {
             Some(x) => x,
-            None => return Err(DbError::NoRoot),
+            None => return Err(DbErr::UserErr(UserErr::NoRoot)),
         };
 
         loop {
@@ -40,7 +40,7 @@ impl BpTree {
                         probe.as_str().cmp(key) }) {
 
                         Ok(i) => Page::read(pager, pages[i])?,
-                        Err(_) => return Err(DbError::NoValue),
+                        Err(_) => return Err(UserErr::NoValue)?,
                     };
                     return Ok(data.value);
                 }
@@ -49,7 +49,7 @@ impl BpTree {
     }
 
     pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager)
-        -> Result<Option<Value>> {
+        -> Result<Option<Value>, DbErr> {
 
         let mut return_val = None;
 
@@ -178,11 +178,11 @@ impl BpTree {
     }
 
     // Holy fucking shit (Tool reference)
-    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Result<Value> {
-        let mut return_val = Err(DbError::NoValue);
+    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Result<Value, DbErr> {
+        let mut return_val = Err(UserErr::NoValue)?;
         // Handle empty tree case
         let Some(root) = self.root else {
-            return Err(DbError::NoRoot);
+            return Err(UserErr::NoRoot)?;
         };
 
         // First, search for the leaf node with the key to delete
@@ -217,7 +217,7 @@ impl BpTree {
                     return_val = Ok(data.value);
                 }
             },
-            Err(_) => return Err(DbError::NoValue),
+            Err(_) => return Err(UserErr::NoValue)?,
         }
         Page::write(pager, page)?;
 
@@ -503,22 +503,22 @@ mod tests {
         let mut tree = store.datamap;
         tree.insert("one", Value::Int(1), &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.insert("two", Value::Int(2), &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.insert("three", Value::Int(3), &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.insert("four", Value::Int(4), &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.insert("five", Value::Int(5), &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.insert("six", Value::Int(6), &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
     }
 
     #[test]
@@ -528,7 +528,7 @@ mod tests {
             let mut tree = store.datamap;
             for i in 0..n {
                 tree.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
-                assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+                assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
             }
             // verify all keys retrievable
             for i in 0..n {
@@ -552,7 +552,7 @@ mod tests {
         let mut store = build_store(16);
         let tree = store.datamap;
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
     }
 
     #[test]
@@ -561,7 +561,7 @@ mod tests {
         let mut tree = store.datamap;
         tree.remove("key018", &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
     }
 
     #[test]
@@ -572,7 +572,7 @@ mod tests {
         tree.remove("key015", &mut store.pager).unwrap();
         tree.remove("key014", &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
     }
     
     #[test]
@@ -581,9 +581,9 @@ mod tests {
         let mut tree = store.datamap;
         tree.print_tree(&mut store.pager);
         tree.remove("key020", &mut store.pager).unwrap();
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.remove("key019", &mut store.pager).unwrap();
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.print_tree(&mut store.pager);
     }
 
@@ -594,16 +594,16 @@ mod tests {
         tree.print_tree(&mut store.pager);
         tree.remove("key003", &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.remove("key006", &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.remove("key009", &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
         tree.remove("key012", &mut store.pager).unwrap();
         tree.print_tree(&mut store.pager);
-        assert!(tree.validate(&mut store.pager).is_ok(), "Error is: {:?}", tree.validate(&mut store.pager));
+        assert!(tree.validate(&mut store.pager).is_none(), "Error is: {:?}", tree.validate(&mut store.pager));
     }
 }
 
@@ -652,15 +652,15 @@ impl BpTree {
     }
 
     // Function to check if a tree is valid
-    fn validate(&self, pager: &mut Pager) -> Result<()> {
+    fn validate(&self, pager: &mut Pager) -> Option<TreeErr> {
         let Some(root) = self.root else {
-            return Err(TreeErr::Empty);
+            return Some(TreeErr::Empty);
         };
 
         let root_page: IndexPage = Page::read(pager, root).unwrap();
         if let NodeType::Branch { children } = root_page.node_type {
             if children.len() < 2 {
-                return Err(TreeErr::RootTooFewChildren);
+                return Some(TreeErr::RootTooFewChildren);
             }
         }
 
@@ -687,7 +687,7 @@ impl BpTree {
                     for key in page.keys {
                         if let Some(prev) = prev_key {
                             if key <= prev {
-                                return Err(TreeErr::LeafKeysBadSeq);
+                                return Some(TreeErr::LeafKeysBadSeq);
                             }
                         }
                         prev_key = Some(key);
@@ -698,7 +698,7 @@ impl BpTree {
                         None => break,
                     }
                 },
-                NodeType::Branch { .. } => return Err(TreeErr::BranchInLeafSeq),
+                NodeType::Branch { .. } => return Some(TreeErr::BranchInLeafSeq),
             }
         }
         
@@ -708,7 +708,7 @@ impl BpTree {
 
     fn validate_page(&self, idx: PageId, depth: usize, leaf_depth: usize, 
         min_bound: Option<&str>, max_bound: Option<&str>, pager: &mut Pager)
-        -> Result<()> {
+        -> Option<TreeErr> {
         
         let current: IndexPage = Page::read(pager, idx).unwrap();
         
@@ -717,7 +717,7 @@ impl BpTree {
         while let Some(key) = iter.next() {
             if let Some(next_key) = iter.peek() {
                 if key >= *next_key {
-                    return Err(TreeErr::NodeKeySeqErr);
+                    return Some(TreeErr::NodeKeySeqErr);
                 }
             }
         }
@@ -725,24 +725,24 @@ impl BpTree {
         // Check all keys are in the bounds defined by the parent node
         for key in &current.keys {
             if let Some(min) = min_bound {
-                if key.as_str() <= min { return Err(TreeErr::KeyOOB); }
+                if key.as_str() <= min { return Some(TreeErr::KeyOOB); }
             }
             if let Some(max) = max_bound {
-                if key.as_str() > max { return Err(TreeErr::KeyOOB); }
+                if key.as_str() > max { return Some(TreeErr::KeyOOB); }
             }
         }
 
         // Ensure node is above minimum value
         if idx != self.root.unwrap() && (current.keys.len() < self.order / 2 ||
             current.keys.len() > self.order - 1) {
-            return Err(TreeErr::KeyCountErr);
+            return Some(TreeErr::KeyCountErr);
         }
 
         match &current.node_type {
             NodeType::Branch { children } => {
                 // Each branch should have keys + 1 children
                 if children.len() != current.keys.len() + 1 {
-                    return Err(TreeErr::KeyChildDesync);
+                    return Some(TreeErr::KeyChildDesync);
                 }
 
                 for (i, &child) in children.iter().enumerate() {
@@ -759,17 +759,17 @@ impl BpTree {
             NodeType::Leaf { pages, .. } => {
                 // Make sure leaf is at the proper depth
                 if depth != leaf_depth {
-                    return Err(TreeErr::LeafBadDepth);
+                    return Some(TreeErr::LeafBadDepth);
                 }
 
                 // Ensure leaves have the same number of keys and values
                 if pages.len() != current.keys.len() {
-                    return Err(TreeErr::KeyValueDesync);
+                    return Some(TreeErr::KeyValueDesync);
                 }
 
             },
         }
-        Ok(())
+        None
     }
 }
 

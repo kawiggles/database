@@ -1,5 +1,5 @@
 use crate::store::{Store, value::Value};
-use crate::logs::{Result, DbError};
+use crate::logs::{UserErr, DbErr, StoreErr};
 
 use log::{info};
 use std::sync::RwLock;
@@ -16,7 +16,7 @@ pub enum Query {
 
 impl Query {
     // This will eventually get replaced with sql parser
-    pub fn parse(input: &str) -> Result<Self> {
+    pub fn parse(input: &str) -> Result<Self, UserErr> {
         let args: Vec<&str> = input.trim().split_whitespace().collect();
         match args.as_slice() {
             ["GET", key] => {
@@ -30,14 +30,14 @@ impl Query {
             ["SET", key, val, type_tag] => {
                 info!("Input parsed as typed SET");
                 let value: Option::<Value> = match *type_tag {
-                    "int" => Some(Value::Int(val.parse::<isize>().map_err(|_| DbError::BadVal)?)),
-                    "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| DbError::BadVal)?)),
+                    "int" => Some(Value::Int(val.parse::<isize>().map_err(|_| UserErr::BadVal)?)),
+                    "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| UserErr::BadVal)?)),
                     "text" => Some(Value::Text(val.to_string())),
                     "blob" => {
-                        let bytes: Result<Vec<u8>> = val
+                        let bytes: Result<Vec<u8>, UserErr> = val
                             .trim_matches(&['[', ']'])
                             .split(',')
-                            .map(|s| s.parse::<u8>().map_err(|_| DbError::BadVal))
+                            .map(|s| s.parse::<u8>().map_err(|_| UserErr::BadVal))
                             .collect();
                         Some(Value::Blob(bytes?))
                     }
@@ -45,20 +45,20 @@ impl Query {
                 };
                 match value {
                     Some(x) => Ok(Query::Put { key: key.to_string(), value: x }),
-                    None => Err(DbError::BadVal),
+                    None => Err(UserErr::BadVal),
                 }
             },
             ["DEL", key] => Ok(Query::Del(key.to_string())),
-            _ => Err(DbError::BadCall), // TODO: rename to BadQuery
+            _ => Err(UserErr::BadQuery),
         }
     }
 
-    pub fn execute(self, db: &RwLock<Store>) -> Result<Value> {
+    pub fn execute(self, db: &RwLock<Store>) -> Result<Value, DbErr> {
         info!("Executing call");
         match self {
-            Query::Get(key) => db.read().unwrap().get(&key),
-            Query::Put { key, value } => db.write().unwrap().put(&key, value),
-            Query::Del(key) => db.write().unwrap().del(&key),
+            Query::Get(key) => db.read().map_err(|_| StoreErr::PoisonError)?.get(&key),
+            Query::Put { key, value } => db.write().map_err(|_| StoreErr::PoisonError)?.put(&key, value),
+            Query::Del(key) => db.write().map_err(|_| StoreErr::PoisonError)?.del(&key),
         }
     }
 }

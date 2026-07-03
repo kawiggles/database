@@ -1,4 +1,4 @@
-use crate::logs::{Result};
+use crate::logs::TcpErr;
 
 #[derive(Debug)]
 pub enum Response {
@@ -11,7 +11,7 @@ pub enum Response {
     AuthenticationOk,
     BackendKeyData {
         pid: i32,
-        key: Vec<u8>,
+        key: i32,
     },
     ParameterStatus {
         name: String,
@@ -19,14 +19,8 @@ pub enum Response {
     },
     // These are Normal mode responses
     ReadyForQuery(ServerState), // Technically also startup response
-    RowDescription {
-        field_count: i16,
-        fields: Vec<RowField>,
-    },
-    DataRow {
-        column_count: i16,
-        cells: Vec<Option<Vec<u8>>>,
-    },
+    RowDescription(Vec<RowField>),
+    DataRow(Vec<Option<Vec<u8>>>),
     CommandComplete(String), // Where string is command tag
 }
 
@@ -39,13 +33,28 @@ pub enum ServerState {
 
 #[derive(Debug)]
 pub struct RowField {
-    name: String,
-    table_id: i32,
-    _attr_num: i16,
-    data_type_id: i32,
-    data_type_size: i16,
-    type_mod: i32,
-    format: i16, // This is the different value type: 0 for text and 
+    pub name: String,
+    pub table_id: i32,
+    pub _attr_num: i16,
+    pub data_type_id: i32,
+    pub data_type_size: i16,
+    pub type_mod: i32,
+    pub format: FieldFormat,
+}
+
+#[derive(Debug)]
+pub enum FieldFormat {
+    Text = 0,
+    Binary = 1,
+}
+
+impl FieldFormat {
+    fn to_be_bytes(self) -> [u8; 2] {
+        match self {
+            Self::Text => return 0i16.to_be_bytes(),
+            Self::Binary => return 1i16.to_be_bytes(),
+        }
+    }
 }
 
 /* TODO: Server error messaging
@@ -57,15 +66,15 @@ enum ErrorFieldType {
 
 */
 
-pub fn encode(response: Response) -> Result<Vec<u8>> {
+pub fn encode(response: Response) -> Result<Vec<u8>, TcpErr> {
     match response {
         Response::ErrorResponse => Ok(enc_error_response()),
         Response::AuthenticationOk => Ok(enc_authentication_ok()),
-        Response::BackendKeyData { pid, key } => enc_backend_key_data(pid, key),
+        Response::BackendKeyData { pid, key } => Ok(enc_backend_key_data(pid, key)),
         Response::ReadyForQuery(state) => Ok(enc_ready_for_query(state)),
         Response::ParameterStatus { name, val } => enc_parameter_status(name, val),
-        Response::RowDescription { field_count, fields } => enc_row_description(field_count, fields),
-        Response::DataRow { column_count, cells } => enc_data_row(column_count, cells),
+        Response::RowDescription(fields) => enc_row_description(fields),
+        Response::DataRow(cells) => enc_data_row(cells),
         Response::CommandComplete(tag) => enc_command_complete(tag),
     }
 }
@@ -85,14 +94,13 @@ fn enc_authentication_ok() -> Vec<u8> {
     buf
 }
 
-fn enc_backend_key_data(pid: i32, key: Vec<u8>) -> Result<Vec<u8>> {
+fn enc_backend_key_data(pid: i32, key: i32) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::new();
-    let len = i32::try_from(key.len() + 8)?; // Should always work
     buf.push(b'K');
-    buf.extend(len.to_be_bytes());
-    buf.extend(pid.to_be_bytes()); // FUCK YEAH RUST!
-    buf.extend(key.iter());
-    Ok(buf)
+    buf.extend(12i32.to_be_bytes());
+    buf.extend(pid.to_be_bytes());
+    buf.extend(key.to_be_bytes());
+    buf
 }
 
 fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
@@ -107,25 +115,32 @@ fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
     buf
 }
 
-fn enc_parameter_status(name: String, val: String) -> Result<Vec<u8>> {
+fn enc_parameter_status(name: String, val: String) -> Result<Vec<u8>, TcpErr> {
+    let mut body: Vec<u8> = Vec::new();
+    body.extend_from_slice(name.as_bytes());
+    body.push(0);
+    body.extend_from_slice(val.as_bytes());
+    body.push(0);
+
     let mut buf: Vec<u8> = Vec::new();
-    let len = i32::try_from(name.len() + val.len() + 4)?;
     buf.push(b'S');
-    buf.extend(len.to_be_bytes());
-    buf.extend(name.into_bytes());
-    buf.extend(val.into_bytes());
+    buf.extend_from_slice(&((body.len() + 4) as i32).to_be_bytes());
+    buf.extend_from_slice(&body);
+
     Ok(buf)
 }
 
-fn enc_row_description(count: i16, fields: Vec<RowField>) -> Result<Vec<u8>> {
+fn enc_row_description(fields: Vec<RowField>) -> Result<Vec<u8>, TcpErr> {
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'T');
     buf.extend(0i32.to_be_bytes());
-    buf.extend(count.to_be_bytes());
+    buf.extend((fields.len() as i16).to_be_bytes());
 
     for field in fields {
         buf.extend(field.name.into_bytes());
+        buf.push(0);
         buf.extend(field.table_id.to_be_bytes());
+        buf.extend(field._attr_num.to_be_bytes());
         buf.extend(field.data_type_id.to_be_bytes());
         buf.extend(field.data_type_size.to_be_bytes());
         buf.extend(field.type_mod.to_be_bytes());
@@ -137,11 +152,11 @@ fn enc_row_description(count: i16, fields: Vec<RowField>) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn enc_data_row(count: i16, cells: Vec<Option<Vec<u8>>>) -> Result<Vec<u8>> {
+fn enc_data_row(cells: Vec<Option<Vec<u8>>>) -> Result<Vec<u8>, TcpErr> {
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'D');
     buf.extend(0i32.to_be_bytes());
-    buf.extend(count.to_be_bytes());
+    buf.extend((cells.len() as i16).to_be_bytes());
 
     for cell in cells {
         match cell {
@@ -159,11 +174,12 @@ fn enc_data_row(count: i16, cells: Vec<Option<Vec<u8>>>) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn enc_command_complete(tag: String) -> Result<Vec<u8>> {
+fn enc_command_complete(tag: String) -> Result<Vec<u8>, TcpErr> {
     let mut buf: Vec<u8> = Vec::new();
-    let len = i32::try_from(tag.len() + 4)?;
+    let len = i32::try_from(tag.len() + 5)?;
     buf.push(b'C');
     buf.extend(len.to_be_bytes());
     buf.extend(tag.into_bytes());
+    buf.push(0);
     Ok(buf)
 }

@@ -8,7 +8,7 @@ use std::thread;
 use std::io::{Read, Write};
 use log::{info};
 
-use crate::logs::{init_logs, Result};
+use crate::logs::{init_logs};
 use crate::store::Store;
 use crate::tcp::request::{decode_startup, decode_request};
 use crate::tcp::response::encode;
@@ -32,20 +32,24 @@ impl Drop for Server {
 
 // TODO: switch all the async out for tokio
 impl Server {
-    pub fn start() -> Result<Self> {
+    pub fn start() -> Self {
         init_logs();
 
         // TODO: add way to configure file selection
-        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE)?));
+        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE).unwrap_or_else(|err| {
+            panic!("Error opening database file: {err}");
+        })));
         info!("Database initialized");
 
         // TODO: add way to select where the server is being hosted
-        let listener = TcpListener::bind(DEFAULT_PORT)?;
+        let listener = TcpListener::bind(DEFAULT_PORT).unwrap_or_else(|err| {
+            panic!("Error binding server to port: {err}");
+        });
         info!("Server listening on port {}", DEFAULT_PORT);
-        Ok(Server {
+        Server {
             store: db,
             listener: listener,
-        })
+        }
     }
 
     pub fn run(self) {
