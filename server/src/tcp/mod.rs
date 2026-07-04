@@ -6,16 +6,16 @@ use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::io::{Read, Write};
-use log::{info};
+use log::{info, warn};
 
 use crate::logs::{init_logs};
 use crate::store::Store;
 use crate::tcp::request::{decode_startup, decode_request};
-use crate::tcp::response::encode;
+use crate::tcp::response::{encode, Response};
 use crate::tcp::translation::{translate, translate_startup};
 
 pub const DEFAULT_FILE: &str = "kawika.db";
-pub const DEFAULT_PORT: &str = "127.0.0.1:55555";
+pub const DEFAULT_PORT: &str = "127.0.0.1:5432";
 
 pub struct Server {
     store: Arc<RwLock<Store>>,
@@ -35,6 +35,11 @@ impl Server {
     pub fn start() -> Self {
         init_logs();
 
+        ctrlc::set_handler(move || {
+            info!("Shutting down from ctrlc");
+            std::process::exit(0);
+        }).unwrap(); // Probably should handle this at some point
+
         // TODO: add way to configure file selection
         let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE).unwrap_or_else(|err| {
             panic!("Error opening database file: {err}");
@@ -46,6 +51,7 @@ impl Server {
             panic!("Error binding server to port: {err}");
         });
         info!("Server listening on port {}", DEFAULT_PORT);
+
         Server {
             store: db,
             listener: listener,
@@ -58,9 +64,12 @@ impl Server {
         for stream in self.listener.incoming() {
             let db = Arc::clone(&self.store);
             thread::spawn(move || {
+                info!("Connection initialized, started thread");
                 handle_connection(stream.unwrap(), db);
             });
         }
+
+        warn!("Shutting down server...");
     }
 }
 
@@ -77,9 +86,17 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
     loop {
         // Same schtick with error handling here
         let request = decode_request(&mut stream).unwrap();
-        let responses = translate(request, &mut db).unwrap();
+        let responses = translate(request, &mut db).unwrap_or_else(|_| {
+            // TODO: Actually write errors to client (no unwrap, pass the Result)
+            vec![Response::ErrorResponse]
+        });
+
+        if let Response::Terminate = responses[0] {
+            warn!("Client terminated session");
+            break;
+        }
+
         for response in responses {
-            // Inner unwrap will determine whether an errorresponse is written
             stream.write_all(encode(response).unwrap().as_slice()).unwrap();
         }
     }

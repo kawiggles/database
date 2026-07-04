@@ -10,6 +10,7 @@ use std::os::unix::fs::FileExt;
 use std::io::{Write, Read, Seek, SeekFrom, BufReader};
 use std::fmt;
 use std::collections::HashMap;
+use log::{error, info};
 
 // Pager Constants
 //__________________________________________________________________________________________________
@@ -369,6 +370,16 @@ impl Pager {
 
         new_dbheader.write(&mut self.file)?;
         Ok(())
+    }
+}
+
+impl Drop for Pager {
+    fn drop(&mut self) {
+        if let Err(e) = self.flush() {
+            error!("Failed to flush pager on shutdown: {}", e);
+        } else {
+            info!("Wrote pager to file");
+        }
     }
 }
 

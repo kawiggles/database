@@ -1,4 +1,5 @@
 use crate::logs::TcpErr;
+use log::{info};
 
 #[derive(Debug)]
 pub enum Response {
@@ -22,6 +23,7 @@ pub enum Response {
     RowDescription(Vec<RowField>),
     DataRow(Vec<Option<Vec<u8>>>),
     CommandComplete(String), // Where string is command tag
+    Terminate,
 }
 
 #[derive(Debug)]
@@ -76,10 +78,12 @@ pub fn encode(response: Response) -> Result<Vec<u8>, TcpErr> {
         Response::RowDescription(fields) => enc_row_description(fields),
         Response::DataRow(cells) => enc_data_row(cells),
         Response::CommandComplete(tag) => enc_command_complete(tag),
+        Response::Terminate => Ok(vec![]),
     }
 }
 
 fn enc_error_response() -> Vec<u8> {
+    info!("Encoding error response");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'E');
     buf.extend(4i32.to_be_bytes());
@@ -87,6 +91,7 @@ fn enc_error_response() -> Vec<u8> {
 }
 
 fn enc_authentication_ok() -> Vec<u8> {
+    info!("Encoding authentication ok");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'R');
     buf.extend(8i32.to_be_bytes());
@@ -95,6 +100,7 @@ fn enc_authentication_ok() -> Vec<u8> {
 }
 
 fn enc_backend_key_data(pid: i32, key: i32) -> Vec<u8> {
+    info!("Encoding backend key data");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'K');
     buf.extend(12i32.to_be_bytes());
@@ -104,6 +110,7 @@ fn enc_backend_key_data(pid: i32, key: i32) -> Vec<u8> {
 }
 
 fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
+    info!("Encoding ready for query");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'Z');
     buf.extend(5i32.to_be_bytes());
@@ -116,6 +123,7 @@ fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
 }
 
 fn enc_parameter_status(name: String, val: String) -> Result<Vec<u8>, TcpErr> {
+    info!("Encoding parameter status: {}, {}", name, val);
     let mut body: Vec<u8> = Vec::new();
     body.extend_from_slice(name.as_bytes());
     body.push(0);

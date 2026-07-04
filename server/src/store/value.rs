@@ -14,11 +14,11 @@ impl Value {
     pub fn text(s: &str) -> Self { Value::Text(s.to_owned()) }
     pub fn blob(b: Vec<u8>) -> Self { Value::Blob(b) }
 
-    pub fn print(self) -> String {
+    pub fn print(&self) -> String {
         match self {
             Value::Int(x) => x.to_string(),
             Value::Float(x) => x.to_string(),
-            Value::Text(x) => x,
+            Value::Text(x) => x.to_string(),
             Value::Blob(x) => format!("[{}]", x.iter()
                 .map(|byte| byte.to_string())
                 .collect::<Vec<String>>()

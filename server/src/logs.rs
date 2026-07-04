@@ -35,6 +35,8 @@ pub enum TcpErr {
     FromUtf8Error(#[from] std::string::FromUtf8Error),
     #[error("I/O error occurred: {0}")]
     IOErr(#[from] io::Error),
+    #[error("Client disconnected")]
+    ClientDisconnected
 }
 
 #[derive(Error, Debug)]
