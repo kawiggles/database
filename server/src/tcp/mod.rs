@@ -3,9 +3,10 @@ pub mod response;
 pub mod translation;
 
 use std::net::TcpListener;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
-use std::io::{Read, Write};
+use std::time::Duration;
+use std::io::{Read, Write, ErrorKind};
 use log::{info, warn};
 
 use crate::logs::{init_logs};
@@ -13,6 +14,7 @@ use crate::store::Store;
 use crate::tcp::request::{decode_startup, decode_request};
 use crate::tcp::response::{encode, Response};
 use crate::tcp::translation::{translate, translate_startup};
+use crate::cli::run_cli;
 
 pub const DEFAULT_FILE: &str = "kawika.db";
 pub const DEFAULT_PORT: &str = "127.0.0.1:5432";
@@ -24,7 +26,6 @@ pub struct Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
-        info!("Server stopping!");
         let mut store = self.store.write().unwrap();
         store.exit().unwrap()
     }
@@ -54,17 +55,46 @@ impl Server {
     }
 
     pub fn run(self) {
-        // TODO: add thread for local cli interfacing
+        let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
 
-        for stream in self.listener.incoming() {
-            let db = Arc::clone(&self.store);
-            thread::spawn(move || {
-                info!("Connection initialized, started thread");
-                handle_connection(stream.unwrap(), db);
-            });
+        let tx_ctrlc = shutdown_tx.clone();
+        ctrlc::set_handler(move || {
+            warn!("ctrl_c registered...");
+            let _ = tx_ctrlc.send(());
+        }).unwrap(); // TODO: Replace unwrap
+
+        let tx_cli = shutdown_tx.clone();
+        let cli_db = Arc::clone(&self.store);
+        thread::spawn(move || {
+            loop {
+                if run_cli(cli_db.as_ref()) == false {
+                    let _ = tx_cli.send(());
+                    break;
+                }
+            }
+        });
+
+        self.listener.set_nonblocking(true).unwrap(); // TODO: Replace unwrap()
+        loop {
+            if shutdown_rx.try_recv().is_ok() {
+                warn!("Shutting down server...");
+                break;
+            }
+            
+            match self.listener.accept() {
+                Ok((stream, _)) => {
+                    let db = Arc::clone(&self.store);
+                    thread::spawn(move || {
+                        info!("Connection initialized, started thread");
+                        handle_connection(stream, db); // TODO: Replace unwrap()
+                    });
+                },
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(err) => panic!("Error encountered: {err}"),
+            }
         }
-
-        warn!("Shutting down server...");
     }
 }
 

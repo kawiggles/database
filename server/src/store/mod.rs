@@ -45,6 +45,8 @@ impl Store {
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbErr> {
+        // TODO: Eliminate value limits
+        // This is in place because of how keys are encoded by bincode, see pager
         if key.len() > 8 {
             return Err(UserErr::LongKey)?
         }

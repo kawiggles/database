@@ -23,6 +23,7 @@ pub fn translate_startup(_message: StartupMessage, _db: &mut Arc<RwLock<Store>>)
     ]
 }
 
+// TODO: pass CommandComplete tag from parse to this function
 pub fn translate(request: Request, db: &mut Arc<RwLock<Store>>) -> Result<Vec<Response>, DbErr> {
     match request {
         Request::Query(query) => {
