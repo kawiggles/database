@@ -18,7 +18,7 @@ pub const DEFAULT_FILE: &str = "kawika.db";
 pub const DEFAULT_PORT: &str = "127.0.0.1:5432";
 
 pub struct Server {
-    store: Arc<RwLock<Store>>,
+    pub store: Arc<RwLock<Store>>,
     listener: TcpListener,
 }
 
@@ -34,11 +34,6 @@ impl Drop for Server {
 impl Server {
     pub fn start() -> Self {
         init_logs();
-
-        ctrlc::set_handler(move || {
-            info!("Shutting down from ctrlc");
-            std::process::exit(0);
-        }).unwrap(); // Probably should handle this at some point
 
         // TODO: add way to configure file selection
         let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE).unwrap_or_else(|err| {

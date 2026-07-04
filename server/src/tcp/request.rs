@@ -1,4 +1,3 @@
-use crate::logs::StoreErr::IOErr;
 use crate::logs::{TcpErr, DbErr};
 use crate::query::Query;
 use log::{info, warn};

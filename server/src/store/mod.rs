@@ -16,7 +16,7 @@ pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
 // Buffer pool for database, holds cache?
 pub struct Store {
     datamap: BpTree,
-    pager: Pager,
+    pub pager: Pager,
 }
 
 impl Store {
