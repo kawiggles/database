@@ -18,6 +18,7 @@ This is a fairly typical database, essentially copying directly from MySQL in th
 + log/simplelog
 + tempfile
 + thiserror
++ ctrlc
 thiserror and log/simplelog are likely to be permanent inclusions. tempfile is used only for testing, and bincode-next will eventually be depreciated in favor of a more efficient custom encoding and decoding system.
 
 ### Organizational Data Structure
@@ -52,12 +53,10 @@ The project has slowly added features as I've learned about Rust. Here's a rough
 + 6/14/26: pager implemented
 + 6/19/26: basic networking implementation
 + 6/21/26: basic multithreading implementation 
++ 7/4/26: basic version of postgresql protocol
 
 ### Known Bugs
-+ Running EXIT
-    + On the server side, it doesn't actually shut down the server because the listener is still active
-    + On the client side, this sends a call to the server before shutting down
-+ The HELP command is nonexistent in the Go client and incomplete for the server
++ The server does not save properly if ctrlc is used to quit
 
 ### Future Plans
 Because this project is for learning, it will be under constant, slow development for pretty much the entirety of its existence. I aim to add features that will help me learn about programming and systems architecture. If I'm lucky, this project may one day end up as a functional database. Below is a list of features I plan to implement at some point in the future, in order of priority (I don't know how to do abstract syntax trees yet).
