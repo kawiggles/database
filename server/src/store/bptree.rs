@@ -98,6 +98,7 @@ impl BpTree {
                     return_val = Some(data.value);
                     page.keys[i] = key.to_string();
                     pages[i] = data_id;
+                    pager.free(pages[i])?;
                 },
                 Err(i) => {
                     page.keys.insert(i, key.to_string());

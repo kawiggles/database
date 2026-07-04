@@ -351,6 +351,7 @@ impl Pager {
         write_page(&mut self.file, id, &buf)?;
 
         self.free_list.push(id);
+        self.dirty_cache.remove(&id);
         Ok(())
     }
 
