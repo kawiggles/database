@@ -180,7 +180,7 @@ impl BpTree {
 
     // Holy fucking shit (Tool reference)
     pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Result<Value, DbErr> {
-        let mut return_val = Err(UserErr::NoValue)?;
+        let mut return_val: Option<Value> = None;
         // Handle empty tree case
         let Some(root) = self.root else {
             return Err(UserErr::NoRoot)?;
@@ -215,7 +215,7 @@ impl BpTree {
                 if let NodeType::Leaf { pages , .. } = &mut page.node_type {
                     let data: DataPage = Page::read(pager, pages.remove(i))?;
                     pager.free(data.page_id())?;
-                    return_val = Ok(data.value);
+                    return_val = Some(data.value);
                 }
             },
             Err(_) => return Err(UserErr::NoValue)?,
@@ -482,7 +482,11 @@ impl BpTree {
             }
         }
         pager.flush()?;
-        return_val
+        if let Some(val) = return_val {
+            Ok(val)
+        } else {
+            Err(UserErr::BadDel)?
+        }
     }
 }
 
