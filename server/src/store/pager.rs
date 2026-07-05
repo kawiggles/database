@@ -1,5 +1,4 @@
 use crate::VERSION;
-use crate::store::{DEFAULT_ORDER};
 use crate::store::value::Value;
 use crate::logs::{StoreErr};
 use crate::tcp::DEFAULT_FILE;
@@ -10,6 +9,7 @@ use std::os::unix::fs::FileExt;
 use std::io::{Write, Read, Seek, SeekFrom, BufReader};
 use std::fmt;
 use std::collections::HashMap;
+use log::{info};
 
 // Pager Constants
 //__________________________________________________________________________________________________
@@ -234,7 +234,8 @@ struct FreeListRead {
 // TODO: write logs...
 impl Pager {
     // Function to create a new database file if none exists
-    pub fn new(path: &str) -> Result<(Self, Option<PageId>, usize), StoreErr> {
+    pub fn new(path: &str, new_order: usize) -> Result<(Self, Option<PageId>, usize), StoreErr> {
+        info!("Creating new kawika.db file at path {}", path);
         let filepath = {
             if path.is_empty() {
                 DEFAULT_FILE
@@ -248,8 +249,7 @@ impl Pager {
             version: VERSION,
             page_size: PAGE_SIZE,
             root_page: None, // None means no root
-            // TODO: add way to change db order (requires variable page size)
-            order: DEFAULT_ORDER,
+            order: new_order,
             num_pages: 1,
             free_list_head: None,
         };
@@ -271,6 +271,7 @@ impl Pager {
 
     // Function to open database if one exists
     pub fn open(path: &str) -> Result<(Self, Option<PageId>, usize), StoreErr> {
+        info!("Opening existing kawika.db file at path {}", path);
         // TODO: if no path, use default file (consider Option<&str>)
         let mut file = OpenOptions::new()
             .read(true)
@@ -304,7 +305,9 @@ impl Pager {
 
     // Clear out the cache and write it to disk
     pub fn flush(&mut self) -> Result<(), StoreErr> {
+        info!("Flushing pager...");
         let cache = std::mem::take(&mut self.dirty_cache);
+
         for (_, page) in cache {
             let file = &mut self.file;
             let mut new_page = [0u8; PAGE_SIZE];
@@ -357,6 +360,7 @@ impl Pager {
 
     // Write a new DbHeader and close the pager. 
     pub fn close(&mut self, root: Option<PageId>, order: usize) -> Result<(), StoreErr> {
+        info!("Pager is closing...");
         self.flush()?;
         let new_dbheader = DbHeader {
             magic: MAGIC,
@@ -386,7 +390,7 @@ mod tests {
     fn pager_new() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (pager, root, _) = Pager::new(path).unwrap();
+        let (pager, root, _) = Pager::new(path, 4).unwrap();
         assert!(root.is_none());
         assert_eq!(pager.num_pages, 1);
     }
@@ -395,7 +399,7 @@ mod tests {
     fn pager_open() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        Pager::new(path).unwrap();
+        Pager::new(path, 4).unwrap();
 
         let (pager, root, _) = Pager::open(path).unwrap();
         assert!(root.is_none());
@@ -406,7 +410,7 @@ mod tests {
     fn pager_open_and_close() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (mut pager, _, order) = Pager::new(path).unwrap();
+        let (mut pager, _, order) = Pager::new(path, 4).unwrap();
 
         let page_id = pager.alloc();
         let new_page = IndexPage {
@@ -478,7 +482,7 @@ mod tests {
     fn pager_alloc() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (mut pager, _, _) = Pager::new(path).unwrap();
+        let (mut pager, _, _) = Pager::new(path, 4).unwrap();
         let id1 = pager.alloc();
         let id2 = pager.alloc();
         assert!(id2.0 > id1.0);
@@ -489,7 +493,7 @@ mod tests {
     fn pager_write_read_page() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (mut pager, _, _) = Pager::new(path).unwrap();
+        let (mut pager, _, _) = Pager::new(path, 4).unwrap();
         let page_id = pager.alloc();
 
         let new_page = IndexPage {
@@ -516,7 +520,7 @@ mod tests {
     fn pager_flush() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (mut pager, _, _) = Pager::new(path).unwrap();
+        let (mut pager, _, _) = Pager::new(path, 4).unwrap();
 
         let id1 = pager.alloc();
         let page1 = IndexPage {
@@ -545,7 +549,7 @@ mod tests {
     fn pager_free_and_add() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (mut pager, _, _) = Pager::new(path).unwrap();
+        let (mut pager, _, _) = Pager::new(path, 4).unwrap();
 
         let id1 = pager.alloc();
         let page1 = DataPage {

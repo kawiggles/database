@@ -17,6 +17,7 @@ use crate::tcp::translation::{translate, translate_startup};
 use crate::cli::run_cli;
 
 pub const DEFAULT_FILE: &str = "kawika.db";
+pub const DEFAULT_ORDER: usize = 150;
 pub const DEFAULT_PORT: &str = "127.0.0.1:5432";
 
 pub struct Server {
@@ -36,10 +37,9 @@ impl Server {
     pub fn start() -> Self {
         init_logs();
 
-        // TODO: add way to configure file selection
-        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE).unwrap_or_else(|err| {
-            panic!("Error opening database file: {err}");
-        })));
+        // TODO: add way to configure file and order selection
+        // TODO: better handle unwrap
+        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE, DEFAULT_ORDER).unwrap()));
         info!("Database initialized");
 
         // TODO: add way to select where the server is being hosted
@@ -66,6 +66,7 @@ impl Server {
         let tx_cli = shutdown_tx.clone();
         let cli_db = Arc::clone(&self.store);
         thread::spawn(move || {
+            info!("Starting CLI");
             loop {
                 if run_cli(cli_db.as_ref()) == false {
                     let _ = tx_cli.send(());
@@ -109,10 +110,8 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
     }
     
     loop {
-        // Same schtick with error handling here
-        let request = decode_request(&mut stream).unwrap();
+        let request = decode_request(&mut stream).unwrap(); // This one
         let responses = translate(request, &mut db).unwrap_or_else(|_| {
-            // TODO: Actually write errors to client (no unwrap, pass the Result)
             vec![Response::ErrorResponse]
         });
 
@@ -122,7 +121,7 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
         }
 
         for response in responses {
-            stream.write_all(encode(response).unwrap().as_slice()).unwrap();
+            stream.write_all(encode(response).unwrap().as_slice()).unwrap(); // and finally this one
         }
     }
 }
