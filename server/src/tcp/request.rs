@@ -14,19 +14,20 @@ pub enum Request {
 }
 
 pub fn decode_startup<T: Read + Write>(stream: &mut T) -> Result<StartupMessage, TcpErr> {
-    info!("Decoding client startup message");
+    info!(" - Decoding client startup message");
     let len = read_i32(stream)?;
     let code = read_i32(stream)?;
+    info!("   - Code is {}", code);
 
     match code {
         // SSL negotiation, WAYYYY down the line
         80877103 => {
-            info!("Negotiating SSL with client");
+            info!("   - Negotiating SSL with client");
             stream.write_all(&[b'N'])?;
             decode_startup(stream)
         },
         196608 => {
-            info!("Postgresql client is using protocol version 3.0");
+            info!("   - Postgresql client is using protocol version 3.0");
             // TODO: Parse user parameter
             let mut params = vec![0u8; (len - 8) as usize];
             stream.read_exact(&mut params)?;
@@ -34,33 +35,27 @@ pub fn decode_startup<T: Read + Write>(stream: &mut T) -> Result<StartupMessage,
             Ok(StartupMessage(code as usize))
         },
         _ => {
-            warn!("Error decoding startup message");
+            warn!("   - Error decoding startup message");
             Err(TcpErr::StartupMessageError)
         },
     }
 }
 
 pub fn decode_request<T: Read>(stream: &mut T) -> Result<Request, DbErr> {
-    info!("Decoding client request");
+    info!(" - Decoding client request");
     let message_type = read_char(stream)?;
-    info!("Message type is {}", message_type);
+    info!("   - Message type is {}", message_type);
 
     let len = read_i32(stream)?;
     let contents = read_contents(stream, len)?;
-    info!("Message contents are {}", contents);
+    info!("   - Message contents are {}", contents);
 
     match message_type {
         // TODO: replace with updated querying system
-        'Q' => {
-            info!("Request is 'Q'");
-            Ok(Request::Query(Query::parse(&contents)?))
-        },
-        'X' => {
-            info!("Request is 'X', terminating connection...");
-            Ok(Request::Termination)
-        },
+        'Q' => Ok(Request::Query(Query::parse(&contents)?)),
+        'X' => Ok(Request::Termination),
         _ => {
-            warn!("Type not recognized {}", message_type);
+            warn!("   - Type not recognized {}", message_type);
             Err(TcpErr::BadMessageType)?
         }
     }

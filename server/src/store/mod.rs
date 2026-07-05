@@ -26,10 +26,10 @@ impl Store {
             .unwrap_or(false);
 
         let (pager, root, order) = if is_initialized {
-            info!("Opening existing database at {}", filepath);
+            info!(" - Opening existing database at {}", filepath);
             Pager::open(filepath)?
         } else {
-            warn!("Database not found at path, creating new database at {}", filepath);
+            warn!(" - Database not found at path, creating new database at {}", filepath);
             Pager::new(filepath, new_order)?
         };
         
@@ -83,13 +83,13 @@ impl Store {
         match &page.node_type {
             NodeType::Leaf { pages: _ , next } => {
                 let next_str = match next {
-                    Some(idx) => format!(" -> [{}]", idx),
+                    Some(idx) => format!(" -> (id: {})", idx),
                     None => " -> []".to_string(),
                 };
-                println!("[Leaf: {}] keys: {:?}{}", page_id, page.keys, next_str);
+                println!("Leaf(id: {}, keys: {:?}){}", page_id, page.keys, next_str);
             },
             NodeType::Branch { children } => {
-                println!("[Branch: {}] keys: {:?}", page_id, page.keys);
+                println!("Branch(id: {}, keys: {:?})", page_id, page.keys);
                 let new_prefix = format!("{}{}", prefix, if is_last { "    " } else {"|   "});
                 for (i, &child_idx) in children.iter().enumerate() {
                     let child_is_last = i == children.len() - 1;
@@ -107,7 +107,7 @@ impl Store {
             return;
         };
 
-        println!("Tree Structure: (Root: {})", root);
+        println!("Root (id: {})", root);
         self.print_page(root, "", true);
         println!();
     }

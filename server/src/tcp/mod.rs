@@ -36,17 +36,17 @@ impl Drop for Server {
 impl Server {
     pub fn start() -> Self {
         init_logs();
+        info!("Starting server...");
 
         // TODO: add way to configure file and order selection
         // TODO: better handle unwrap
         let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE, DEFAULT_ORDER).unwrap()));
-        info!("Database initialized");
+        info!(" - Database initialized");
 
         // TODO: add way to select where the server is being hosted
-        let listener = TcpListener::bind(DEFAULT_PORT).unwrap_or_else(|err| {
-            panic!("Error binding server to port: {err}");
-        });
-        info!("Server listening on port {}", DEFAULT_PORT);
+        // TODO: better handle unwrap
+        let listener = TcpListener::bind(DEFAULT_PORT).unwrap();
+        info!(" - Server listening on port {}", DEFAULT_PORT);
 
         Server {
             store: db,
@@ -86,8 +86,8 @@ impl Server {
                 Ok((stream, _)) => {
                     let db = Arc::clone(&self.store);
                     thread::spawn(move || {
-                        info!("Connection initialized, started thread");
-                        handle_connection(stream, db); // TODO: Replace unwrap()
+                        info!("Connection initialized, starting thread");
+                        handle_connection(stream, db);
                     });
                 },
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
@@ -116,7 +116,7 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
         });
 
         if let Response::Terminate = responses[0] {
-            warn!("Client terminated session");
+            warn!(" - Terminating session...\n");
             break;
         }
 

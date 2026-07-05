@@ -231,11 +231,9 @@ struct FreeListRead {
     next_free: Option<PageId>,
 }
 
-// TODO: write logs...
 impl Pager {
     // Function to create a new database file if none exists
     pub fn new(path: &str, new_order: usize) -> Result<(Self, Option<PageId>, usize), StoreErr> {
-        info!("Creating new kawika.db file at path {}", path);
         let filepath = {
             if path.is_empty() {
                 DEFAULT_FILE
@@ -271,8 +269,6 @@ impl Pager {
 
     // Function to open database if one exists
     pub fn open(path: &str) -> Result<(Self, Option<PageId>, usize), StoreErr> {
-        info!("Opening existing kawika.db file at path {}", path);
-        // TODO: if no path, use default file (consider Option<&str>)
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -305,7 +301,6 @@ impl Pager {
 
     // Clear out the cache and write it to disk
     pub fn flush(&mut self) -> Result<(), StoreErr> {
-        info!("Flushing pager...");
         let cache = std::mem::take(&mut self.dirty_cache);
 
         for (_, page) in cache {
@@ -328,7 +323,7 @@ impl Pager {
         }
     }
 
-    // Delete a page
+    // Delete a page, cache invalidation issues happen here
     pub fn free(&mut self, id: PageId) -> Result<(), StoreErr> {
         if let Some(prev_id) = self.free_list.last().copied() {
             let mut buf = [0u8; PAGE_SIZE];
@@ -360,7 +355,7 @@ impl Pager {
 
     // Write a new DbHeader and close the pager. 
     pub fn close(&mut self, root: Option<PageId>, order: usize) -> Result<(), StoreErr> {
-        info!("Pager is closing...");
+        info!(" - Pager is closing...");
         self.flush()?;
         let new_dbheader = DbHeader {
             magic: MAGIC,

@@ -17,9 +17,10 @@ pub const fn encode_version(version: (u32, u32, u32)) -> u32 {
 pub fn run() {
     let server = Server::start();
 
-    info!("Server started, running server");
+    info!("Server setup complete, running server");
     server.run();
 
     info!("Program exiting...");
+    println!("Program exiting...");
 }
 

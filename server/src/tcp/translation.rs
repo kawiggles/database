@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 use log::{info};
 
 pub fn translate_startup(_message: StartupMessage, _db: &mut Arc<RwLock<Store>>) -> Vec<Response> {
-    info!("Generating startup message response");
+    info!(" - Generating startup message response");
     // TODO: handle potential error instead of just saying "yeah we good"
     vec![
         Response::AuthenticationOk,
@@ -29,7 +29,7 @@ pub fn translate(request: Request, db: &mut Arc<RwLock<Store>>) -> Result<Vec<Re
         Request::Query(query) => {
             // Need to come up with different classes of errors
             let val: Value = query.execute(db.as_ref())?;
-            info!("Return value is {}", val.print());
+            info!(" - Return value is {}", val.print());
             Ok(vec![
                 Response::RowDescription(
                     vec![RowField{

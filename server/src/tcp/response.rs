@@ -83,7 +83,7 @@ pub fn encode(response: Response) -> Result<Vec<u8>, TcpErr> {
 }
 
 fn enc_error_response() -> Vec<u8> {
-    info!("Encoding error response");
+    info!(" - Encoding error response");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'E');
     buf.extend(4i32.to_be_bytes());
@@ -91,7 +91,7 @@ fn enc_error_response() -> Vec<u8> {
 }
 
 fn enc_authentication_ok() -> Vec<u8> {
-    info!("Encoding authentication ok");
+    info!(" - Encoding authentication ok");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'R');
     buf.extend(8i32.to_be_bytes());
@@ -100,7 +100,7 @@ fn enc_authentication_ok() -> Vec<u8> {
 }
 
 fn enc_backend_key_data(pid: i32, key: i32) -> Vec<u8> {
-    info!("Encoding backend key data");
+    info!(" - Encoding backend key data");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'K');
     buf.extend(12i32.to_be_bytes());
@@ -110,7 +110,7 @@ fn enc_backend_key_data(pid: i32, key: i32) -> Vec<u8> {
 }
 
 fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
-    info!("Encoding ready for query");
+    info!(" - Encoding ready for query");
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'Z');
     buf.extend(5i32.to_be_bytes());
@@ -123,7 +123,7 @@ fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
 }
 
 fn enc_parameter_status(name: String, val: String) -> Result<Vec<u8>, TcpErr> {
-    info!("Encoding parameter status: {}, {}", name, val);
+    info!(" - Encoding parameter status: {}, {}", name, val);
     let mut body: Vec<u8> = Vec::new();
     body.extend_from_slice(name.as_bytes());
     body.push(0);

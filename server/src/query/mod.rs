@@ -17,18 +17,22 @@ pub enum Query {
 impl Query {
     // This will eventually get replaced with sql parser
     pub fn parse(input: &str) -> Result<Self, UserErr> {
-        let args: Vec<&str> = input.trim().split_whitespace().collect();
+        let args: Vec<&str> = input
+            .trim()
+            .trim_end_matches(';')
+            .split_whitespace()
+            .collect();
         match args.as_slice() {
             ["GET", key] => {
-                info!("Input parsed as GET");
+                info!(" - Query parsed as GET");
                 Ok(Query::Get(key.to_string()))
             },
             ["SET", key, val] => {
-                info!("Input parsed as SET");
+                info!(" - Query parsed as SET");
                 Ok(Query::Put { key: key.to_string(), value: Value::Text(val.to_string()) })
             },
             ["SET", key, val, type_tag] => {
-                info!("Input parsed as typed SET");
+                info!(" - Query parsed as typed SET");
                 let value: Option::<Value> = match *type_tag {
                     "int" => Some(Value::Int(val.parse::<isize>().map_err(|_| UserErr::BadVal)?)),
                     "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| UserErr::BadVal)?)),
@@ -48,13 +52,16 @@ impl Query {
                     None => Err(UserErr::BadVal),
                 }
             },
-            ["DEL", key] => Ok(Query::Del(key.to_string())),
+            ["DEL", key] => {
+                info!(" - Query parsed as DEL");
+                Ok(Query::Del(key.to_string()))
+            },
             _ => Err(UserErr::BadQuery),
         }
     }
 
     pub fn execute(self, db: &RwLock<Store>) -> Result<Value, DbErr> {
-        info!("Executing call");
+        info!(" - Executing call");
         match self {
             Query::Get(key) => db.read().map_err(|_| StoreErr::PoisonError)?.get(&key),
             Query::Put { key, value } => db.write().map_err(|_| StoreErr::PoisonError)?.put(&key, value),

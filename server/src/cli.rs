@@ -10,7 +10,7 @@ pub fn run_cli(db: &RwLock<Store>) -> bool {
     stdout().flush().unwrap();
     let mut input = String::new();
     stdin().read_line(&mut input).unwrap(); // Maybe handle this? but shouldn't happen
-    info!("CLI input gotten as {}", input.trim());
+    info!("CLI input received");
 
     let cli = parse_cli(&input);
     if let Cli::Stop = cli {
@@ -38,57 +38,57 @@ enum Cli {
 }
 
 fn parse_cli(input: &str) -> Cli {
-    let args: Vec<&str> = input.split_whitespace().collect();
+    let args: Vec<&str> = input.trim().split_whitespace().collect();
 
     match args[0] {
         "print" => {
             if args.len() < 2 {
-                warn!("Cli command missing argument");
+                warn!(" - Cli command missing argument");
                 println!("Cli command missing argument");
                 return Cli::Unknown;
             }
 
             match args[1] {
                 "tree" => {
-                    info!("Cli command parsed as 'print tree'...");
+                    info!(" - Cli command parsed as 'print tree'...");
                     Cli::PrintTree
                 },
                 _ => {
-                    warn!("Cli command not recognized");
+                    warn!(" - Cli command not recognized");
                     println!("Cli command not recognized");
                     Cli::Unknown
                 }
             }
         },
         "validate" => {
-            info!("Cli comand parsed as 'validate'...");
+            info!(" - Cli comand parsed as 'validate'...");
             Cli::ValidateTree
         },
         "flush" => {
-            info!("Cli command parsed as 'flush'...");
+            info!(" - Cli command parsed as 'flush'...");
             Cli::FlushPager
         },
         "get" => {
             if args.len() < 2 {
-                warn!("Cli command missing argument");
+                warn!(" - Cli command missing argument");
                 println!("Cli command missing argument");
                 return Cli::Unknown;
             }
 
             let key: String = args[1].to_string();
-            info!("Cli command parsed as 'get {}'", key);
+            info!(" - Cli command parsed as 'get {}'", key);
             Cli::Get(key)
         },
         "set" => {
             if args.len() < 3 {
-                warn!("Cli command missing argument");
+                warn!(" - Cli command missing argument");
                 println!("Cli command missing argument");
                 return Cli::Unknown;
             }
 
             let key = args[1].to_string();
             let val = args[2];
-            info!("Cli command parsed as 'set {} {}'", key, val);
+            info!(" - Cli command parsed as 'set {} {}'", key, val);
             Cli::Set {
                 key: key,
                 value: Value::text(val),
@@ -96,35 +96,36 @@ fn parse_cli(input: &str) -> Cli {
         },
         "del" => {
             if args.len() < 2 {
-                warn!("Cli command missing argument");
+                warn!(" - Cli command missing argument");
                 println!("Cli command missing argument");
                 return Cli::Unknown;
             }
 
             let key = args[1].to_string();
-            info!("Cli command parsed as 'del {}'", key);
+            info!(" - Cli command parsed as 'del {}'", key);
             Cli::Del(key)
         },
         "stop" => {
-            warn!("Command to stop server received...");
+            warn!(" - Command to stop server received...");
             Cli::Stop
         },
         "help" => {
-            info!("Cli command parsed as 'help'");
+            info!(" - Cli command parsed as 'help'");
             Cli::Help
         },
         "" => {
-            warn!("No input detected, probably an error with read_line");
+            warn!(" - No input detected, probably an error with read_line");
             Cli::Unknown
         },
         _ => {
-            warn!("Command unrecognized");
+            warn!(" - Command unrecognized");
             Cli::Unknown
         }
     }
 }
 
 fn exec_cli(cli: Cli, db: &RwLock<Store>) {
+    info!(" - Executing command\n");
     match cli {
         Cli::PrintTree => db.read().unwrap().print_tree(),
         Cli::ValidateTree => {
