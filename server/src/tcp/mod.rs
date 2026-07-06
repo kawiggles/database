@@ -111,8 +111,8 @@ fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>)
     
     loop {
         let request = decode_request(&mut stream).unwrap(); // This one
-        let responses = translate(request, &mut db).unwrap_or_else(|_| {
-            vec![Response::ErrorResponse]
+        let responses = translate(request, &mut db).unwrap_or_else(|e| {
+            vec![e.gen_error_response()] 
         });
 
         if let Response::Terminate = responses[0] {

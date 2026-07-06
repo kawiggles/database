@@ -5,6 +5,8 @@ use bincode_next;
 use log::LevelFilter;
 use simplelog::{WriteLogger, Config};
 
+use crate::tcp::response::Response;
+
 pub fn init_logs() {
     WriteLogger::init(
         LevelFilter::Info,
@@ -78,5 +80,10 @@ pub enum UserErr {
 impl From<DbErr> for io::Error {
     fn from(err: DbErr) -> Self {
         io::Error::new(io::ErrorKind::Other, err)
+    }
+}
+
+impl DbErr {
+    pub fn gen_error_response(&self) -> Response::ErrorResponse {
     }
 }

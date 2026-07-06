@@ -3,12 +3,11 @@ use log::{info};
 
 #[derive(Debug)]
 pub enum Response {
-    // These are startup responses
-    ErrorResponse /* {
-        TODO: Server error messaging
-        field_type: ErrorFieldType,
-        error: String,
-    } */,
+    ErrorResponse {
+        severity: String,
+        code: String,
+        msg: String,
+    },
     AuthenticationOk,
     BackendKeyData {
         pid: i32,
@@ -59,18 +58,11 @@ impl FieldFormat {
     }
 }
 
-/* TODO: Server error messaging
-
-#[derive(Debug)]
-enum ErrorFieldType {
-    Severity(String),
-}
-
-*/
-
 pub fn encode(response: Response) -> Result<Vec<u8>, TcpErr> {
     match response {
-        Response::ErrorResponse => Ok(enc_error_response()),
+        Response::ErrorResponse { severity, code, msg }=> {
+            Ok(enc_error_response(severity, code, msg))
+        },
         Response::AuthenticationOk => Ok(enc_authentication_ok()),
         Response::BackendKeyData { pid, key } => Ok(enc_backend_key_data(pid, key)),
         Response::ReadyForQuery(state) => Ok(enc_ready_for_query(state)),
@@ -82,11 +74,19 @@ pub fn encode(response: Response) -> Result<Vec<u8>, TcpErr> {
     }
 }
 
-fn enc_error_response() -> Vec<u8> {
+fn enc_error_response(severity: String, code: String, msg: String) -> Vec<u8> {
     info!(" - Encoding error response");
+    let mut body: Vec<u8> = Vec::new();
+    body.push(b'S');
+    body.extend_from_slice(severity.as_bytes());
+    body.push(b'C');
+    body.extend_from_slice(code.as_bytes());
+    body.push(b'M');
+    body.extend_from_slice(msg.as_bytes());
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'E');
-    buf.extend(4i32.to_be_bytes());
+    buf.extend_from_slice(&((body.len() + 4) as i32).to_be_bytes());
+    buf.extend(&body);
     buf
 }
 
