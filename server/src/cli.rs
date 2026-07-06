@@ -156,6 +156,14 @@ fn exec_cli(cli: Cli, db: &RwLock<Store>) {
         }
         Cli::Stop => return,
         Cli::Help => {
+            println!("Commands:");
+            println!(" - get <key>          - gets value by key in db");
+            println!(" - set <key> <val>    - sets key to value, str by default");
+            println!(" - del <key>          - removes key/value pair from db");
+            println!(" - print tree         - prints text layout of db b+ tree");
+            println!(" - validate           - validates b+ tree layout");
+            println!(" - flush              - flush db write cache");
+            println!(" - stop               - cleanly shuts down the server");
         },
         Cli::Unknown => return,
     }
