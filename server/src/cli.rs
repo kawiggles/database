@@ -40,6 +40,10 @@ enum Cli {
 fn parse_cli(input: &str) -> Cli {
     let args: Vec<&str> = input.trim().split_whitespace().collect();
 
+    if args.len() < 1 {
+        return Cli::Unknown;
+    }
+
     match args[0] {
         "print" => {
             if args.len() < 2 {
@@ -112,10 +116,6 @@ fn parse_cli(input: &str) -> Cli {
         "help" => {
             info!(" - Cli command parsed as 'help'");
             Cli::Help
-        },
-        "" => {
-            warn!(" - No input detected, probably an error with read_line");
-            Cli::Unknown
         },
         _ => {
             warn!(" - Command unrecognized");
