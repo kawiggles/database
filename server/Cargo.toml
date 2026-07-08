@@ -13,3 +13,4 @@ log = "0.4.32"
 simplelog = "0.12.2"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["io-util", "fs", "net", "macros", "rt-multi-thread"] }

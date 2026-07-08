@@ -1,3 +1,4 @@
-fn main() {
-    database::run();
+#[tokio::main]
+async fn main() {
+    database::run().await;
 }

@@ -2,11 +2,11 @@ pub mod request;
 pub mod response;
 pub mod translation;
 
-use std::net::TcpListener;
+use tokio::net::TcpListener;
+use tokio::io::{AsyncRead, AsyncWrite, ErrorKind};
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 use std::time::Duration;
-use std::io::{Read, Write, ErrorKind};
 use log::{info, warn};
 
 use crate::logs::{init_logs};
@@ -32,9 +32,8 @@ impl Drop for Server {
     }
 }
 
-// TODO: switch all the async out for tokio
 impl Server {
-    pub fn start() -> Self {
+    pub async fn start() -> Self {
         init_logs();
         info!("Starting server...");
 
@@ -45,7 +44,7 @@ impl Server {
 
         // TODO: add way to select where the server is being hosted
         // TODO: better handle unwrap
-        let listener = TcpListener::bind(DEFAULT_PORT).unwrap();
+        let listener = TcpListener::bind(DEFAULT_PORT).await.unwrap();
         info!(" - Server listening on port {}", DEFAULT_PORT);
 
         Server {
@@ -54,7 +53,7 @@ impl Server {
         }
     }
 
-    pub fn run(self) {
+    pub async fn run(self) {
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
 
         let tx_ctrlc = shutdown_tx.clone();
@@ -82,12 +81,12 @@ impl Server {
                 break;
             }
             
-            match self.listener.accept() {
+            match self.listener.accept().await {
                 Ok((stream, _)) => {
                     let db = Arc::clone(&self.store);
-                    thread::spawn(move || {
+                    tokio::spawn(async move {
                         info!("Connection initialized, starting thread");
-                        handle_connection(stream, db);
+                        handle_connection(stream, db).await;
                     });
                 },
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
@@ -102,7 +101,7 @@ impl Server {
 // TODO: refactor to handle different classes of errors better
 // The idea is that this is where error messages decide how they get dispatched,
 // depending on what kind of error they are, and who fucked up
-fn handle_connection<T: Read + Write>(mut stream: T, mut db: Arc<RwLock<Store>>) {
+async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T, mut db: Arc<RwLock<Store>>) {
     let startup = decode_startup(&mut stream).unwrap(); // Handle this error 
     let responses = translate_startup(startup, &mut db);
     for response in responses {
