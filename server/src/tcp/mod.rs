@@ -4,6 +4,7 @@ pub mod translation;
 
 use tokio::net::TcpListener;
 use tokio::io::{AsyncRead, AsyncWriteExt, ErrorKind};
+use std::pin::pin;
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 use std::time::Duration;
@@ -74,7 +75,6 @@ impl Server {
             }
         });
 
-        self.listener.set_nonblocking(true).unwrap(); // TODO: Replace unwrap()
         loop {
             if shutdown_rx.try_recv().is_ok() {
                 warn!("Shutting down server...");
@@ -86,7 +86,7 @@ impl Server {
                     let db = Arc::clone(&self.store);
                     tokio::spawn(async move {
                         info!("Connection initialized, starting thread");
-                        handle_connection(stream, db).await;
+                        handle_connection(pin!(stream), db).await;
                     });
                 },
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
@@ -101,15 +101,16 @@ impl Server {
 // TODO: refactor to handle different classes of errors better
 // The idea is that this is where error messages decide how they get dispatched,
 // depending on what kind of error they are, and who fucked up
-async fn handle_connection<T: AsyncRead + AsyncWriteExt>(mut stream: T, mut db: Arc<RwLock<Store>>) {
-    let startup = decode_startup(&mut stream).unwrap(); // Handle this error 
+async fn handle_connection<T: AsyncRead + AsyncWriteExt>(mut stream: T, mut db: Arc<RwLock<Store>>) 
+where T: AsyncRead + AsyncWriteExt + Unpin {
+    let startup = decode_startup(&mut stream).await.unwrap(); // Handle this error 
     let responses = translate_startup(startup, &mut db);
     for response in responses {
-        stream.write_all(encode(response).unwrap().as_slice()).unwrap(); // And this one
+        stream.write_all(encode(response).unwrap().as_slice());
     }
     
     loop {
-        let request = decode_request(&mut stream).unwrap(); // This one
+        let request = decode_request(&mut stream).await.unwrap(); // This one
         let responses = translate(request, &mut db).unwrap_or_else(|e| {
             vec![e.gen_error_response()] 
         });
@@ -120,7 +121,7 @@ async fn handle_connection<T: AsyncRead + AsyncWriteExt>(mut stream: T, mut db: 
         }
 
         for response in responses {
-            stream.write_all(encode(response).unwrap().as_slice()).unwrap(); // and finally this one
+            stream.write_all(encode(response).unwrap().as_slice()).await.unwrap(); // and this one
         }
     }
 }
