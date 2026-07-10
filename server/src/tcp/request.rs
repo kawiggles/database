@@ -2,7 +2,7 @@ use crate::logs::{TcpErr, DbErr};
 use crate::query::Query;
 use log::{info, warn};
 
-use std::io::{Read, Write};
+use tokio::io::{AsyncRead, AsyncWriteExt};
 
 #[derive(Debug)]
 pub struct StartupMessage(usize); // where value is version
@@ -13,7 +13,7 @@ pub enum Request {
     Termination
 }
 
-pub fn decode_startup<T: Read + Write>(stream: &mut T) -> Result<StartupMessage, TcpErr> {
+pub async fn decode_startup<T: AsyncRead + AsyncWriteExt>(stream: &mut T) -> Result<StartupMessage, TcpErr> {
     info!(" - Decoding client startup message");
     let len = read_i32(stream)?;
     let code = read_i32(stream)?;
@@ -41,7 +41,7 @@ pub fn decode_startup<T: Read + Write>(stream: &mut T) -> Result<StartupMessage,
     }
 }
 
-pub fn decode_request<T: Read>(stream: &mut T) -> Result<Request, DbErr> {
+pub async fn decode_request<T: AsyncRead>(stream: &mut T) -> Result<Request, DbErr> {
     info!(" - Decoding client request");
     let message_type = read_char(stream)?;
     info!("   - Message type is {}", message_type);

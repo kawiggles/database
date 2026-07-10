@@ -3,7 +3,7 @@ pub mod response;
 pub mod translation;
 
 use tokio::net::TcpListener;
-use tokio::io::{AsyncRead, AsyncWrite, ErrorKind};
+use tokio::io::{AsyncRead, AsyncWriteExt, ErrorKind};
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 use std::time::Duration;
@@ -101,7 +101,7 @@ impl Server {
 // TODO: refactor to handle different classes of errors better
 // The idea is that this is where error messages decide how they get dispatched,
 // depending on what kind of error they are, and who fucked up
-async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T, mut db: Arc<RwLock<Store>>) {
+async fn handle_connection<T: AsyncRead + AsyncWriteExt>(mut stream: T, mut db: Arc<RwLock<Store>>) {
     let startup = decode_startup(&mut stream).unwrap(); // Handle this error 
     let responses = translate_startup(startup, &mut db);
     for response in responses {
