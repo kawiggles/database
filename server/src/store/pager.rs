@@ -4,15 +4,16 @@ use crate::logs::{StoreErr};
 use crate::tcp::DEFAULT_FILE;
 
 use bincode_next::{config, Encode, Decode};
-use std::fs::{File, OpenOptions};
-use std::os::unix::fs::FileExt;
-use std::io::{Write, Read, Seek, SeekFrom, BufReader};
-use std::fmt;
-use std::collections::HashMap;
+use std::{
+    fs::{File, OpenOptions},
+    os::unix::fs::FileExt,
+    io::{Write, Read, Seek, SeekFrom, BufReader},
+    fmt,
+    collections::HashMap,
+};
 use log::{info};
 
-// Pager Constants
-//__________________________________________________________________________________________________
+// Pager Constants__________________________________________________________________________________
 
 // TODO: replace PAGE_SIZE instances with the page_size metadata for choices of page sizes
 pub const PAGE_SIZE: usize = 4096;
@@ -30,8 +31,7 @@ const DATA_CONFIG: config::Configuration<config::BigEndian, config::Varint, conf
 
 const MAGIC: [u8; 8] = *b"KAWIKADB";
 
-// Page Trait
-//__________________________________________________________________________________________________
+// Page Trait_______________________________________________________________________________________
 
 pub trait Page: Sized {
     fn page_id(&self) -> PageId;

@@ -1,8 +1,12 @@
 use crate::VERSION;
-use crate::tcp::request::{Request, StartupMessage};
-use crate::tcp::response::{Response, ServerState, RowField, FieldFormat};
-use crate::store::Store;
-use crate::store::value::Value;
+use crate::tcp::{
+    request::{Request, StartupMessage},
+    response::{Response, ServerState, RowField, FieldFormat},
+};
+use crate::store::{
+    Store,
+    value::Value,
+};
 use crate::logs::{DbErr};
 
 use std::sync::{Arc, RwLock};

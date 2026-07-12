@@ -5,9 +5,11 @@ pub mod pager;
 use std::fs;
 use log::{info, warn};
 
-use crate::store::bptree::BpTree;
-use crate::store::value::Value;
-use crate::store::pager::{Pager, NodeType, IndexPage, PageId, Page};
+use crate::store::{
+    bptree::BpTree,
+    value::Value,
+    pager::{Pager, NodeType, IndexPage, PageId, Page},
+};
 use crate::logs::{DbErr, UserErr};
 
 pub const PAGE_SIZE: usize = 4096;

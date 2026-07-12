@@ -2,19 +2,25 @@ pub mod request;
 pub mod response;
 pub mod translation;
 
-use tokio::net::TcpListener;
-use tokio::io::{AsyncRead, AsyncWriteExt, ErrorKind};
-use std::pin::pin;
-use std::sync::{Arc, RwLock, mpsc};
-use std::thread;
-use std::time::Duration;
+use tokio::{
+    net::TcpListener,
+    io::{AsyncRead, AsyncWriteExt, ErrorKind},
+};
+use std::{
+    pin::pin,
+    sync::{Arc, RwLock, mpsc},
+    thread,
+    time::Duration,
+};
 use log::{info, warn};
 
 use crate::logs::{init_logs};
 use crate::store::Store;
-use crate::tcp::request::{decode_startup, decode_request};
-use crate::tcp::response::{encode, Response};
-use crate::tcp::translation::{translate, translate_startup};
+use crate::tcp::{
+    request::{decode_startup, decode_request},
+    response::{encode, Response},
+    translation::{translate, translate_startup},
+};
 use crate::cli::run_cli;
 
 pub const DEFAULT_FILE: &str = "kawika.db";
@@ -28,7 +34,7 @@ pub struct Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
-        let mut store = self.store.write().unwrap();
+        let mut store = self.store.write().expect("Failed to write Store cache when closing");
         store.exit().unwrap()
     }
 }
@@ -39,13 +45,13 @@ impl Server {
         info!("Starting server...");
 
         // TODO: add way to configure file and order selection
-        // TODO: better handle unwrap
-        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE, DEFAULT_ORDER).unwrap()));
+        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE, DEFAULT_ORDER)
+                .expect("Failed to start database")));
         info!(" - Database initialized");
 
         // TODO: add way to select where the server is being hosted
-        // TODO: better handle unwrap
-        let listener = TcpListener::bind(DEFAULT_PORT).await.unwrap();
+        let listener = TcpListener::bind(DEFAULT_PORT).await
+            .expect("Failed to start TcpListener on selected port");
         info!(" - Server listening on port {}", DEFAULT_PORT);
 
         Server {
@@ -61,7 +67,7 @@ impl Server {
         ctrlc::set_handler(move || {
             warn!("ctrl_c registered...");
             let _ = tx_ctrlc.send(());
-        }).unwrap(); // TODO: Replace unwrap
+        }).expect("Failed to start ctrlc handler");
 
         let tx_cli = shutdown_tx.clone();
         let cli_db = Arc::clone(&self.store);
@@ -106,7 +112,8 @@ where T: AsyncRead + AsyncWriteExt + Unpin {
     let startup = decode_startup(&mut stream).await.unwrap(); // Handle this error 
     let responses = translate_startup(startup, &mut db);
     for response in responses {
-        stream.write_all(encode(response).unwrap().as_slice());
+        // should probably make this a match
+        let _ = stream.write_all(encode(response).unwrap().as_slice()).await.unwrap();
     }
     
     loop {

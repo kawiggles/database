@@ -1,6 +1,8 @@
 use thiserror::Error;
-use std::io;
-use std::fs::File;
+use std::{
+    io,
+    fs::File,
+};
 use bincode_next;
 use log::LevelFilter;
 use simplelog::{WriteLogger, Config};

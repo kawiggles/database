@@ -1,6 +1,8 @@
 use crate::logs::{DbErr, UserErr};
-use crate::store::value::Value;
-use crate::store::pager::{DataPage, IndexPage, NodeType, Page, PageId, Pager};
+use crate::store::{
+    value::Value,
+    pager::{DataPage, IndexPage, NodeType, Page, PageId, Pager},
+};
 
 pub struct BpTree {
     pub root: Option<PageId>,

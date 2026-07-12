@@ -2,8 +2,10 @@ use std::io::{Write, stdout, stdin};
 use std::sync::RwLock;
 use log::{info, warn};
 
-use crate::store::Store;
-use crate::store::value::Value;
+use crate::store::{
+    Store,
+    value::Value,
+};
 
 pub fn run_cli(db: &RwLock<Store>) -> bool {
     print!("> ");
