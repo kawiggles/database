@@ -4,13 +4,12 @@ pub mod translation;
 
 use tokio::{
     net::TcpListener,
-    io::{AsyncRead, AsyncWriteExt, ErrorKind},
+    io::{AsyncRead, AsyncWriteExt},
+    sync::mpsc::channel,
 };
 use std::{
-    pin::pin,
-    sync::{Arc, RwLock, mpsc},
+    sync::{Arc, RwLock},
     thread,
-    time::Duration,
 };
 use log::{info, warn};
 
@@ -18,7 +17,7 @@ use crate::logs::{init_logs};
 use crate::store::Store;
 use crate::tcp::{
     request::{decode_startup, decode_request},
-    response::{encode, Response},
+    response::{encode, Response, ServerState},
     translation::{translate, translate_startup},
 };
 use crate::cli::run_cli;
@@ -61,12 +60,12 @@ impl Server {
     }
 
     pub async fn run(self) {
-        let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
+        let (shutdown_tx, mut shutdown_rx) = channel::<()>(1);
 
         let tx_ctrlc = shutdown_tx.clone();
         ctrlc::set_handler(move || {
             warn!("ctrl_c registered...");
-            let _ = tx_ctrlc.send(());
+            let _ = tx_ctrlc.blocking_send(());
         }).expect("Failed to start ctrlc handler");
 
         let tx_cli = shutdown_tx.clone();
@@ -82,23 +81,19 @@ impl Server {
         });
 
         loop {
-            if shutdown_rx.try_recv().is_ok() {
-                warn!("Shutting down server...");
-                break;
-            }
-            
-            match self.listener.accept().await {
-                Ok((stream, _)) => {
+            tokio::select! {
+                result = self.listener.accept() => {
+                    let (stream, _) = result.expect("Error accepting tcp connection");
                     let db = Arc::clone(&self.store);
                     tokio::spawn(async move {
                         info!("Connection initialized, starting thread");
-                        handle_connection(pin!(stream), db).await;
+                        handle_connection(stream, db).await;
                     });
                 },
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Err(err) => panic!("Error encountered: {err}"),
+                _ = shutdown_rx.recv() => {
+                    warn!("Shutting down server...");
+                    break;
+                },
             }
         }
     }
@@ -119,7 +114,7 @@ where T: AsyncRead + AsyncWriteExt + Unpin {
     loop {
         let request = decode_request(&mut stream).await.unwrap(); // This one
         let responses = translate(request, &mut db).unwrap_or_else(|e| {
-            vec![e.gen_error_response()] 
+            vec![e.gen_error_response(), Response::ReadyForQuery(ServerState::Idle)] 
         });
 
         if let Response::Terminate = responses[0] {

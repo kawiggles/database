@@ -30,12 +30,12 @@ where T: AsyncReadExt + AsyncWriteExt + Unpin {
         code
     };
 
+    info!("  - Message code is {}", code);
 
     match code {
         // SSL negotiation, WAYYYY down the line
         196608 => {
             info!("   - Postgresql client is using protocol version 3.0");
-            // TODO: Parse user parameter
             let mut params = vec![0u8; (len - 8) as usize];
             stream.read_exact(&mut params).await?;
 
@@ -69,13 +69,15 @@ where T: AsyncReadExt + Unpin{
     }
 }
 
-async fn _read_i16<T: AsyncReadExt + Unpin>(stream: &mut T) -> Result<i16, TcpErr> {
+async fn _read_i16<T>(stream: &mut T) -> Result<i16, TcpErr>
+where T: AsyncReadExt + Unpin {
     let mut buf = [0u8; 2];
     stream.read_exact(&mut buf).await?;
     Ok(i16::from_be_bytes(buf))
 }
 
-async fn read_i32<T: AsyncReadExt + Unpin>(stream: &mut T) -> Result<i32, TcpErr> {
+async fn read_i32<T>(stream: &mut T) -> Result<i32, TcpErr>
+where T: AsyncReadExt + Unpin {
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf).await?;
     Ok(i32::from_be_bytes(buf))
@@ -83,7 +85,8 @@ async fn read_i32<T: AsyncReadExt + Unpin>(stream: &mut T) -> Result<i32, TcpErr
 
 // TODO: validate that len is correct
 // The len being passed is the len value from the message
-async fn read_contents<T: AsyncReadExt + Unpin>(stream: &mut T, len: i32) -> Result<String, TcpErr> {
+async fn read_contents<T>(stream: &mut T, len: i32) -> Result<String, TcpErr> 
+where T: AsyncReadExt + Unpin {
     let mut buf = vec![0; (len - 4) as usize];
     stream.read_exact(&mut buf).await?;
     let contents = String::from_utf8(buf)?
