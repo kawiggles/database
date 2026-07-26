@@ -1,3 +1,6 @@
+pub mod lexer;
+pub mod ast;
+
 use crate::store::{Store, value::Value};
 use crate::errors::{UserResult, UserErr, DbResult, StoreErr};
 
