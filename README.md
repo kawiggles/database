@@ -4,11 +4,11 @@
 ## How to Run it
 In order to run this project, you need to have Go and Rust installed.
 
-Firstly, clone the git repository with ```git clone https://kawiggles/database.git```. Inside the directory you'll find two subdirectories, one called "server" and the other called "client".
+Firstly, clone the git repository with `git clone https://kawiggles/database.git`. Inside the directory you'll find two subdirectories, one called "server" and the other called "client".
 
-"server" contains the primary code for the database. Run ```cargo build``` in order to build the executable, which can be run inside the directory as with ```./target/debug/database```. Running this executable will create a log file and database file in the directory that you run it. 
+"server" contains the primary code for the database. Run `cargo build` in order to build the executable, which can be run inside the directory as with `./target/debug/database`. Running this executable will create a log file and database file in the directory that you run it. 
 
-"client" is a basic cli interface written in Go that I use to test networking. It provides essentially the same functionality as the server's cli interface, but you can run multiple instances of the client to test the multithreading capabilities of the server. The executable can be built with ```go build``` and run as ```./client```.
+"client" is a basic cli interface written in Go that I use to test networking. It provides essentially the same functionality as the server's cli interface, but you can run multiple instances of the client to test the multithreading capabilities of the server. The executable can be built with `go build` and run as `./client`.
 
 There are three basic commands corresponding with the typical commands of a key-value store: GET, SET, and DEL. Enter HELP for more information on syntax, and EXIT to exit the client or end the server, depending on which you're using to interface with the database.
 
@@ -22,7 +22,7 @@ This is a fairly typical database, essentially copying directly from MySQL in th
 thiserror and log/simplelog are likely to be permanent inclusions. tempfile is used only for testing, and bincode-next will eventually be depreciated in favor of a more efficient custom encoding and decoding system.
 
 ### Organizational Data Structure
-The core organizational data structure of the database is a b+ tree. Instead of using nodes with pointers, like you would in C++ or Go, I used an arena allocator which started out as a basic vector of nodes and was eventually replaced by the pager. The idea is that the "pointers" to the nodes are actually just indexes in the vector, which allows quick r/w access to the nodes. I did this because actual pointers are really difficult in Rust, and trying to make a traditional "C-like" b+ tree would result in entirely too many instances of ```Option<Rc<RefCell<Node>>>```.
+The core organizational data structure of the database is a b+ tree. Instead of using nodes with pointers, like you would in C++ or Go, I used an arena allocator which started out as a basic vector of nodes and was eventually replaced by the pager. The idea is that the "pointers" to the nodes are actually just indexes in the vector, which allows quick r/w access to the nodes. I did this because actual pointers are really difficult in Rust, and trying to make a traditional "C-like" b+ tree would result in entirely too many instances of `Option<Rc<RefCell<Node>>>`.
 
 The tree has three basic operations, matching those of the hash map which the tree replaced: get, insert, and remove. Implementing the insert and remove operations was by far the hardest part of this project so far because of the number of edge cases in each operation. Off by one errors were abound, and the tree structure itself is difficult to visualize. In the bptree.rs file, you'll find a validator I wrote for testing the tree as well as methods for printing out the tree, which I used heavily to debug the structure.
 
@@ -31,7 +31,7 @@ The b+ tree being arena allocated made it extremely easy to merge with the pager
 ### Pager Architecture
 The pager architecture was a lot of fun to write because it deals with fixed binary buffers and read/write operations in concert with an in-memory data structure. Getting the two to coordinate was an interesting challenge.
 
-The database is contained in one file, which is split into a number of pages. Currently, a page is 4KB (4096 bytes), but I plan on making this value mutable. Pages are referenced by their PageId, which is an integer value cooresponding with the page's offset, in multiples of 4096 bytes, from the start of the database document. There are two kinds of pages.
+The database is contained in one file, which is split into a number of pages. Currently, a page is 4KB (4096 bytes), but I plan on making this value mutable. Pages are referenced by their PageId, which is an integer value corresponding with the page's offset, in multiples of 4096 bytes, from the start of the database document. There are two kinds of pages.
 
 The first is an IndexPage, which is what replaced the nodes of the b+ tree. There are two kinds of IndexPages: Leaves and Branches. Branches contain a vector of keys and a vector of associated child values, which are PageIds for other IndexPages. Leaves contain a similar vector of keys, but their associated vector is a vector of PageIds for DataPages. Given the size of 4096 bytes, each IndexPage can hold about 150 keys, making the order of the default b+ tree 150.
 
@@ -44,6 +44,8 @@ The pager currently uses bincode to read and write raw data to storage, but I pl
 ### Networking
 Basic networking is accomplished through the standard TcpListener crate. This made the conversion from a local-only cli to a networked protocol extremely easy, since both can use strings as an interface. The server starts a thread for a local cli, and then creates a new thread for each connection that it receives. A RwLock allows multiple clients to interact with the database simultaneously. The server is abstracted as a struct with methods that wrap the initialization of the TCP socket and the local database as well as handle client connections.
 
+The server has been set up to use the postgresql protocol, meaning that prebuilt tools like psql work with the server. However, I haven't implemented SQL yet, so you have to use my weird GET/SET/DEL syntax. That will come later. Also the protocol super isn't built out, so a bunch of features are missing that just won't work.
+
 ## Project Details
 ### History of the Project
 The project has slowly added features as I've learned about Rust. Here's a rough timeline of progress I've made on the project:
@@ -54,9 +56,12 @@ The project has slowly added features as I've learned about Rust. Here's a rough
 + 6/19/26: basic networking implementation
 + 6/21/26: basic multithreading implementation 
 + 7/4/26: basic version of postgresql protocol
++ 7/26/26: tokio async implementation
 
 ### Known Bugs
-+ The server does not save properly if ctrlc is used to quit
++ \q with psql does not work, as far as I can tell
++ a tokio thread failing messes up the local cli
++ a BUNCH of postgresql networking isn't being handles, specifically error messages
 
 ### Future Plans
 Because this project is for learning, it will be under constant, slow development for pretty much the entirety of its existence. I aim to add features that will help me learn about programming and systems architecture. If I'm lucky, this project may one day end up as a functional database. Below is a list of features I plan to implement at some point in the future, in order of priority (I don't know how to do abstract syntax trees yet).
@@ -70,7 +75,6 @@ Because this project is for learning, it will be under constant, slow developmen
     + Move async operations from the whole store to individual pages
 + Improve resiliency
     + Do an error handling overhaul
-        + Categorize all errors
         + Update error handling messages
         + Unify failure modes for categories of errors
     + Write-Ahead-Logging for ACID compliance
