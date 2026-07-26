@@ -15,20 +15,17 @@ pub enum Request {
 
 pub async fn decode_startup<T>(stream: &mut T) -> TcpResult<StartupMessage>
 where T: AsyncReadExt + AsyncWriteExt + Unpin {
-
-    info!(" - Decoding client startup message");
-    let len = read_i32(stream).await?;
-    let code = read_i32(stream).await?;
+    info!(" - Decoding startup message");
+    let mut len = read_i32(stream).await?;
+    let mut code = read_i32(stream).await?;
     info!("   - Code is {}", code);
 
-    let code = if code == 80877103 {
+    if code == 80877103 {
         info!("   - Negotiating SSL with client");
         stream.write_all(&[b'N']).await?;
-        let _ = read_i32(stream).await?;
-        read_i32(stream).await?
-    } else {
-        code
-    };
+        len = read_i32(stream).await?;
+        code = read_i32(stream).await?
+    }
 
     info!("  - Message code is {}", code);
 
