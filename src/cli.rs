@@ -121,6 +121,7 @@ fn parse_cli(input: &str) -> Cli {
         },
         _ => {
             warn!(" - Command unrecognized");
+            println!("Command not recognized");
             Cli::Unknown
         }
     }

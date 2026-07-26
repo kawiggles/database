@@ -1,7 +1,7 @@
 pub mod store;
 pub mod tcp;
 pub mod query;
-pub mod logs;
+pub mod errors;
 pub mod cli;
 
 use log::{info};

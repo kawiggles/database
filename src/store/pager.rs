@@ -1,6 +1,6 @@
 use crate::VERSION;
 use crate::store::value::Value;
-use crate::logs::{StoreErr};
+use crate::errors::{StoreErr, StoreResult};
 use crate::tcp::DEFAULT_FILE;
 
 use bincode_next::{config, Encode, Decode};
@@ -35,11 +35,11 @@ const MAGIC: [u8; 8] = *b"KAWIKADB";
 
 pub trait Page: Sized {
     fn page_id(&self) -> PageId;
-    fn write(pager: &mut Pager, page: Self) -> Result<(), StoreErr>;
-    fn read(pager: &Pager, id: PageId) -> Result<Self, StoreErr>;
+    fn write(pager: &mut Pager, page: Self) -> StoreResult<()>;
+    fn read(pager: &Pager, id: PageId) -> StoreResult<Self>;
 }
 
-pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> Result<(), StoreErr> {
+pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> StoreResult<()> {
     file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
     file.write_all(buf)?;
     Ok(())
@@ -115,12 +115,12 @@ impl Page for IndexPage {
         self.header.page_id
     }
 
-    fn write(pager: &mut Pager, new_page: Self) -> Result<(), StoreErr> {
+    fn write(pager: &mut Pager, new_page: Self) -> StoreResult<()> {
         pager.dirty_cache.insert(new_page.header.page_id, new_page);
         Ok(())
     }
 
-    fn read(pager: &Pager, id: PageId) -> Result<Self, StoreErr> {
+    fn read(pager: &Pager, id: PageId) -> StoreResult<Self> {
         if let Some(cached) = pager.dirty_cache.get(&id) {
             return Ok(cached.clone());
         }
@@ -154,7 +154,7 @@ pub struct DataPage {
 }
 
 impl DataPage {
-    pub fn new(pager: &mut Pager, val: Value) -> Result<PageId, StoreErr> {
+    pub fn new(pager: &mut Pager, val: Value) -> StoreResult<PageId> {
         let id = pager.alloc();
         let page = DataPage {
             header: PageHeader {
@@ -175,7 +175,7 @@ impl Page for DataPage {
         self.header.page_id
     }
 
-    fn write(pager: &mut Pager, new_page: Self) -> Result<(), StoreErr> {
+    fn write(pager: &mut Pager, new_page: Self) -> StoreResult<()> {
         let file = &mut pager.file;
         let mut page = [0u8; PAGE_SIZE];
         bincode_next::encode_into_slice(&new_page, &mut page, DATA_CONFIG)?;
@@ -183,7 +183,7 @@ impl Page for DataPage {
         Ok(())
     }
 
-    fn read(pager: &Pager, id: PageId) -> Result<DataPage, StoreErr> {
+    fn read(pager: &Pager, id: PageId) -> StoreResult<DataPage> {
         let file = &pager.file;
         let mut buf = [0u8; PAGE_SIZE];
         file.read_at(&mut buf, (id.0 * PAGE_SIZE) as u64)?;
@@ -209,7 +209,7 @@ pub struct DbHeader {
 }
 
 impl DbHeader {
-    fn write(&self, file: &mut File) -> Result<(), StoreErr> {
+    fn write(&self, file: &mut File) -> StoreResult<()> {
         let mut page = [0u8; PAGE_SIZE];
         bincode_next::encode_into_slice(self, &mut page, INDEX_CONFIG)?;
         write_page(file, PageId(0), &page)?;
@@ -233,7 +233,7 @@ struct FreeListRead {
 
 impl Pager {
     // Function to create a new database file if none exists
-    pub fn new(path: &str, new_order: usize) -> Result<(Self, Option<PageId>, usize), StoreErr> {
+    pub fn new(path: &str, new_order: usize) -> StoreResult<(Self, Option<PageId>, usize)> {
         let filepath = {
             if path.is_empty() {
                 DEFAULT_FILE
@@ -268,7 +268,7 @@ impl Pager {
     }
 
     // Function to open database if one exists
-    pub fn open(path: &str) -> Result<(Self, Option<PageId>, usize), StoreErr> {
+    pub fn open(path: &str) -> StoreResult<(Self, Option<PageId>, usize)> {
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -300,7 +300,7 @@ impl Pager {
     }
 
     // Clear out the cache and write it to disk
-    pub fn flush(&mut self) -> Result<(), StoreErr> {
+    pub fn flush(&mut self) -> StoreResult<()> {
         let cache = std::mem::take(&mut self.dirty_cache);
 
         for (_, page) in cache {
@@ -324,7 +324,7 @@ impl Pager {
     }
 
     // Delete a page, cache invalidation issues happen here
-    pub fn free(&mut self, id: PageId) -> Result<(), StoreErr> {
+    pub fn free(&mut self, id: PageId) -> StoreResult<()> {
         if let Some(prev_id) = self.free_list.last().copied() {
             let mut buf = [0u8; PAGE_SIZE];
             let new_header = PageHeader {
@@ -354,7 +354,7 @@ impl Pager {
     }
 
     // Write a new DbHeader and close the pager. 
-    pub fn close(&mut self, root: Option<PageId>, order: usize) -> Result<(), StoreErr> {
+    pub fn close(&mut self, root: Option<PageId>, order: usize) -> StoreResult<()> {
         info!(" - Pager is closing...");
         self.flush()?;
         let new_dbheader = DbHeader {

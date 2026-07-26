@@ -1,4 +1,4 @@
-use crate::logs::TcpErr;
+use crate::errors::TcpResult;
 use log::{info};
 
 #[derive(Debug)]
@@ -58,7 +58,7 @@ impl FieldFormat {
     }
 }
 
-pub fn encode(response: Response) -> Result<Vec<u8>, TcpErr> {
+pub fn encode(response: Response) -> TcpResult<Vec<u8>> {
     match response {
         Response::ErrorResponse { severity, code, msg }=> {
             Ok(enc_error_response(severity, code, msg))
@@ -122,7 +122,7 @@ fn enc_ready_for_query(state: ServerState) -> Vec<u8> {
     buf
 }
 
-fn enc_parameter_status(name: String, val: String) -> Result<Vec<u8>, TcpErr> {
+fn enc_parameter_status(name: String, val: String) -> TcpResult<Vec<u8>> {
     info!(" - Encoding parameter status: {}, {}", name, val);
     let mut body: Vec<u8> = Vec::new();
     body.extend_from_slice(name.as_bytes());
@@ -138,7 +138,7 @@ fn enc_parameter_status(name: String, val: String) -> Result<Vec<u8>, TcpErr> {
     Ok(buf)
 }
 
-fn enc_row_description(fields: Vec<RowField>) -> Result<Vec<u8>, TcpErr> {
+fn enc_row_description(fields: Vec<RowField>) -> TcpResult<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'T');
     buf.extend(0i32.to_be_bytes());
@@ -160,7 +160,7 @@ fn enc_row_description(fields: Vec<RowField>) -> Result<Vec<u8>, TcpErr> {
     Ok(buf)
 }
 
-fn enc_data_row(cells: Vec<Option<Vec<u8>>>) -> Result<Vec<u8>, TcpErr> {
+fn enc_data_row(cells: Vec<Option<Vec<u8>>>) -> TcpResult<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'D');
     buf.extend(0i32.to_be_bytes());
@@ -182,7 +182,7 @@ fn enc_data_row(cells: Vec<Option<Vec<u8>>>) -> Result<Vec<u8>, TcpErr> {
     Ok(buf)
 }
 
-fn enc_command_complete(tag: String) -> Result<Vec<u8>, TcpErr> {
+fn enc_command_complete(tag: String) -> TcpResult<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     let len = i32::try_from(tag.len() + 5)?;
     buf.push(b'C');

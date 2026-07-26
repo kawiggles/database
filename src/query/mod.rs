@@ -1,5 +1,5 @@
 use crate::store::{Store, value::Value};
-use crate::logs::{UserErr, DbErr, StoreErr};
+use crate::errors::{UserResult, UserErr, DbResult, StoreErr};
 
 use log::{info};
 use std::sync::RwLock;
@@ -16,7 +16,7 @@ pub enum Query {
 
 impl Query {
     // This will eventually get replaced with sql parser
-    pub fn parse(input: &str) -> Result<Self, UserErr> {
+    pub fn parse(input: &str) -> UserResult<Self> {
         let args: Vec<&str> = input
             .trim()
             .trim_end_matches(';')
@@ -60,7 +60,7 @@ impl Query {
         }
     }
 
-    pub fn execute(self, db: &RwLock<Store>) -> Result<Value, DbErr> {
+    pub fn execute(self, db: &RwLock<Store>) -> DbResult<Value> {
         info!(" - Executing call");
         match self {
             Query::Get(key) => db.read().map_err(|_| StoreErr::PoisonError)?.get(&key),

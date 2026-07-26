@@ -27,6 +27,8 @@ pub enum DbErr {
     UserErr(#[from] UserErr),
 }
 
+pub type DbResult<T> = std::result::Result<T, DbErr>;
+
 #[derive(Error, Debug)]
 pub enum TcpErr {
     #[error("Error encountered when decoding incoming message")]
@@ -43,6 +45,8 @@ pub enum TcpErr {
     ClientDisconnected
 }
 
+pub type TcpResult<T> = std::result::Result<T, TcpErr>;
+
 #[derive(Error, Debug)]
 pub enum StoreErr {
     #[error("Filetype does not match kawikadb filetype")]
@@ -58,6 +62,8 @@ pub enum StoreErr {
     #[error("The Store RwLock was poisoned")]
     PoisonError,
 }
+
+pub type StoreResult<T> = std::result::Result<T, StoreErr>;
 
 #[derive(Error, Debug)]
 pub enum UserErr {
@@ -78,6 +84,8 @@ pub enum UserErr {
     #[error("Value exceeds maximum length of ")]
     LongVal,
 }
+
+pub type UserResult<T> = std::result::Result<T, UserErr>;
 
 impl From<DbErr> for io::Error {
     fn from(err: DbErr) -> Self {

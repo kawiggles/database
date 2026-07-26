@@ -10,7 +10,7 @@ use crate::store::{
     value::Value,
     pager::{Pager, NodeType, IndexPage, PageId, Page},
 };
-use crate::logs::{DbErr, UserErr};
+use crate::errors::{UserErr, DbResult};
 
 pub const PAGE_SIZE: usize = 4096;
 pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
@@ -22,7 +22,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn start(filepath: &str, new_order: usize) -> Result<Self, DbErr> {
+    pub fn start(filepath: &str, new_order: usize) -> DbResult<Self> {
         let is_initialized = fs::metadata(filepath)
             .map(|m| m.len() >= PAGE_SIZE as u64)
             .unwrap_or(false);
@@ -42,11 +42,11 @@ impl Store {
         })
     }
 
-    pub fn get(&self, key: &str) -> Result<Value, DbErr> {
+    pub fn get(&self, key: &str) -> DbResult<Value> {
         self.datamap.get(key, &self.pager)
     }
 
-    pub fn put(&mut self, key: &str, val: Value) -> Result<Value, DbErr> {
+    pub fn put(&mut self, key: &str, val: Value) -> DbResult<Value> {
         // TODO: Eliminate value limits
         // This is in place because of how keys are encoded by bincode, see pager
         if key.len() > 8 {
@@ -62,11 +62,11 @@ impl Store {
         }
     }
 
-    pub fn del(&mut self, key: &str) -> Result<Value, DbErr> {
+    pub fn del(&mut self, key: &str) -> DbResult<Value> {
         self.datamap.remove(key, &mut self.pager)
     }
 
-    pub fn exit(&mut self) -> Result<(), DbErr> {
+    pub fn exit(&mut self) -> DbResult<()> {
         self.pager.close(self.datamap.root, self.datamap.order)?;
         Ok(())
     }

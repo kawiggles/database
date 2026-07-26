@@ -7,7 +7,7 @@ use crate::store::{
     Store,
     value::Value,
 };
-use crate::logs::{DbErr};
+use crate::errors::{DbResult};
 
 use std::sync::{Arc, RwLock};
 use log::{info};
@@ -28,7 +28,7 @@ pub fn translate_startup(_message: StartupMessage, _db: &mut Arc<RwLock<Store>>)
 }
 
 // TODO: pass CommandComplete tag from parse to this function
-pub fn translate(request: Request, db: &mut Arc<RwLock<Store>>) -> Result<Vec<Response>, DbErr> {
+pub fn translate(request: Request, db: &mut Arc<RwLock<Store>>) -> DbResult<Vec<Response>> {
     match request {
         Request::Query(query) => {
             // Need to come up with different classes of errors

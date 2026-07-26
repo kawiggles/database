@@ -1,6 +1,4 @@
-server/target
-server/db.log
-server/kawika.db
+target/
+db.log
+kawika.db
 
-client/client
-client/dist

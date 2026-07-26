@@ -13,7 +13,7 @@ use std::{
 };
 use log::{info, warn};
 
-use crate::logs::{init_logs};
+use crate::errors::{init_logs};
 use crate::store::Store;
 use crate::tcp::{
     request::{decode_startup, decode_request},
@@ -102,7 +102,7 @@ impl Server {
 // TODO: refactor to handle different classes of errors better
 // The idea is that this is where error messages decide how they get dispatched,
 // depending on what kind of error they are, and who fucked up
-async fn handle_connection<T: AsyncRead + AsyncWriteExt>(mut stream: T, mut db: Arc<RwLock<Store>>) 
+async fn handle_connection<T>(mut stream: T, mut db: Arc<RwLock<Store>>) 
 where T: AsyncRead + AsyncWriteExt + Unpin {
     let startup = decode_startup(&mut stream).await.unwrap(); // Handle this error 
     let responses = translate_startup(startup, &mut db);

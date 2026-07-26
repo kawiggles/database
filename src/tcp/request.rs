@@ -1,4 +1,4 @@
-use crate::logs::{TcpErr, DbErr};
+use crate::errors::{TcpResult, TcpErr, DbResult};
 use crate::query::Query;
 use log::{info, warn};
 
@@ -13,7 +13,7 @@ pub enum Request {
     Termination
 }
 
-pub async fn decode_startup<T>(stream: &mut T) -> Result<StartupMessage, TcpErr> 
+pub async fn decode_startup<T>(stream: &mut T) -> TcpResult<StartupMessage>
 where T: AsyncReadExt + AsyncWriteExt + Unpin {
 
     info!(" - Decoding client startup message");
@@ -48,7 +48,7 @@ where T: AsyncReadExt + AsyncWriteExt + Unpin {
     }
 }
 
-pub async fn decode_request<T>(stream: &mut T) -> Result<Request, DbErr> 
+pub async fn decode_request<T>(stream: &mut T) -> DbResult<Request>
 where T: AsyncReadExt + Unpin{
     info!(" - Decoding client request");
     let message_type = read_char(stream).await?;
@@ -56,7 +56,7 @@ where T: AsyncReadExt + Unpin{
 
     let len = read_i32(stream).await?;
     let contents = read_contents(stream, len).await?;
-    info!("   - Message contents are {}", contents);
+    info!("   - Message contents are {}", contents.to_string());
 
     match message_type {
         // TODO: replace with updated querying system
@@ -69,14 +69,14 @@ where T: AsyncReadExt + Unpin{
     }
 }
 
-async fn _read_i16<T>(stream: &mut T) -> Result<i16, TcpErr>
+async fn _read_i16<T>(stream: &mut T) -> TcpResult<i16>
 where T: AsyncReadExt + Unpin {
     let mut buf = [0u8; 2];
     stream.read_exact(&mut buf).await?;
     Ok(i16::from_be_bytes(buf))
 }
 
-async fn read_i32<T>(stream: &mut T) -> Result<i32, TcpErr>
+async fn read_i32<T>(stream: &mut T) -> TcpResult<i32>
 where T: AsyncReadExt + Unpin {
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf).await?;
@@ -85,7 +85,7 @@ where T: AsyncReadExt + Unpin {
 
 // TODO: validate that len is correct
 // The len being passed is the len value from the message
-async fn read_contents<T>(stream: &mut T, len: i32) -> Result<String, TcpErr> 
+async fn read_contents<T>(stream: &mut T, len: i32) -> TcpResult<String>
 where T: AsyncReadExt + Unpin {
     let mut buf = vec![0; (len - 4) as usize];
     stream.read_exact(&mut buf).await?;
@@ -95,7 +95,7 @@ where T: AsyncReadExt + Unpin {
     Ok(contents)
 }
 
-async fn read_char<T>(stream: &mut T) -> Result<char, TcpErr> 
+async fn read_char<T>(stream: &mut T) -> TcpResult<char>
 where T: AsyncReadExt + Unpin {
     let mut buf = [0u8; 1];
     stream.read_exact(&mut buf).await?;

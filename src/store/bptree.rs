@@ -1,4 +1,4 @@
-use crate::logs::{DbErr, UserErr};
+use crate::errors::{DbErr, DbResult, UserErr};
 use crate::store::{
     value::Value,
     pager::{DataPage, IndexPage, NodeType, Page, PageId, Pager},
@@ -19,7 +19,7 @@ impl BpTree {
     }
 
     // This function shows the basic pattern for searching the tree with a key
-    pub fn get(&self, key: &str, pager: &Pager) -> Result<Value, DbErr> {
+    pub fn get(&self, key: &str, pager: &Pager) -> DbResult<Value> {
         let mut current = match self.root {
             Some(x) => x,
             None => return Err(DbErr::UserErr(UserErr::NoRoot)),
@@ -50,9 +50,7 @@ impl BpTree {
         }
     }
 
-    pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager)
-        -> Result<Option<Value>, DbErr> {
-
+    pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> DbResult<Option<Value>> {
         let mut return_val = None;
 
         // Create a DataPage and write the value to it
@@ -181,7 +179,7 @@ impl BpTree {
     }
 
     // Holy fucking shit (Tool reference)
-    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> Result<Value, DbErr> {
+    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<Value> {
         let mut return_val: Option<Value> = None;
         // Handle empty tree case
         let Some(root) = self.root else {
