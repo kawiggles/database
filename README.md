@@ -1,16 +1,14 @@
 # database
-**database** is a network and serialized key-value store written in Rust. My aim in building this project was to learn how Rust and databases work, and build skills in networking and multithreading. **THIS IS A LEARNING PROJECT ONLY! DO NOT USE THIS AS AN ACTUAL DATABASE!**
+**database** is a network and serialized key-value store written in Rust. My aim in building this project was to learn how Rust and databases work, and to build skills in networking and multithreading. **THIS IS A LEARNING PROJECT ONLY! DO NOT USE THIS AS AN ACTUAL DATABASE!**
 
 ## How to Run it
 In order to run this project, you need to have Go and Rust installed.
 
-Firstly, clone the git repository with `git clone https://kawiggles/database.git`. Inside the directory you'll find two subdirectories, one called "server" and the other called "client".
+Firstly, clone the git repository with `git clone https://github.com/kawiggles/database.git`, and then `cd` into it.
 
-"server" contains the primary code for the database. Run `cargo build` in order to build the executable, which can be run inside the directory as with `./target/debug/database`. Running this executable will create a log file and database file in the directory that you run it. 
+Run `cargo build --release` in order to build the executable, which can be run inside the directory as with `./target/release/database`. Running this executable will create a log file and database file in the directory that you run it. 
 
-"client" is a basic cli interface written in Go that I use to test networking. It provides essentially the same functionality as the server's cli interface, but you can run multiple instances of the client to test the multithreading capabilities of the server. The executable can be built with `go build` and run as `./client`.
-
-There are three basic commands corresponding with the typical commands of a key-value store: GET, SET, and DEL. Enter HELP for more information on syntax, and EXIT to exit the client or end the server, depending on which you're using to interface with the database.
+There are three basic commands corresponding with the typical commands of a key-value store: `get`, `set`, and `del`. Enter `help` for more information on syntax, and `stop` to stop the server.
 
 ## Architecture and Design
 This is a fairly typical database, essentially copying directly from MySQL in the sense that it uses a b+ tree and fixed page sizes. I did this because it was easier than learning a complex architecture on top of a new programming language and a bunch of new programming concepts. A core decision was to reduce the number of external dependencies so that I could learn what those dependencies were abstracting away. The nonstandard crates I use right now are:
@@ -19,14 +17,13 @@ This is a fairly typical database, essentially copying directly from MySQL in th
 + tempfile
 + thiserror
 + ctrlc
-thiserror and log/simplelog are likely to be permanent inclusions. tempfile is used only for testing, and bincode-next will eventually be depreciated in favor of a more efficient custom encoding and decoding system.
++ tokio
+tokio, thiserror, and log/simplelog are likely to be permanent inclusions. tempfile is used only for testing, and bincode-next will eventually be depreciated in favor of a more efficient custom encoding and decoding system.
 
 ### Organizational Data Structure
-The core organizational data structure of the database is a b+ tree. Instead of using nodes with pointers, like you would in C++ or Go, I used an arena allocator which started out as a basic vector of nodes and was eventually replaced by the pager. The idea is that the "pointers" to the nodes are actually just indexes in the vector, which allows quick r/w access to the nodes. I did this because actual pointers are really difficult in Rust, and trying to make a traditional "C-like" b+ tree would result in entirely too many instances of `Option<Rc<RefCell<Node>>>`.
+The core organizational data structure of the database is a b+ tree. Instead of using nodes with pointers, like you would in C++ or Go, I used an arena allocator which started out as a basic vector of nodes and was eventually replaced by the pager. The idea is that the "pointers" to the nodes are actually just indexes in the vector, which allows quick r/w access to the nodes. I did this because actual pointers are really difficult in Rust, and trying to make a traditional "C-like" b+ tree would result in entirely too many instances of `Option<Rc<RefCell<Node>>>`. The b+ tree being arena allocated made it extremely easy to merge with the pager, as node indices in the vector of nodes was simply replaced by page indexes in concert with pager read and write operations.
 
-The tree has three basic operations, matching those of the hash map which the tree replaced: get, insert, and remove. Implementing the insert and remove operations was by far the hardest part of this project so far because of the number of edge cases in each operation. Off by one errors were abound, and the tree structure itself is difficult to visualize. In the bptree.rs file, you'll find a validator I wrote for testing the tree as well as methods for printing out the tree, which I used heavily to debug the structure.
-
-The b+ tree being arena allocated made it extremely easy to merge with the pager, as node indices in the vector of nodes was simply replaced by page indexes in concert with pager read and write operations. These operations will also (hopefully) make the implementation of multithreading much easier.
+The tree has three basic operations, matching those of the hash map which the tree replaced: get, insert, and remove. Implementing the insert and remove operations was by far the hardest part of this project so far because of the number of edge cases in each operation. Off by one errors were abound, and the tree structure itself is difficult to visualize. In the bptree.rs file, you'll find a validator I wrote for testing the tree as well as methods for printing out the tree, which I used heavily to debug the structure. You can now also run the `validate` command or the `print tree` command.
 
 ### Pager Architecture
 The pager architecture was a lot of fun to write because it deals with fixed binary buffers and read/write operations in concert with an in-memory data structure. Getting the two to coordinate was an interesting challenge.
@@ -42,9 +39,9 @@ The pager itself is essentially a struct that holds the database filepath, metad
 The pager currently uses bincode to read and write raw data to storage, but I plan on eventually implementing my own system for encoding data to save space (doubling the number of keys that can be placed in an IndexPage) and reduce dependencies.
 
 ### Networking
-Basic networking is accomplished through the standard TcpListener crate. This made the conversion from a local-only cli to a networked protocol extremely easy, since both can use strings as an interface. The server starts a thread for a local cli, and then creates a new thread for each connection that it receives. A RwLock allows multiple clients to interact with the database simultaneously. The server is abstracted as a struct with methods that wrap the initialization of the TCP socket and the local database as well as handle client connections.
+Networking is accomplished through the tokio `net`crate. The server uses tokio to start a thread for the local cli, and then creates a new thread for each connection that it receives. A RwLock allows multiple clients to interact with the database simultaneously. The server is abstracted as a struct with methods that wrap the initialization of the TCP socket and the local database as well as handle client connections.
 
-The server has been set up to use the postgresql protocol, meaning that prebuilt tools like psql work with the server. However, I haven't implemented SQL yet, so you have to use my weird GET/SET/DEL syntax. That will come later. Also the protocol super isn't built out, so a bunch of features are missing that just won't work.
+The server has been set up to use the postgresql protocol, meaning that prebuilt tools like psql work with the server. However, I haven't implemented SQL yet, so you have to use my weird GET/SET/DEL syntax. That will come later. Also the protocol super isn't built out, so you can really only input and output values you enter manually. Work on this coming. 
 
 ## Project Details
 ### History of the Project
@@ -81,4 +78,6 @@ Because this project is for learning, it will be under constant, slow developmen
     + Better logging throughout project
 + Add configuration file and parser with serde, configure page size, server port, and db file path
 + Add a SQL parser
-+ Add an execution planner
+    + Add lexer
+    + Add AST builder
+    + add execution planner

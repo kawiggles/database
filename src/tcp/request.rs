@@ -46,7 +46,7 @@ where T: AsyncReadExt + AsyncWriteExt + Unpin {
 }
 
 pub async fn decode_request<T>(stream: &mut T) -> DbResult<Request>
-where T: AsyncReadExt + Unpin{
+where T: AsyncReadExt + Unpin {
     info!(" - Decoding client request");
     let message_type = read_char(stream).await?;
     info!("   - Message type is {}", message_type);
