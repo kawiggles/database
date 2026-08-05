@@ -53,6 +53,7 @@ where T: AsyncReadExt + Unpin {
 
     let len = read_i32(stream).await?;
     let contents = read_contents(stream, len).await?;
+    // TODO: SQL generation goes here, takes contents (String) as output
     info!("   - Message contents are {}", contents.to_string());
 
     match message_type {
