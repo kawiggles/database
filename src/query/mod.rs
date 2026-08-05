@@ -22,7 +22,8 @@ pub enum Query {
 
 impl Query {
     pub fn parse(input: &str) -> UserResult<Self> {
-        let tokens = lexerize(input.as_bytes())?;
+        todo!();
+        // let tokens = lexerize(input.as_bytes())?;
     }
 
     pub fn execute(self, db: &RwLock<Store>) -> DbResult<Value> {

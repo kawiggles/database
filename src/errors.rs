@@ -97,22 +97,30 @@ pub trait Err {
     fn gen_error_response(&self) -> Response;
 }
 
-impl Err for TcpErr {
+impl Err for DbErr {
     fn gen_error_response(&self) -> Response {
         match self {
+            DbErr::TcpErr(err) => err.gen_error_response(),
+            DbErr::UserErr(err) => err.gen_error_response(),
+            DbErr::StoreErr(err) => err.gen_error_response(),
         }
+    }
+}
+
+impl Err for TcpErr {
+    fn gen_error_response(&self) -> Response {
+        todo!();
     }
 }
 
 impl Err for UserErr {
     fn gen_error_response(&self) -> Response {
-        match self {
-        }
+        todo!();        
     }
 }
 
 impl Err for StoreErr {
     fn gen_error_response(&self) -> Response {
-        
+        todo!();        
     }
 }

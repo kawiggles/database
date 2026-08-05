@@ -54,12 +54,16 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
 fn scan_string_literal(end: &mut usize, query: &[u8]) -> Token {
     let mut literal: Vec<u8> = Vec::new();
 
-    *end += 1;
+    *end += 1; // so that the first byte read isn't the initiating \'
     while query[*end] != b'\'' {
+        // just in case there's a nested \'
         if query[*end] == b'\\' {
             *end += 1;
             if query[*end] == b'\'' {
                 literal.push(b'\'');
+            } else {
+                literal.push(b'\\');
+                continue; // So as not to increment past the character end is at
             }
         } else {
             literal.push(query[*end]);
@@ -68,4 +72,17 @@ fn scan_string_literal(end: &mut usize, query: &[u8]) -> Token {
     }
 
     Token::StringLiteral(from_utf8(&literal).unwrap().to_string()) // should never panic
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lex_string_literal() {
+        let query = "'this is a string'";
+        let mut pointer = 0;
+        let token = Token::StringLiteral("this is a string".to_string());
+        assert_eq!(token, scan_string_literal(&mut pointer, query.as_bytes()))
+    }
 }

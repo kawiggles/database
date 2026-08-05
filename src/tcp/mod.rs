@@ -13,7 +13,7 @@ use std::{
 };
 use log::{info, warn};
 
-use crate::errors::{init_logs};
+use crate::errors::{init_logs, Err};
 use crate::store::Store;
 use crate::tcp::{
     request::{decode_startup, decode_request},
