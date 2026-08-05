@@ -1,8 +1,11 @@
 pub mod lexer;
 pub mod ast;
 
-use crate::store::{Store, value::Value};
-use crate::errors::{UserResult, UserErr, DbResult, StoreErr};
+use crate::{
+    store::{Store, value::Value},
+    errors::{UserResult, UserErr, DbResult, StoreErr},
+    query::lexer::lexerize,
+};
 
 use log::{info};
 use std::sync::RwLock;
@@ -18,49 +21,8 @@ pub enum Query {
 }
 
 impl Query {
-    // This will eventually get replaced with sql parser
     pub fn parse(input: &str) -> UserResult<Self> {
-        let args: Vec<&str> = input
-            .trim()
-            .trim_end_matches(';')
-            .split_whitespace()
-            .collect();
-        match args.as_slice() {
-            ["GET", key] => {
-                info!(" - Query parsed as GET");
-                Ok(Query::Get(key.to_string()))
-            },
-            ["SET", key, val] => {
-                info!(" - Query parsed as SET");
-                Ok(Query::Put { key: key.to_string(), value: Value::Text(val.to_string()) })
-            },
-            ["SET", key, val, type_tag] => {
-                info!(" - Query parsed as typed SET");
-                let value: Option::<Value> = match *type_tag {
-                    "int" => Some(Value::Int(val.parse::<isize>().map_err(|_| UserErr::BadVal)?)),
-                    "float" => Some(Value::Float(val.parse::<f64>().map_err(|_| UserErr::BadVal)?)),
-                    "text" => Some(Value::Text(val.to_string())),
-                    "blob" => {
-                        let bytes: Result<Vec<u8>, UserErr> = val
-                            .trim_matches(&['[', ']'])
-                            .split(',')
-                            .map(|s| s.parse::<u8>().map_err(|_| UserErr::BadVal))
-                            .collect();
-                        Some(Value::Blob(bytes?))
-                    }
-                    _ => None
-                };
-                match value {
-                    Some(x) => Ok(Query::Put { key: key.to_string(), value: x }),
-                    None => Err(UserErr::BadVal),
-                }
-            },
-            ["DEL", key] => {
-                info!(" - Query parsed as DEL");
-                Ok(Query::Del(key.to_string()))
-            },
-            _ => Err(UserErr::BadQuery),
-        }
+        let tokens = lexerize(input.as_bytes())?;
     }
 
     pub fn execute(self, db: &RwLock<Store>) -> DbResult<Value> {
