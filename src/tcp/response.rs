@@ -83,6 +83,7 @@ fn enc_error_response(severity: String, code: String, msg: String) -> Vec<u8> {
     body.extend_from_slice(code.as_bytes());
     body.push(b'M');
     body.extend_from_slice(msg.as_bytes());
+
     let mut buf: Vec<u8> = Vec::new();
     buf.push(b'E');
     buf.extend_from_slice(&((body.len() + 4) as i32).to_be_bytes());

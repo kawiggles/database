@@ -93,21 +93,26 @@ impl From<DbErr> for io::Error {
     }
 }
 
-impl DbErr {
-    pub fn gen_error_response(&self) -> Response {
-        let msg = self.to_string();
-        // TODO: actually pattern match over error for proper coding and such
-        let severity = match self {
-            Self::UserErr(_) => "ERROR".to_string(),
-            Self::TcpErr(_) => "FATAL".to_string(),
-            Self::StoreErr(_) => "PANIC".to_string(),
-        };
-        let code = "01000".to_string(); // Generic error code for now
+pub trait Err {
+    fn gen_error_response(&self) -> Response;
+}
 
-        Response::ErrorResponse {
-            severity: severity,
-            code: code,
-            msg: msg,
+impl Err for TcpErr {
+    fn gen_error_response(&self) -> Response {
+        match self {
         }
+    }
+}
+
+impl Err for UserErr {
+    fn gen_error_response(&self) -> Response {
+        match self {
+        }
+    }
+}
+
+impl Err for StoreErr {
+    fn gen_error_response(&self) -> Response {
+        
     }
 }
