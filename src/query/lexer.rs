@@ -10,7 +10,7 @@ use std::{
 enum Token {
     // Keywords
     Select, From, Where, Insert, Into, Values,
-    Create, Table, Copy, Stdin, Stdout,
+    Create, Table, Copy, Stdin, Stdout, Update,
     And, Or, Not, Null, As,
 
     // Literals
@@ -38,14 +38,34 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
             continue;
         }
 
-        match &query[end] {
+        match &query[end].to_ascii_lowercase() {
+            b',' => tokens.push(Token::Comma),
+            b';' => tokens.push(Token::Semicolon),
+            b'(' => tokens.push(Token::LParen),
+            b')' => tokens.push(Token::RParen),
+            b'.' => tokens.push(Token::Dot),
+            b'*' => tokens.push(Token::Star),
+            b'=' => tokens.push(Token::Eq),
+            b'!' => tokens.push(Token::NotEq), // This will break if "!" becomes a sql operator
+            b'<' => {
+                end += 1;
+            },
+            b'>' => {
+                end += 1;
+            },
             b'\'' => {
                 tokens.push(scan_string_literal(&mut end, query));
                 start = end;
             },
-            b'\n' => break,
-            _ => return Err(UserErr::BadQuery),
+            b'\n' => {
+                tokens.push(Token::Eof);
+                break; // End of stream
+            }, 
+            _ => {
+                // logic to loop here
+            }
         }
+        start += 1;
     }
 
     Ok(tokens)
@@ -68,7 +88,6 @@ fn scan_string_literal(end: &mut usize, query: &[u8]) -> Token {
         } else {
             literal.push(query[*end]);
         }
-        *end += 1;
     }
 
     Token::StringLiteral(from_utf8(&literal).unwrap().to_string()) // should never panic
