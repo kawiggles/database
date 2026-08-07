@@ -12,7 +12,8 @@ use crate::errors::{DbResult};
 use std::sync::{Arc, RwLock};
 use log::{info};
 
-pub fn translate_startup(_message: StartupMessage, _db: &mut Arc<RwLock<Store>>) -> Vec<Response> {
+pub fn translate_startup(message: StartupMessage, _db: &mut Arc<RwLock<Store>>) -> Vec<Response> {
+    info!("Startup message version is {}", message.0);
     info!(" - Generating startup message response");
     // TODO: handle potential error instead of just saying "yeah we good"
     vec![

@@ -5,7 +5,7 @@ use log::{info, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Debug)]
-pub struct StartupMessage(usize); // where value is version
+pub struct StartupMessage(pub usize); // where value is version
 
 #[derive(Debug)]
 pub enum Request {
@@ -58,7 +58,7 @@ where T: AsyncReadExt + Unpin {
 
     match message_type {
         // TODO: replace with updated querying system
-        'Q' => Ok(Request::Query(Query::parse(&contents)?)),
+        'Q' => Ok(Request::Query(Query::parse(contents.as_bytes())?)),
         'X' => Ok(Request::Termination),
         _ => {
             warn!("   - Type not recognized {}", message_type);

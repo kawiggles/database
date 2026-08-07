@@ -21,16 +21,22 @@ pub enum Query {
 }
 
 impl Query {
-    pub fn parse(input: &str) -> UserResult<Self> {
+    pub fn parse(input: &[u8]) -> UserResult<Self> {
+        if !(input.is_ascii()) {
+            return Err(UserErr::BadQuery);
+        }
+
+        let tokens = lexerize(input)?;
         todo!();
-        // let tokens = lexerize(input.as_bytes())?;
     }
 
     pub fn execute(self, db: &RwLock<Store>) -> DbResult<Value> {
         info!(" - Executing call");
         match self {
             Query::Get(key) => db.read().map_err(|_| StoreErr::PoisonError)?.get(&key),
-            Query::Put { key, value } => db.write().map_err(|_| StoreErr::PoisonError)?.put(&key, value),
+            Query::Put { key, value } => db.write()
+                .map_err(|_| StoreErr::PoisonError)?
+                .put(&key, value),
             Query::Del(key) => db.write().map_err(|_| StoreErr::PoisonError)?.del(&key),
         }
     }
