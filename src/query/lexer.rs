@@ -92,27 +92,33 @@ fn scan_string_literal(end: &mut usize, query: &[u8]) -> Token {
     let mut literal: Vec<u8> = Vec::new();
 
     *end += 1; // so that the first byte read isn't the initiating \'
-    while query[*end] != b'\'' {
-        // just in case there's a nested \'
-        if query[*end] == b'\\' {
-            if query[*end+1] == b'\'' {
-                literal.push(b'\'');
-            } else {
-                literal.push(b'\\');
-                continue; // So as not to increment past the character end is at
-            }
-        } else {
-            literal.push(query[*end]);
+    loop {
+        match query[*end] {
+            b'\'' => break,
+            b'\\' => {
+                if query[*end+1] == b'\'' {
+                    *end += 1;
+                    literal.push(b'\'');
+                } else {
+                    literal.push(b'\\');
+                    continue; // So as not to increment past the character end is at
+                }
+            },
+            _ => literal.push(query[*end]),
         }
+
+        *end += 1;
     }
 
     Token::StringLiteral(from_utf8(&literal).unwrap().to_string()) // should never panic
 }
 
 fn scan_ident_or_keyword(end: &mut usize, query: &[u8]) -> Token {
+    todo!();
 }
 
 fn scan_digit_literal(end: &mut usize, query: &[u8]) -> Token {
+    todo!();
 }
 
 #[cfg(test)]
