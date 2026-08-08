@@ -1,5 +1,5 @@
 use crate::{
-    errors::{UserResult, UserErr},
+    errors::{UserResult, UserErr, QueryErr, QueryResult},
 };
 
 use std::{
@@ -64,7 +64,8 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
                 }
             },
             b'\'' => {
-                tokens.push(scan_string_literal(&mut end, query));
+                tokens.push(scan_string_literal(&mut end, query)?);
+                start = end;
             },
             b'\n' => {
                 tokens.push(Token::Eof);
@@ -73,10 +74,15 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
             _ => {
                 if query[start].is_ascii_alphabetic() || query[start] == b'_' {
                     tokens.push(scan_ident_or_keyword(&mut end, query));
+                    start = end;
                 } else if query[start].is_ascii_digit() {
-                    tokens.push(scan_digit_literal(&mut end, query));
+                    tokens.push(scan_int_literal(&mut end, query));
+                    start = end;
                 } else {
-                    return Err(UserErr::BadQuery);
+                    return Err(UserErr::BadQuery(QueryErr::NonAsciiChar{
+                        pos: start,
+                        byte: query[start]
+                    }));
                 }
             }
         }
@@ -88,20 +94,30 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
     Ok(tokens)
 }
 
-fn scan_string_literal(end: &mut usize, query: &[u8]) -> Token {
+fn scan_string_literal(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
     let mut literal: Vec<u8> = Vec::new();
 
     *end += 1; // so that the first byte read isn't the initiating \'
     loop {
+        if *end > query.len() {
+            return Err(QueryErr::StrLiteralNoClose(*end));
+        }
+
         match query[*end] {
-            b'\'' => break,
+            b'\'' => {
+                if query[*end+1] == b'\'' {
+                    *end += 1;
+                    literal.push(b'\'');
+                } else {
+                    break;
+                }
+            },
             b'\\' => {
                 if query[*end+1] == b'\'' {
                     *end += 1;
                     literal.push(b'\'');
                 } else {
                     literal.push(b'\\');
-                    continue; // So as not to increment past the character end is at
                 }
             },
             _ => literal.push(query[*end]),
@@ -110,15 +126,24 @@ fn scan_string_literal(end: &mut usize, query: &[u8]) -> Token {
         *end += 1;
     }
 
-    Token::StringLiteral(from_utf8(&literal).unwrap().to_string()) // should never panic
+    Ok(Token::StringLiteral(from_utf8(&literal)?.to_string())) // should never panic
 }
 
 fn scan_ident_or_keyword(end: &mut usize, query: &[u8]) -> Token {
     todo!();
 }
 
-fn scan_digit_literal(end: &mut usize, query: &[u8]) -> Token {
-    todo!();
+fn scan_int_literal(end: &mut usize, query: &[u8]) -> Token {
+    let mut digits: Vec<u8> = Vec::new();
+
+    while query[*end].is_ascii_digit() {
+        digits.push(query[*end]);
+    }
+
+    let num = digits.iter()
+        .fold(0, |acc, &digit| acc * 10 + digit as i64);
+
+    Token::IntLiteral(num)
 }
 
 #[cfg(test)]
@@ -127,14 +152,18 @@ mod tests {
 
     #[test]
     fn lex_string_literal() {
-        let query = "'this is a string'";
+        let query = "'this is \\\'a\\\' string'";
         let mut pointer = 0;
-        let token = Token::StringLiteral("this is a string".to_string());
-        assert_eq!(token, scan_string_literal(&mut pointer, query.as_bytes()))
+        let token = Token::StringLiteral("this is \'a\' string".to_string());
+        assert_eq!(token, scan_string_literal(&mut pointer, query.as_bytes()).unwrap())
     }
 
     #[test]
-    fn lex_digit_literal() {
+    fn lex_int_literal() {
+        let query = "12345";
+        let mut pointer = 0;
+        let token = Token::IntLiteral(12345);
+        assert_eq!(token, scan_int_literal(&mut pointer, query.as_bytes()))
     }
 
     #[test]

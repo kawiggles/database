@@ -3,7 +3,7 @@ pub mod ast;
 
 use crate::{
     store::{Store, value::Value},
-    errors::{UserResult, UserErr, DbResult, StoreErr},
+    errors::{UserResult, DbResult, StoreErr},
     query::lexer::lexerize,
 };
 
@@ -22,10 +22,6 @@ pub enum Query {
 
 impl Query {
     pub fn parse(input: &[u8]) -> UserResult<Self> {
-        if !(input.is_ascii()) {
-            return Err(UserErr::BadQuery);
-        }
-
         let tokens = lexerize(input)?;
         todo!();
     }
