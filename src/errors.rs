@@ -96,8 +96,8 @@ pub enum QueryErr {
     },
     #[error("String literal has no close")]
     StrLiteralNoClose,
-    #[error("Non-utf-8 char found in literal")]
-    LiteralNonUtf8(#[from] std::str::Utf8Error),
+    #[error("Non-utf-8 char found in query")]
+    NonUtf8(#[from] std::str::Utf8Error),
     #[error("The query string is incomplete")]
     IncompleteQuery,
     #[error("Int literal contains non-ascii digits")]
