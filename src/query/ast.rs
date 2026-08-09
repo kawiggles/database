@@ -138,8 +138,8 @@ impl<'a> Parser<'a> {
         &self.tokens[self.pos]
     }
 
-    fn advance(&mut self) -> &Token {
-        let t = &self.tokens[self.pos];
+    fn advance(&mut self) -> Token {
+        let t = self.tokens[self.pos].clone();
         self.pos += 1;
         t
     }
@@ -229,7 +229,7 @@ impl<'a> Parser<'a> {
         let target = match self.peek() {
             Token::To => {
                 self.advance();
-                match self.peek() {
+                match self.advance() {
                     Token::Stdout => Target::Stdout,
                     Token::StringLiteral(path) => Target::To(path.to_owned()),
                     other => return Err(QueryErr::UnexpectedToken {
@@ -239,7 +239,8 @@ impl<'a> Parser<'a> {
                 }
             },
             Token::From => {
-                match self.peek() {
+                self.advance();
+                match self.advance() {
                     Token::Stdin => Target::Stdin,
                     Token::StringLiteral(path) => Target::From(path.to_owned()),
                     other => return Err(QueryErr::UnexpectedToken {
@@ -253,7 +254,6 @@ impl<'a> Parser<'a> {
                 expected: "TO or FROM".to_string(), 
             }),
         };
-        self.advance();
 
         self.expect(&Token::With)?;
         let (format, header) = self.parse_with()?;
