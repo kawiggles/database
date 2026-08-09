@@ -79,9 +79,7 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
                 start += 1;
             },
             b'<' => {
-                if start >= query.len() {
-                    return Err(UserErr::BadQuery(QueryErr::IncompleteQuery));
-                } else if query[start+1] == b'=' {
+                if start + 1 < query.len() && query[start+1] == b'=' {
                     tokens.push(Token::LtEq);
                     start += 2;
                 } else {
@@ -90,9 +88,7 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
                 }
             },
             b'>' => {
-                if start >= query.len() {
-                    return Err(UserErr::BadQuery(QueryErr::IncompleteQuery));
-                } else if query[start+1] == b'=' {
+                if start + 1 < query.len() && query[start+1] == b'=' {
                     tokens.push(Token::GtEq);
                     start += 2;
                 } else {
