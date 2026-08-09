@@ -7,7 +7,10 @@ use bincode_next;
 use log::LevelFilter;
 use simplelog::{WriteLogger, Config};
 
-use crate::tcp::response::Response;
+use crate::{
+    tcp::response::Response,
+    query::lexer::Token,
+};
 
 pub fn init_logs() {
     WriteLogger::init(
@@ -100,6 +103,11 @@ pub enum QueryErr {
     NonUtf8(#[from] std::str::Utf8Error),
     #[error("Int literal contains non-ascii digits")]
     BadIntParse(#[from] std::num::ParseIntError),
+    #[error("Unexpected token {} found when parsing query, expected {}", found, expected)]
+    UnexpectedToken {
+        found: Token,
+        expected: String,
+    }
 
 }
 

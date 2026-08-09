@@ -4,6 +4,7 @@ use crate::{
 
 use std::{
     str::from_utf8,
+    fmt::Display,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -18,6 +19,7 @@ pub enum Token {
     Ident(String),
     IntLiteral(i64),
     StringLiteral(String),
+    BoolLiteral(bool),
 
     // Operators
     Eq, NotEq, Lt, Gt, LtEq, GtEq,
@@ -26,6 +28,52 @@ pub enum Token {
     Comma, Semicolon, LParen, RParen, Dot, Star,
 
     Eof
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Select           => write!(f, "SELECT"),
+            Token::From             => write!(f, "FROM"),
+            Token::Where            => write!(f, "WHERE"),
+            Token::Insert           => write!(f, "INSERT"),
+            Token::Into             => write!(f, "INTO"),
+            Token::Values           => write!(f, "VALUES"),
+            Token::Create           => write!(f, "CREATE"),
+            Token::Table            => write!(f, "TABLE"),
+            Token::Stdin            => write!(f, "STDIN"),
+            Token::Stdout           => write!(f, "STDOUT"),
+            Token::Update           => write!(f, "UPDATE"),
+            Token::Set              => write!(f, "SET"),
+            Token::And              => write!(f, "AND"),
+            Token::Or               => write!(f, "OR"),
+            Token::Not              => write!(f, "NOT"),
+            Token::Null             => write!(f, "NULL"),
+            Token::As               => write!(f, "AS"),
+            Token::Copy             => write!(f, "COPY"),
+            Token::With             => write!(f, "WITH"),
+            Token::Format           => write!(f, "FORMAT"),
+            Token::Header           => write!(f, "HEADER"),
+            Token::To               => write!(f, "TO"),
+            Token::Ident(i)         => write!(f, "ident<{}>", i),
+            Token::IntLiteral(i)    => write!(f, "int<{}>", i),
+            Token::StringLiteral(s) => write!(f, "string<{}>", s),
+            Token::BoolLiteral(b)   => write!(f, "bool<{}>", b),
+            Token::Eq               => write!(f, "="),
+            Token::NotEq            => write!(f, "!="),
+            Token::Lt               => write!(f, "<"),
+            Token::Gt               => write!(f, ">"),
+            Token::LtEq             => write!(f, "<="),
+            Token::GtEq             => write!(f, ">="),
+            Token::Comma            => write!(f, ","),
+            Token::Semicolon        => write!(f, ";"),
+            Token::LParen           => write!(f, "("),
+            Token::RParen           => write!(f, ")"),
+            Token::Dot              => write!(f, "."),
+            Token::Star             => write!(f, "*"),
+            Token::Eof              => write!(f, "EOF"),
+        }
+    }
 }
 
 pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
@@ -189,6 +237,8 @@ fn scan_ident_or_keyword(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
         "FORMAT" => Ok(Token::Format),
         "HEADER" => Ok(Token::Header),
         "TO" => Ok(Token::To),
+        "TRUE" => Ok(Token::BoolLiteral(true)),
+        "FALSE" => Ok(Token::BoolLiteral(false)),
         _ => Ok(Token::Ident(text.to_string())),
     }
 }
