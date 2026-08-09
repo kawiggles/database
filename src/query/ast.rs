@@ -66,6 +66,7 @@ pub enum Expr {
 pub enum Literal {
     Str(String),
     Int(i64),
+    Bool(bool),
     Null,
 }
 
@@ -233,7 +234,7 @@ impl<'a> Parser<'a> {
                     Token::Stdout => Target::Stdout,
                     Token::StringLiteral(path) => Target::To(path.to_owned()),
                     other => return Err(QueryErr::UnexpectedToken {
-                        found: other.clone(),
+                        found: other,
                         expected: "STDOUT or string<path>".to_string(),
                     }),
                 }
@@ -244,7 +245,7 @@ impl<'a> Parser<'a> {
                     Token::Stdin => Target::Stdin,
                     Token::StringLiteral(path) => Target::From(path.to_owned()),
                     other => return Err(QueryErr::UnexpectedToken {
-                        found: other.clone(),
+                        found: other,
                         expected: "STDIN or string<path>".to_string()
                     }),
                 }
@@ -262,15 +263,56 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_column_list(&mut self) -> QueryResult<Vec<ColumnRef>> {
-        todo!()
+        let mut columns = vec![self.parse_column_ref()?];
+
+        while self.peek() == &Token::Comma {
+            self.advance();
+            columns.push(self.parse_column_ref()?);
+        }
+
+        Ok(columns)
     }
 
     fn parse_table_ref(&mut self) -> QueryResult<TableRef> {
-        todo!()
+        match self.advance() {
+            Token::Ident(ident) => {
+                if self.peek() == &Token::As {
+                    self.advance();
+                    let table = Box::new(TableRef::Table(ident));
+                    let alias = match self.advance() {
+                        Token::Ident(a) => a,
+                        other => return Err(QueryErr::UnexpectedToken {
+                            found: other,
+                            expected: "ident<alias>".to_string()
+                        })
+                    };
+
+                    Ok(TableRef::Alias { alias, table })
+                } else {
+                    Ok(TableRef::Table(ident))
+                }
+            },
+            other => Err(QueryErr::UnexpectedToken {
+                found: other,
+                expected: "identity<table>".to_string()
+            })
+        }
     }
 
     fn parse_expr(&mut self) -> QueryResult<Expr> {
-        todo!()
+        let mut left = self.parse_conjunction()?;
+
+        while self.peek() == &Token::Or {
+            self.advance();
+            let right = self.parse_conjunction()?;
+            left = Expr::BinaryExpr {
+                left: Box::new(left),
+                operator: BOp::Or,
+                right: Box::new(right)
+            };
+        }
+        
+        Ok(left)
     }
 
     fn parse_values(&mut self) -> QueryResult<Vec<Vec<Expr>>> {
@@ -287,6 +329,87 @@ impl<'a> Parser<'a> {
 
     fn parse_with(&mut self) -> QueryResult<(Format, bool)> {
         todo!()
+    }
+
+    fn parse_column_ref(&mut self) -> QueryResult<ColumnRef> {
+        todo!()
+    }
+
+    fn parse_conjunction(&mut self) -> QueryResult<Expr> {
+        let mut left = self.parse_not()?;
+
+        while self.peek() == &Token::And {
+            self.advance();
+            let right = self.parse_not()?;
+            left = Expr::BinaryExpr {
+                left: Box::new(left),
+                operator: BOp::And,
+                right: Box::new(right)
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_not(&mut self) -> QueryResult<Expr> {
+        if self.peek() == &Token::Not {
+            self.advance();
+            let expr = self.parse_not()?;
+            return Ok(Expr::UnaryExpr { operator: UOp::Not, expr: Box::new(expr) });
+        }
+
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> QueryResult<Expr> {
+        let left = self.parse_primary()?;
+
+        if let Some(op) = self.peek_binop() {
+            self.advance();
+            let right = self.parse_primary()?;
+            return Ok(Expr::BinaryExpr {
+                left: Box::new(left),
+                operator: op,
+                right: Box::new(right), 
+            });
+        }
+
+        Ok(left)
+    }
+
+    fn parse_primary(&mut self) -> QueryResult<Expr> {
+        match self.advance() {
+            Token::IntLiteral(i) => Ok(Expr::Literal(Literal::Int(i))),
+            Token::StringLiteral(s) => Ok(Expr::Literal(Literal::Str(s))),
+            Token::BoolLiteral(b) => Ok(Expr::Literal(Literal::Bool(b))),
+            Token::Null => Ok(Expr::Literal(Literal::Null)),
+            // TODO: dotted column references
+            Token::Ident(n) => Ok(Expr::ColumnRef(ColumnRef::Column {
+                table: None,
+                column: n,
+            })),
+            Token::LParen => {
+                let inner = self.parse_expr()?;
+                self.expect(&Token::RParen)?;
+                Ok(inner)
+            },
+            other => Err(QueryErr::UnexpectedToken {
+                found: other,
+                expected: "literal, column reference, or '('".to_string(),
+            })
+        }
+    }
+    
+    fn peek_binop(&self) -> Option<BOp> {
+        match &self.tokens[self.pos] {
+            Token::Eq => Some(BOp::Eq),
+            Token::NotEq => Some(BOp::NotEq),
+            Token::Lt => Some(BOp::Lt),
+            Token::Gt => Some(BOp::Gt),
+            Token::LtEq => Some(BOp::LtEq),
+            Token::GtEq => Some(BOp::GtEq),
+            _ => None,
+        }
     }
 }
 
