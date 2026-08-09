@@ -10,8 +10,9 @@ use std::{
 pub enum Token {
     // Keywords
     Select, From, Where, Insert, Into, Values,
-    Create, Table, Copy, Stdin, Stdout, Update,
+    Create, Table, Stdin, Stdout, Update, Set,
     And, Or, Not, Null, As,
+    Copy, With, Format, Header, To,
 
     // Literals
     Ident(String),
@@ -183,6 +184,11 @@ fn scan_ident_or_keyword(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
         "NOT" => Ok(Token::Not),
         "NULL" => Ok(Token::Null),
         "AS" => Ok(Token::As),
+        "SET" => Ok(Token::Set),
+        "WITH" => Ok(Token::With),
+        "FORMAT" => Ok(Token::Format),
+        "HEADER" => Ok(Token::Header),
+        "TO" => Ok(Token::To),
         _ => Ok(Token::Ident(text.to_string())),
     }
 }

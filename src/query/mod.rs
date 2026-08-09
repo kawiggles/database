@@ -4,7 +4,10 @@ pub mod ast;
 use crate::{
     store::{Store, value::Value},
     errors::{UserResult, DbResult, StoreErr},
-    query::lexer::lexerize,
+    query::{
+        lexer::lexerize,
+        ast::make_ast,
+    },
 };
 
 use log::{info};
@@ -23,6 +26,7 @@ pub enum Query {
 impl Query {
     pub fn parse(input: &[u8]) -> UserResult<Self> {
         let tokens = lexerize(input)?;
+        let ast = make_ast(tokens);
         todo!();
     }
 
