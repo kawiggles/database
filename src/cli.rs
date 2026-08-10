@@ -2,9 +2,9 @@ use std::io::{Write, stdout, stdin};
 use std::sync::RwLock;
 use log::{info, warn};
 
-use crate::store::{
-    Store,
-    value::Value,
+use crate::{
+    store::{ Store, value::Value },
+    query::Query,
 };
 
 pub fn run_cli(db: &RwLock<Store>) -> bool {
@@ -28,12 +28,7 @@ enum Cli {
     PrintTree,
     ValidateTree,
     FlushPager,
-    Get(String),
-    Set {
-        key: String,
-        value: Value,
-    },
-    Del(String),
+    Query(Query),
     Stop,
     Help,
     Unknown
@@ -74,43 +69,6 @@ fn parse_cli(input: &str) -> Cli {
             info!(" - Cli command parsed as 'flush'...");
             Cli::FlushPager
         },
-        "get" => {
-            if args.len() < 2 {
-                warn!(" - Cli command missing argument");
-                println!("Cli command missing argument");
-                return Cli::Unknown;
-            }
-
-            let key: String = args[1].to_string();
-            info!(" - Cli command parsed as 'get {}'", key);
-            Cli::Get(key)
-        },
-        "set" => {
-            if args.len() < 3 {
-                warn!(" - Cli command missing argument");
-                println!("Cli command missing argument");
-                return Cli::Unknown;
-            }
-
-            let key = args[1].to_string();
-            let val = args[2];
-            info!(" - Cli command parsed as 'set {} {}'", key, val);
-            Cli::Set {
-                key: key,
-                value: Value::text(val),
-            }
-        },
-        "del" => {
-            if args.len() < 2 {
-                warn!(" - Cli command missing argument");
-                println!("Cli command missing argument");
-                return Cli::Unknown;
-            }
-
-            let key = args[1].to_string();
-            info!(" - Cli command parsed as 'del {}'", key);
-            Cli::Del(key)
-        },
         "stop" => {
             warn!(" - Command to stop server received...");
             Cli::Stop
@@ -138,25 +96,6 @@ fn exec_cli(cli: Cli, db: &RwLock<Store>) {
             }
         },
         Cli::FlushPager => db.write().unwrap().pager.flush().unwrap(),
-        Cli::Get(key) => {
-            match db.read().unwrap().get(&key) {
-                Ok(val) => println!("Value: {}", val.print()),
-                Err(err) => println!("Error when getting value: {err}"),
-            }
-        },
-        Cli::Set { key, value } => {
-            match db.write().unwrap().put(&key, value) {
-                Ok(val) => println!("Value: {}", val.print()),
-                Err(err) => println!("Error when setting value: {err}"),
-            }
-        },
-        Cli::Del(key) => {
-            info!("Attempting to delete key: {:?}", key);
-            match db.write().unwrap().del(&key) {
-                Ok(val) => println!("Value: {}", val.print()),
-                Err(err) => println!("Error when setting value: {err}"),
-            }
-        }
         Cli::Stop => return,
         Cli::Help => {
             println!("Commands:");
@@ -168,6 +107,7 @@ fn exec_cli(cli: Cli, db: &RwLock<Store>) {
             println!(" - flush              - flush db write cache");
             println!(" - stop               - cleanly shuts down the server");
         },
+        Cli::Query(query) => todo!(),
         Cli::Unknown => return,
     }
 }

@@ -107,7 +107,9 @@ pub enum QueryErr {
     UnexpectedToken {
         found: Token,
         expected: String,
-    }
+    },
+    #[error("Input format {0} not recognized")]
+    UnknownFormat(String),
 
 }
 

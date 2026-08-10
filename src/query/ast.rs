@@ -118,7 +118,7 @@ pub enum Format {
 }
 
 #[derive(Debug, PartialEq)]
-struct ColumnDef {
+pub struct ColumnDef {
     name: String,
 }
 
@@ -273,6 +273,58 @@ impl<'a> Parser<'a> {
         Ok(columns)
     }
 
+    fn parse_column_ref(&mut self) -> QueryResult<ColumnRef> {
+        if self.peek() == &Token::Star {
+            self.advance();
+            return Ok(ColumnRef::AllColumns)
+        }
+
+        let first = match self.advance() {
+            Token::Ident(name) => name,
+            other => return Err(QueryErr::UnexpectedToken {
+                found: other,
+                expected: "column name or *".to_string()
+            }),
+        };
+
+        let column = if self.peek() == &Token::Dot {
+            self.advance();
+            let col_name = match self.advance() {
+                Token::Ident(i) => i,
+                other => return Err(QueryErr::UnexpectedToken {
+                    found: other,
+                    expected: "column identifier".to_string()
+                }),
+            };
+
+            ColumnRef::Column {
+                table: Some(TableRef::Table(first)),
+                column: col_name,
+            }
+        } else {
+            ColumnRef::Column { 
+                table: None,
+                column: first
+            }
+        };
+
+        if self.peek() == &Token::As {
+            self.advance();
+            let alias = match self.advance() {
+                Token::Ident(i) => i,
+                other => return Err(QueryErr::UnexpectedToken {
+                    found: other,
+                    expected: "an alias".to_string(),
+                }),
+            };
+
+            Ok(ColumnRef::Alias { alias, column: Box::new(column) })
+        } else {
+            Ok(column)
+        }
+    }
+
+    // TODO: parse schema dots
     fn parse_table_ref(&mut self) -> QueryResult<TableRef> {
         match self.advance() {
             Token::Ident(ident) => {
@@ -316,23 +368,105 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_values(&mut self) -> QueryResult<Vec<Vec<Expr>>> {
-        todo!()
+        let mut rows = vec![self.parse_row()?];
+
+        while self.peek() == &Token::Comma {
+            self.advance();
+            rows.push(self.parse_row()?);
+        }
+
+        Ok(rows)
+    }
+
+    fn parse_row(&mut self) -> QueryResult<Vec<Expr>> {
+        self.expect(&Token::LParen)?;
+
+        let mut row = vec![self.parse_expr()?];
+        while self.peek() == &Token::Comma {
+            self.advance();
+            row.push(self.parse_expr()?);
+        }
+
+        self.expect(&Token::RParen)?;
+        Ok(row)
     }
 
     fn parse_column_list_def(&mut self) -> QueryResult<Vec<ColumnDef>> {
-        todo!()
+        let mut columns = vec![self.parse_column_def()?];
+
+        while self.peek() == &Token::Comma {
+            self.advance();
+            columns.push(self.parse_column_def()?);
+        }
+
+        Ok(columns)
+    }
+
+    fn parse_column_def(&mut self) -> QueryResult<ColumnDef> {
+        match self.advance() {
+            Token::Ident(i) => Ok(ColumnDef { name: i }),
+            other => Err(QueryErr::UnexpectedToken {
+                found: other,
+                expected: "new column identifier".to_string(),
+            }),
+        }
     }
 
     fn parse_assignments(&mut self) -> QueryResult<Vec<Assignment>> {
-        todo!()
+        let mut assignments = vec![self.parse_assignment()?];
+
+        while self.peek() == &Token::Comma {
+            self.advance();
+            assignments.push(self.parse_assignment()?);
+        }
+
+        Ok(assignments)
+    }
+
+    fn parse_assignment(&mut self) -> QueryResult<Assignment> {
+        // TODO: Update target column parsing
+        let column = self.parse_column_ref()?;
+        self.expect(&Token::Eq)?;
+        let val = self.parse_expr()?;
+
+        Ok(Assignment {
+            column: column,
+            val: Box::new(val),
+        })
     }
 
     fn parse_with(&mut self) -> QueryResult<(Format, bool)> {
-        todo!()
-    }
+        self.expect(&Token::LParen)?;
+        self.expect(&Token::Format)?;
+        let format = match self.advance() {
+            Token::Ident(i) => {
+                match i.to_ascii_lowercase().as_str() {
+                    "csv" => Format::Csv,
+                    _ => return Err(QueryErr::UnknownFormat(i)),
+                }
+            },
+            other => return Err(QueryErr::UnexpectedToken {
+                found: other,
+                expected: "format identifier".to_string(),
+            }),
+        };
 
-    fn parse_column_ref(&mut self) -> QueryResult<ColumnRef> {
-        todo!()
+        let header = if self.peek() == &Token::Comma {
+            self.advance();
+            self.expect(&Token::Header)?;
+            match self.advance() {
+                Token::BoolLiteral(b) => b,
+                other => return Err(QueryErr::UnexpectedToken {
+                    found: other,
+                    expected: "bool".to_string(),
+                }),
+            }
+        } else {
+            false
+        };
+
+        self.expect(&Token::RParen)?;
+        Ok((format, header))
     }
 
     fn parse_conjunction(&mut self) -> QueryResult<Expr> {
@@ -383,7 +517,7 @@ impl<'a> Parser<'a> {
             Token::StringLiteral(s) => Ok(Expr::Literal(Literal::Str(s))),
             Token::BoolLiteral(b) => Ok(Expr::Literal(Literal::Bool(b))),
             Token::Null => Ok(Expr::Literal(Literal::Null)),
-            // TODO: dotted column references
+            // TODO: dotted column references: if self.peek() == &Token::Dot {
             Token::Ident(n) => Ok(Expr::ColumnRef(ColumnRef::Column {
                 table: None,
                 column: n,
@@ -414,6 +548,14 @@ impl<'a> Parser<'a> {
 }
 
 pub fn make_ast(tokens: Vec<Token>) -> QueryResult<Statement> {
+    // TODO: Multiline processing loop
     let mut parser = Parser::new(&tokens);
-    parser.parse_statement()
+    let stmt = parser.parse_statement()?;
+    parser.expect(&Token::Semicolon)?;
+    Ok(stmt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 }
