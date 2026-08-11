@@ -558,4 +558,84 @@ pub fn make_ast(tokens: Vec<Token>) -> QueryResult<Statement> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn int(n: i64) -> Expr {
+        Expr::Literal(Literal::Int(n))
+    }
+
+    fn str_(s: &str) -> Expr {
+        Expr::Literal(Literal::Str(s.to_string()))
+    }
+
+    fn col(c: &str) -> Expr {
+        Expr::ColumnRef(ColumnRef::Column { table: None, column: c.to_string() })
+    }
+
+    fn bin(left: Expr, op: BOp, right: Expr) -> Expr {
+        Expr::BinaryExpr { left: Box::new(left), operator: op, right: Box::new(right) }
+    }
+
+    fn not_(e: Expr) -> Expr {
+        Expr::UnaryExpr { operator: UOp::Not, expr: Box::new(e) }
+    }
+
+    fn print_expr(e: Expr) {
+
+    }
+
+    #[test]
+    fn basic_expr() {
+        let tokens = vec![
+            Token::Ident("name".to_string()),
+            Token::NotEq,
+            Token::StringLiteral("Falco".to_string()),
+            Token::Eof,
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = bin(col("name"), BOp::NotEq, str_("Falco"));
+
+        assert_eq!(parser.parse_expr().unwrap(), expected);
+    }
+
+    #[test]
+    fn and_vs_or_binding() {
+        let tokens = vec![
+            Token::Ident("age".to_string()), Token::Eq, Token::IntLiteral(1),
+            Token::Or,
+            Token::Ident("age".to_string()), Token::Eq, Token::IntLiteral(2),
+            Token::And,
+            Token::Ident("age".to_string()), Token::Eq, Token::IntLiteral(3),
+            Token::Eof,
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = bin(
+            bin(col("age"), BOp::Eq, int(1)),
+            BOp::Or,
+            bin(bin(col("age"), BOp::Eq, int(2)), BOp::And, bin(col("age"), BOp::Eq, int(3))),
+        );
+
+        assert_eq!(parser.parse_expr().unwrap(), expected);
+    }
+
+    #[test]
+    fn not_vs_and_binding() {
+        let tokens = vec![
+            Token::Not,
+            Token::Ident("cost".to_string()), Token::Eq, Token::IntLiteral(5),
+            Token::And,
+            Token::Ident("cost".to_string()), Token::Gt, Token::IntLiteral(2),
+            Token::Eof,
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = bin(
+            not_(bin(col("cost"), BOp::Eq, int(5))),
+            BOp::And,
+            bin(col("cost"), BOp::Gt, int(2)),
+        );
+
+        assert_eq!(parser.parse_expr().unwrap(), expected);
+    }
 }
