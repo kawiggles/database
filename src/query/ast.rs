@@ -558,6 +558,7 @@ pub fn make_ast(tokens: Vec<Token>) -> QueryResult<Statement> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::query::ast::{Expr};
 
     fn int(n: i64) -> Expr {
         Expr::Literal(Literal::Int(n))
@@ -577,10 +578,6 @@ mod tests {
 
     fn not_(e: Expr) -> Expr {
         Expr::UnaryExpr { operator: UOp::Not, expr: Box::new(e) }
-    }
-
-    fn print_expr(e: Expr) {
-
     }
 
     #[test]
@@ -637,5 +634,80 @@ mod tests {
         );
 
         assert_eq!(parser.parse_expr().unwrap(), expected);
+    }
+
+    #[test]
+    fn basic_select() {
+        let tokens = vec![
+            Token::Select, Token::Star,
+            Token::From, Token::Ident("table".into()),
+            Token::Eof,
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = SelectStmt {
+            table: TableRef::Table("table".to_string()),
+            columns: vec![ColumnRef::AllColumns],
+            where_clause: None,
+        };
+
+        assert_eq!(parser.parse_select().unwrap(), expected);
+    }
+
+    #[test]
+    fn where_select() {
+        let tokens = vec![
+            Token::Select, Token::Ident("col2".into()),Token::Comma, Token::Ident("col1".into()),
+            Token::From, Token::Ident("table".to_string()),
+            Token::Where, Token::LParen,
+            Token::Ident("status".into()), Token::Eq, Token::StringLiteral("active".into()),
+            Token::Or,
+            Token::Ident("status".into()), Token::NotEq, Token::StringLiteral("banned".into()),
+            Token::RParen,
+            Token::Eof,
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = SelectStmt {
+            table: TableRef::Table("table".to_string()),
+            columns: vec![
+                ColumnRef::Column { table: None, column: "col2".into() },
+                ColumnRef::Column { table: None, column: "col1".into() }
+            ],
+            where_clause: Some(bin(
+                    bin(col("status"), BOp::Eq, str_("active")),
+                    BOp::Or,
+                    bin(col("status"), BOp::NotEq, str_("banned"))
+            ))
+        };
+
+        assert_eq!(parser.parse_select().unwrap(), expected);
+    }
+
+    #[test]
+    fn dotted_select() {
+        let tokens = vec![
+            Token::Select, Token::Ident("users".into()), Token::Dot, Token::Ident("names".into()),
+            Token::As, Token::Ident("u".into()),
+            Token::From, Token::Ident("table".into()),
+            Token::Eof,
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = SelectStmt {
+            table: TableRef::Table("table".to_string()),
+            columns: vec![
+                ColumnRef::Alias { 
+                    alias: "u".into(),
+                    column: Box::new(ColumnRef::Column {
+                        table: Some(TableRef::Table("users".into())),
+                        column: "names".into(),
+                    }),
+                }
+            ],
+            where_clause: None,
+        };
+
+        assert_eq!(parser.parse_select().unwrap(), expected);
     }
 }
