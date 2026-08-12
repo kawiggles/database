@@ -191,7 +191,11 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Insert)?;
         self.expect(&Token::Into)?;
         let table = self.parse_table_ref()?;
+
+        self.expect(&Token::LParen)?;
         let columns = self.parse_column_list()?;
+        self.expect(&Token::RParen)?;
+
         self.expect(&Token::Values)?;
         let values = self.parse_values()?;
 
@@ -202,7 +206,10 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Create)?;
         self.expect(&Token::Table)?;
         let table = self.parse_table_ref()?;
+
+        self.expect(&Token::LParen)?;
         let columns = self.parse_column_list_def()?;
+        self.expect(&Token::RParen)?;
 
         Ok(CreateStmt { table, columns })
     }
@@ -709,5 +716,97 @@ mod tests {
         };
 
         assert_eq!(parser.parse_select().unwrap(), expected);
+    }
+
+    #[test]
+    fn basic_insert() {
+        let tokens = vec![
+            Token::Insert, Token::Into, Token::Ident("users".into()), Token::LParen,
+            Token::Ident("id".into()), Token::Comma, Token::Ident("name".into()), Token::RParen,
+            Token::Values, Token::LParen, 
+            Token::IntLiteral(1), Token::Comma, Token::StringLiteral("bob".into()),
+            Token::RParen, Token::Comma, Token::LParen,
+            Token::IntLiteral(2), Token::Comma, Token::StringLiteral("bill".into()),
+            Token::RParen, Token::Eof
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = InsertStmt {
+            table: TableRef::Table("users".into()),
+            columns: vec![
+                ColumnRef::Column { table: None, column: "id".into() },
+                ColumnRef::Column { table: None, column: "name".into() },
+            ],
+            values: vec![
+                vec![int(1), str_("bob")],
+                vec![int(2), str_("bill")],
+            ],
+        };
+
+        assert_eq!(parser.parse_insert().unwrap(), expected);
+    }
+
+    #[test]
+    fn basic_create_table() {
+        let tokens = vec![
+            Token::Create, Token::Table, Token::Ident("users".into()), Token::LParen,
+            Token::Ident("id".into()), Token::Comma, Token::Ident("name".into()),
+            Token::RParen, Token::Eof
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = CreateStmt {
+            table: TableRef::Table("users".into()),
+            columns: vec![
+                ColumnDef { name: "id".into() },
+                ColumnDef { name: "name".into() },
+            ],
+        };
+
+        assert_eq!(parser.parse_create().unwrap(), expected);
+    }
+
+    #[test]
+    fn basic_update() {
+        let tokens = vec![
+            Token::Update, Token::Ident("users".into()),
+            Token::Set, Token::Ident("name".into()), Token::Eq, Token::StringLiteral("Bob".into()),
+            Token::Where, Token::Ident("id".into()), Token::Eq, Token::IntLiteral(1),
+            Token::Eof
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = UpdateStmt {
+            table: TableRef::Table("users".into()),
+            assignments: vec![Assignment {
+                column: ColumnRef::Column { table: None, column: "name".into() },
+                val: Box::new(str_("Bob")),
+            }],
+            where_clause: Some(bin(col("id"), BOp::Eq, int(1))),
+        };
+
+        assert_eq!(parser.parse_update().unwrap(), expected);
+    }
+
+    #[test]
+    fn basic_copy() {
+        let tokens = vec![
+            Token::Copy, Token::Ident("table".into()),
+            Token::From, Token::StringLiteral("/path/to/file.csv".into()),
+            Token::With, Token::LParen,
+            Token::Format, Token::Ident("csv".into()), Token::Comma,
+            Token::Header, Token::BoolLiteral(true),
+            Token::RParen, Token::Eof,
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = CopyStmt {
+            table: TableRef::Table("table".into()),
+            target: Target::From("/path/to/file.csv".into()),
+            format: Format::Csv,
+            header: true,
+        };
+
+        assert_eq!(parser.parse_copy().unwrap(), expected);
     }
 }
