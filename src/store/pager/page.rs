@@ -12,7 +12,7 @@ pub const PAGE_SIZE: usize = 4096;
 
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
-    fn pagetype(&self) -> PageType;
+    fn pagetype() -> PageType;
     fn next(&self) -> Option<PageId>;
     fn serialize(&self) -> Vec<u8>;
     fn deserialize(bytes: [u8; PAGE_SIZE]) -> StoreResult<Self>;
@@ -20,7 +20,7 @@ pub trait Page: Sized {
 
 pub struct PageHeader {
     pub table_oid: Oid,
-    pagetype: PageType,
+    pub pagetype: PageType,
     next: Option<PageId>,
     pub slots: u16,
     pub lower: u16, // start of data slots
@@ -28,7 +28,7 @@ pub struct PageHeader {
 }
 
 #[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
-pub struct PageId(NonZeroUsize);
+pub struct PageId(pub NonZeroUsize);
 
 impl PageId {
     fn new(offset: usize) -> Option<Self> {
@@ -40,7 +40,7 @@ impl PageId {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum PageType {
     Branch,
     Leaf,
@@ -65,8 +65,8 @@ impl Page for BranchPage {
         &self.header
     }
 
-    fn pagetype(&self) -> PageType {
-        self.header.pagetype
+    fn pagetype() -> PageType {
+        PageType::Branch
     }
 
     fn next(&self) -> Option<PageId> {
@@ -99,8 +99,8 @@ impl Page for LeafPage {
         &self.header
     }
 
-    fn pagetype(&self) -> PageType {
-        self.header.pagetype
+    fn pagetype() -> PageType {
+        PageType::Leaf
     }
 
     fn next(&self) -> Option<PageId> {
@@ -132,8 +132,8 @@ impl Page for DataPage {
         &self.header
     }
 
-    fn pagetype(&self) -> PageType {
-        self.header.pagetype
+    fn pagetype() -> PageType {
+        PageType::Data
     }
 
     fn next(&self) -> Option<PageId> {
@@ -166,8 +166,8 @@ impl Page for OverflowPage {
         &self.header
     }
 
-    fn pagetype(&self) -> PageType {
-        self.header.pagetype
+    fn pagetype() -> PageType {
+        PageType::Overflow
     }
 
     fn next(&self) -> Option<PageId> {

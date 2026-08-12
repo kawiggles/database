@@ -1,204 +1,30 @@
 pub mod page;
 
-use crate::VERSION;
-use crate::store::value::Value;
-use crate::errors::{StoreErr, StoreResult};
-use crate::tcp::DEFAULT_FILE;
+use crate::{
+    VERSION,
+    store::{
+        value::Value,
+        pager::page::{Page, PageId, PageHeader, PageType, IndexPage},
+    },
+    errors::{StoreErr, StoreResult},
+    tcp::DEFAULT_FILE,
+};
 
-use bincode_next::{config, Encode, Decode};
 use std::{
     fs::{File, OpenOptions},
     os::unix::fs::FileExt,
     io::{Write, Read, Seek, SeekFrom, BufReader},
-    fmt,
     collections::HashMap,
 };
 use log::{info};
 
-// Pager Constants__________________________________________________________________________________
-
 // TODO: replace PAGE_SIZE instances with the page_size metadata for choices of page sizes
 pub const PAGE_SIZE: usize = 4096;
-
-const INDEX_CONFIG: config::Configuration<config::BigEndian, config::Fixint, config::Limit<4096>> = 
-    config::standard()
-    .with_big_endian()
-    .with_fixed_int_encoding()
-    .with_limit::<PAGE_SIZE>();
-
-const DATA_CONFIG: config::Configuration<config::BigEndian, config::Varint, config::Limit<4096>> = 
-    config::standard()
-    .with_big_endian()
-    .with_limit::<4096>();
 
 const MAGIC: [u8; 8] = *b"KAWIKADB";
 
 // TODO: Figure out what this is
 pub struct Oid;
-
-pub trait Page: Sized {
-    fn page_id(&self) -> PageId;
-    fn write(pager: &mut Pager, page: Self) -> StoreResult<()>;
-    fn read(pager: &Pager, id: PageId) -> StoreResult<Self>;
-}
-
-pub fn write_page(file: &mut File, id: PageId, buf: &[u8; PAGE_SIZE]) -> StoreResult<()> {
-    file.seek(SeekFrom::Start((id.0 * PAGE_SIZE) as u64))?;
-    file.write_all(buf)?;
-    Ok(())
-}
-
-#[derive(Eq, Hash, PartialEq, Encode, Decode, Clone, Copy, Debug)]
-pub struct PageId(pub usize);
-
-impl fmt::Display for PageId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-// TODO: Make data representation more efficient (manual bincode)
-#[derive(Encode, Decode, Clone)]
-pub struct PageHeader {
-    pub page_type: PageType, // 4 bytes
-    pub page_id: PageId, // 8 bytes
-    pub next_free: Option<PageId>, // 8 bytes (Option) + 8 bytes
-    pub next_over: Option<PageId>, // 16 Bytes
-} // Total: 44 bytes
-
-#[derive(Encode, Decode, Clone)]
-pub enum PageType {
-    Index,
-    Data,
-}
-
-#[derive(Encode, Decode, Clone)]
-pub struct IndexPage {
-    pub header: PageHeader, // 44 bytes
-    pub keys: Vec<String>, // 8 + ? Bytes
-    pub node_type: NodeType, // 28 + ? Bytes
-                             // Max order is 251 (trust this math) with PAGE_SIZE 4096
-}
-
-impl IndexPage {
-    pub fn new_leaf(id: PageId, keys: Vec<String>, ids: Vec<PageId>, next: Option<PageId>) -> Self {
-        IndexPage { 
-            header: PageHeader {
-                page_type: PageType::Index,
-                page_id: id,
-                next_free: None,
-                next_over: None,
-            },
-            keys: keys,
-            node_type: NodeType::Leaf {
-                pages: ids,
-                next: next,
-            }
-        }
-    }
-
-    pub fn new_branch(id: PageId, keys: Vec<String>, ids: Vec<PageId>) -> Self {
-        IndexPage { 
-            header: PageHeader {
-                page_type: PageType::Index,
-                page_id: id,
-                next_free: None,
-                next_over: None,
-            },
-            keys: keys,
-            node_type: NodeType::Branch {
-                children: ids,
-            }
-        }
-    }
-}
-
-impl Page for IndexPage {
-    fn page_id(&self) -> PageId {
-        self.header.page_id
-    }
-
-    fn write(pager: &mut Pager, new_page: Self) -> StoreResult<()> {
-        pager.dirty_cache.insert(new_page.header.page_id, new_page);
-        Ok(())
-    }
-
-    fn read(pager: &Pager, id: PageId) -> StoreResult<Self> {
-        if let Some(cached) = pager.dirty_cache.get(&id) {
-            return Ok(cached.clone());
-        }
-
-        let file = &pager.file;
-        let mut buf = [0u8; PAGE_SIZE];
-        file.read_at(&mut buf, (id.0 * PAGE_SIZE) as u64)?;
-        let (page, size): (IndexPage, usize) = bincode_next::decode_from_slice(&buf, INDEX_CONFIG)?;
-
-        if size > PAGE_SIZE {
-            return Err(StoreErr::ReadOverflow)
-        }
-
-        Ok(page)
-    }
-}
-
-#[derive(Encode, Decode, Clone)] // Trust this math
-pub enum NodeType { // 4 bytes
-    Branch { children: Vec<PageId> }, // 8 bytes + ? 8 byte PageIds
-    Leaf { 
-        pages: Vec<PageId>, // 8 bytes + ? 8 byte PageIds
-        next: Option<PageId> // 8 bytes (Option) + 8 bytes
-    } // 28 + 8? Bytes
-} // max 28 + 8? Bytes where "?" is number of keys
-
-#[derive(Encode, Decode)]
-pub struct DataPage {
-    pub header: PageHeader, // 44 bytes
-    pub value: Value,
-}
-
-impl DataPage {
-    pub fn new(pager: &mut Pager, val: Value) -> StoreResult<PageId> {
-        let id = pager.alloc();
-        let page = DataPage {
-            header: PageHeader {
-                page_type: PageType::Data,
-                page_id: id,
-                next_free: None,
-                next_over: None, // writeover logic could happen at later point
-            },
-            value: val,
-        };
-        Page::write(pager, page)?;
-        Ok(id)
-    }
-}
-
-impl Page for DataPage {
-    fn page_id(&self) -> PageId {
-        self.header.page_id
-    }
-
-    fn write(pager: &mut Pager, new_page: Self) -> StoreResult<()> {
-        let file = &mut pager.file;
-        let mut page = [0u8; PAGE_SIZE];
-        bincode_next::encode_into_slice(&new_page, &mut page, DATA_CONFIG)?;
-        write_page(file, new_page.header.page_id, &page)?;
-        Ok(())
-    }
-
-    fn read(pager: &Pager, id: PageId) -> StoreResult<DataPage> {
-        let file = &pager.file;
-        let mut buf = [0u8; PAGE_SIZE];
-        file.read_at(&mut buf, (id.0 * PAGE_SIZE) as u64)?;
-        let (page, size): (DataPage, usize) = bincode_next::decode_from_slice(&buf, DATA_CONFIG)?;
-
-        if size > PAGE_SIZE {
-            return Err(StoreErr::ReadOverflow)
-        }
-
-        Ok(page)
-    }
-}
 
 const DBHEADER_SIZE: usize = 3000;
 pub struct DbHeader {
@@ -226,7 +52,7 @@ impl DbHeader {
 pub struct Pager {
     pub file: File,
     free_list: Vec<PageId>,
-    dirty_cache: HashMap<PageId, IndexPage>,
+    dirty_cache: HashMap<PageId, Page>,
     pub num_pages: usize,
 }
 
@@ -305,7 +131,7 @@ impl Pager {
         self.file.read_at(&mut buf, (id.get() * PAGE_SIZE) as u64)?;
         let page: T = T::deserialize(buf)?;
         
-        if page.pagetype() != T::pagetype() {
+        if page.header().pagetype != T::pagetype() {
             Err(/* Some error about wrong page found */),
         }
 
