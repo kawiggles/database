@@ -1,3 +1,5 @@
+pub mod page;
+
 use crate::VERSION;
 use crate::store::value::Value;
 use crate::errors::{StoreErr, StoreResult};
@@ -31,7 +33,8 @@ const DATA_CONFIG: config::Configuration<config::BigEndian, config::Varint, conf
 
 const MAGIC: [u8; 8] = *b"KAWIKADB";
 
-// Page Trait_______________________________________________________________________________________
+// TODO: Figure out what this is
+pub struct Oid;
 
 pub trait Page: Sized {
     fn page_id(&self) -> PageId;
@@ -197,7 +200,7 @@ impl Page for DataPage {
     }
 }
 
-#[derive(Encode, Decode)]
+const DBHEADER_SIZE: usize = 3000;
 pub struct DbHeader {
     magic: [u8; 8],
     version: u32,
@@ -209,11 +212,14 @@ pub struct DbHeader {
 }
 
 impl DbHeader {
-    fn write(&self, file: &mut File) -> StoreResult<()> {
-        let mut page = [0u8; PAGE_SIZE];
+    fn read(&self, file: &mut File) -> StoreResult<()> {
+        let mut page = [0u8; DBHEADER_SIZE];
         bincode_next::encode_into_slice(self, &mut page, INDEX_CONFIG)?;
         write_page(file, PageId(0), &page)?;
         Ok(())
+    }
+
+    fn write(&self, file: &mut File) -> StoreResult<()> {
     }
 }
 
@@ -232,21 +238,15 @@ struct FreeListRead {
 }
 
 impl Pager {
-    // Function to create a new database file if none exists
+    // TODO: Why do I return this tuple?
     pub fn new(path: &str, new_order: usize) -> StoreResult<(Self, Option<PageId>, usize)> {
-        let filepath = {
-            if path.is_empty() {
-                DEFAULT_FILE
-            } else {
-                path
-            }
-        };
+        let filepath = if path.is_empty() { DEFAULT_FILE } else { path };
 
-        let new_head = DbHeader{
+        let new_head = DbHeader {
             magic: MAGIC,
             version: VERSION,
             page_size: PAGE_SIZE,
-            root_page: None, // None means no root
+            root_page: None, // None means no root (no dip, me)
             order: new_order,
             num_pages: 1,
             free_list_head: None,
@@ -299,6 +299,23 @@ impl Pager {
         }, header.root_page, header.order))
     }
 
+    // e.g. read::<DataPage>
+    pub fn read<T: Page>(&mut self, id: PageId) -> StoreResult<T> {
+        let mut buf = [0u8; PAGE_SIZE];
+        self.file.read_at(&mut buf, (id.get() * PAGE_SIZE) as u64)?;
+        let page: T = T::deserialize(buf)?;
+        
+        if page.pagetype() != T::pagetype() {
+            Err(/* Some error about wrong page found */),
+        }
+
+        Ok(page)
+    }
+
+    pub fn write_page<T: Page>(&mut self, page: T) {
+        let bytes = page.serialize();
+    }
+
     // Clear out the cache and write it to disk
     pub fn flush(&mut self) -> StoreResult<()> {
         let cache = std::mem::take(&mut self.dirty_cache);
@@ -315,7 +332,8 @@ impl Pager {
     // Construct page and serialize it
     pub fn alloc(&mut self) -> PageId {
         if self.free_list.is_empty() {
-            let id = PageId(self.num_pages);
+            let id = PageId::new(self.num_pages)
+                .expect("PAGEID OF 0 USED");
             self.num_pages += 1;
             id
         } else {
