@@ -38,14 +38,22 @@ pub struct DbHeader {
 }
 
 impl DbHeader {
-    fn read(&self, file: &mut File) -> StoreResult<()> {
-        let mut page = [0u8; DBHEADER_SIZE];
-        bincode_next::encode_into_slice(self, &mut page, INDEX_CONFIG)?;
-        write_page(file, PageId(0), &page)?;
-        Ok(())
+    fn read(&self, file: &mut File) -> StoreResult<Self> {
+        let mut bytes = [0u8; DBHEADER_SIZE];
+        let mut buf
+        Ok(DbHeader {
+            magic, 
+            version,
+            page_size,
+            root_page,
+            order,
+            num_pages,
+            free_list_head
+        })
     }
 
     fn write(&self, file: &mut File) -> StoreResult<()> {
+        let mut buf = [0u8; DBHEADER_SIZE];
     }
 }
 
@@ -100,7 +108,7 @@ impl Pager {
             .write(true)
             .open(path)?;
         let mut reader = BufReader::new(&mut file);
-        let header: DbHeader = bincode_next::decode_from_std_read(&mut reader, INDEX_CONFIG)?;
+        let header = DbHeader::read();
 
         if header.magic != MAGIC {
             return Err(StoreErr::BadFile);
