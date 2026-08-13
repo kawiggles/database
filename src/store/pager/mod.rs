@@ -11,7 +11,7 @@ use crate::{
 };
 
 use std::{
-    fs::{File, OpenOptions},
+    fs::{File, OpenOptions, write},
     os::unix::fs::FileExt,
     io::{Write, Read, Seek, SeekFrom, BufReader},
     collections::HashMap,
@@ -39,8 +39,7 @@ pub struct DbHeader {
 
 impl DbHeader {
     fn read(&self, file: &mut File) -> StoreResult<Self> {
-        let mut bytes = [0u8; DBHEADER_SIZE];
-        let mut buf
+        let magic = file.read_exact(
         Ok(DbHeader {
             magic, 
             version,
@@ -53,7 +52,29 @@ impl DbHeader {
     }
 
     fn write(&self, file: &mut File) -> StoreResult<()> {
-        let mut buf = [0u8; DBHEADER_SIZE];
+        let mut buf: Vec<u8>  = Vec::new();
+
+        buf.extend_from_slice(&self.magic);
+        buf.extend_from_slice(&self.version.to_le_bytes());
+        buf.extend_from_slice(&self.page_size.to_le_bytes());
+
+        if let Some(id) = self.root_page {
+            buf.extend_from_slice(&id.get().to_le_bytes());
+        } else {
+            buf.extend_from_slice(&(0 as usize).to_le_bytes());
+        }
+
+        buf.extend_from_slice(&self.order.to_le_bytes());
+        buf.extend_from_slice(&self.num_pages.to_le_bytes());
+
+        if let Some(id) = self.free_list_head {
+            buf.extend_from_slice(&id.get().to_le_bytes());
+        } else {
+            buf.extend_from_slice(&(0 as usize).to_le_bytes());
+        }
+
+        file.write_all(&buf)?;
+        Ok(())
     }
 }
 
@@ -205,7 +226,6 @@ impl Pager {
         Ok(())
     }
 
-    // Write a new DbHeader and close the pager. 
     pub fn close(&mut self, root: Option<PageId>, order: usize) -> StoreResult<()> {
         info!(" - Pager is closing...");
         self.flush()?;
@@ -222,6 +242,12 @@ impl Pager {
         new_dbheader.write(&mut self.file)?;
         Ok(())
     }
+}
+
+pub fn read_usize(file: &mut File) -> StoreResult<usize> {
+    let mut buf = [0u8; 8];
+    file.read_exact(&mut buf)?;
+    Ok(u64::from_le_bytes(buf) as usize)
 }
 
 #[cfg(test)]

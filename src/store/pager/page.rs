@@ -31,11 +31,11 @@ pub struct PageHeader {
 pub struct PageId(pub NonZeroUsize);
 
 impl PageId {
-    fn new(offset: usize) -> Option<Self> {
+    pub fn new(offset: usize) -> Option<Self> {
         NonZeroUsize::new(offset).map(PageId)
     }
 
-    fn get(self) -> usize {
+    pub fn get(self) -> usize {
         self.0.get()
     }
 }
