@@ -1,30 +1,50 @@
 use std::{
+    fs::{File},
+    io::{Read, Seek, SeekFrom},
     num::NonZeroUsize,
 };
 
 use crate::{
-    errors::{StoreResult},
+    errors::{StoreResult, StoreErr},
 };
 
-use super::Oid;
+use super::{Oid, read_usize, read_u16};
 
 pub const PAGE_SIZE: usize = 4096;
-
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
     fn pagetype() -> PageType;
-    fn next(&self) -> Option<PageId>;
     fn serialize(&self) -> Vec<u8>;
-    fn deserialize(bytes: [u8; PAGE_SIZE]) -> StoreResult<Self>;
+    fn deserialize(file: &mut File, id: &PageId) -> StoreResult<Self>;
 }
 
 pub struct PageHeader {
-    pub table_oid: Oid,
-    pub pagetype: PageType,
-    next: Option<PageId>,
-    pub slots: u16,
-    pub lower: u16, // start of data slots
-    pub upper: u16, // end of pointer slots
+    pub table_oid: Oid,         // 8
+    pub pagetype: PageType,     // 8
+    pub next: Option<PageId>,   // 8
+    pub slots: u16,             // 2
+    pub lower: u16,             // 2
+    pub upper: u16,             // 2
+}
+
+impl PageHeader {
+    pub fn read(id: PageId, file: &mut File) -> StoreResult<Self> {
+        file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64))?;
+
+        let table_oid = Oid(read_usize(file)?);
+
+        let pagetype = PageType::deserialize(file)?;
+
+        let next = PageId::new(read_usize(file)?);
+        let slots = read_u16(file)?;
+        let lower = read_u16(file)?;
+        let upper = read_u16(file)?;
+        
+        Ok(PageHeader { table_oid , pagetype, next, slots, lower, upper })
+    }
+
+    pub fn write(file: &mut File, id: &PageId) -> StoreResult<()> {
+    }
 }
 
 #[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
@@ -40,12 +60,39 @@ impl PageId {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PageType {
+    Free,
     Branch,
     Leaf,
     Data,
     Overflow,
+}
+
+impl PageType {
+    fn serialize(&self) -> u8 {
+        match self {
+            Self::Free => 0,
+            Self::Branch => 1,
+            Self::Leaf => 2,
+            Self::Data => 3,
+            Self::Overflow => 4,
+        }
+    }
+
+    fn deserialize(file: &mut File) -> StoreResult<Self> {
+        let mut buf = [0u8; 1];
+        file.read_exact(&mut buf)?;
+        
+        match u8::from_le_bytes(buf) {
+            0 => Ok(Self::Free),
+            1 => Ok(Self::Branch),
+            2 => Ok(Self::Leaf),
+            3 => Ok(Self::Data),
+            4 => Ok(Self::Overflow),
+            n => Err(StoreErr::UnknownPagetype(n))
+        }
+    }
 }
 
 pub struct BranchPage {
@@ -69,16 +116,17 @@ impl Page for BranchPage {
         PageType::Branch
     }
 
-    fn next(&self) -> Option<PageId> {
-        self.header.next
-    }
-
     fn serialize(&self) -> Vec<u8> {
         todo!()
     }
 
-    fn deserialize(bytes: [u8; PAGE_SIZE]) -> StoreResult<Self> {
-        todo!()
+    fn deserialize(file: &mut File, id: &PageId) -> StoreResult<Self> {
+        file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64))?;
+        let header = PageHeader::read(*id, file)?;
+        let keys = ;
+        let children = ;
+
+        Ok( Self { header, keys, children })
     }
 }
 
@@ -103,15 +151,11 @@ impl Page for LeafPage {
         PageType::Leaf
     }
 
-    fn next(&self) -> Option<PageId> {
-        self.header.next
-    }
-
     fn serialize(&self) -> Vec<u8> {
         todo!()
     }
 
-    fn deserialize(bytes: [u8; PAGE_SIZE]) -> StoreResult<Self> {
+    fn deserialize(file: &mut File, id: &PageId) -> StoreResult<Self> {
         todo!()
     }
 }
@@ -136,15 +180,11 @@ impl Page for DataPage {
         PageType::Data
     }
 
-    fn next(&self) -> Option<PageId> {
-        self.header.next
-    }
-
     fn serialize(&self) -> Vec<u8> {
         todo!()
     }
 
-    fn deserialize(bytes: [u8; PAGE_SIZE]) -> StoreResult<Self> {
+    fn deserialize(file: &mut File, id: &PageId) -> StoreResult<Self> {
         todo!()
     }
 }
@@ -170,15 +210,31 @@ impl Page for OverflowPage {
         PageType::Overflow
     }
 
-    fn next(&self) -> Option<PageId> {
-        self.header.next
+    fn serialize(&self) -> Vec<u8> {
+        todo!()
+    }
+
+    fn deserialize(file: &mut File, id: &PageId) -> StoreResult<Self> {
+        todo!()
+    }
+}
+
+pub struct FreePage(PageHeader);
+
+impl Page for FreePage {
+    fn header(&self) -> &PageHeader {
+        &self.0
+    }
+
+    fn pagetype() -> PageType {
+        PageType::Free
     }
 
     fn serialize(&self) -> Vec<u8> {
         todo!()
     }
 
-    fn deserialize(bytes: [u8; PAGE_SIZE]) -> StoreResult<Self> {
+    fn deserialize(file: &mut File, id: &PageId) -> StoreResult<Self> {
         todo!()
     }
 }

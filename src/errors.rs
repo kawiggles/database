@@ -10,6 +10,7 @@ use simplelog::{WriteLogger, Config};
 use crate::{
     tcp::response::Response,
     query::lexer::Token,
+    store::pager::page::PageType,
 };
 
 pub fn init_logs() {
@@ -64,6 +65,15 @@ pub enum StoreErr {
     IOErr(#[from] io::Error),
     #[error("The Store RwLock was poisoned")]
     PoisonError,
+    #[error("Unexpected EOF encountered while attempting to read {0}")]
+    Eof(&'static str),
+    #[error("Unexpected pagetype {:?} encountered, expected {:?}", found, expected)]
+    UnexpectedPagetype {
+        found: PageType,
+        expected: PageType,
+    },
+    #[error("Unknown PageType {0} encountered")]
+    UnknownPagetype(u8),
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
