@@ -97,7 +97,7 @@ impl PageType {
 
 pub struct BranchPage {
     header: PageHeader,
-    keys: Vec<PageId>,
+    keys: Vec<String>,
     children: Vec<PageId>,
 }
 
