@@ -3,7 +3,10 @@ pub mod page;
 use crate::{
     VERSION,
     store::{
-        pager::page::{Page, PageId, PageHeader, PageType, PAGE_SIZE },
+        pager::page::{
+            Page, PageId, PageHeader, PageType, PAGE_SIZE ,
+            FreePage, 
+        },
     },
     errors::{StoreErr, StoreResult},
     tcp::DEFAULT_FILE,
@@ -11,7 +14,7 @@ use crate::{
 
 use std::{
     fs::{File, OpenOptions},
-    io::{Write, Read, Seek, SeekFrom, BufReader},
+    io::{Write, Read, Seek, SeekFrom },
     collections::HashMap,
 };
 use log::{info};
@@ -47,7 +50,7 @@ impl DbHeader {
         Ok(DbHeader { magic, version, page_size, root_page, order, num_pages, free_list_head })
     }
 
-    fn write_to(&self, file: &mut File) -> StoreResult<()> {
+    fn write(&self, file: &mut File) -> StoreResult<()> {
         let mut buf: Vec<u8>  = Vec::new();
 
         buf.extend_from_slice(&self.magic);
@@ -78,7 +81,7 @@ pub struct Pager {
     pub file: File,
     free_list: Vec<PageId>,
     // TODO: figure this out
-    dirty_cache: HashMap<PageId, Page>,
+    dirty_cache: HashMap<PageId, Vec<u8>>,
     pub num_pages: usize,
 }
 
@@ -102,7 +105,7 @@ impl Pager {
             .write(true)
             .create(true)
             .open(filepath)?;
-        new_head.write_to(&mut file)?;
+        new_head.write(&mut file)?;
 
         Ok((
             Pager { file, free_list: Vec::new(), dirty_cache: HashMap::new(), num_pages: 1, },
@@ -116,7 +119,6 @@ impl Pager {
             .read(true)
             .write(true)
             .open(path)?;
-        let mut reader = BufReader::new(&mut file);
         let header = DbHeader::deserialize(&mut file)?;
 
         if header.magic != MAGIC {
@@ -141,7 +143,11 @@ impl Pager {
 
     // e.g. read::<DataPage>
     pub fn read<T: Page>(&mut self, id: PageId) -> StoreResult<T> {
-        let page: T = T::deserialize(&mut self.file, &id)?;
+        self.file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));
+        let mut buf = [0u8; PAGE_SIZE];
+        self.file.read_exact(&mut buf);
+
+        let page: T = T::deserialize(&buf)?;
         
         if page.header().pagetype != T::pagetype() {
             return Err(StoreErr::UnexpectedPagetype { 
@@ -153,21 +159,19 @@ impl Pager {
         Ok(page)
     }
 
-    pub fn write<T: Page>(&mut self, page: T) {
+    pub fn write<T: Page>(&mut self, id: PageId, page: T) {
         let bytes = page.serialize();
-        // TODO: Is this the right abstraction? Should writes happen during serialization?
-        self.file.seek(SeekFrom::Start(1));
+        self.file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));
+        self.file.write_all(&bytes);
     }
 
     // Clear out the cache and write it to disk
     pub fn flush(&mut self) -> StoreResult<()> {
         let cache = std::mem::take(&mut self.dirty_cache);
 
-        for (_, page) in cache {
-            let file = &mut self.file;
-            let mut new_page = [0u8; PAGE_SIZE];
-            // encode bytes wuz here
-            write_page(file, page.header.page_id, &new_page)?;
+        for (id, page) in cache {
+            self.file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));
+            self.file.write_all(&page)?;
         }
         Ok(())
     }
@@ -187,8 +191,8 @@ impl Pager {
     // Delete a page, cache invalidation issues happen here
     pub fn free(&mut self, id: PageId) -> StoreResult<()> {
         if let Some(prev_id) = self.free_list.last().copied() {
-            let bytes = [0u8; PAGE_SIZE];
             let new_header = PageHeader {
+                id: prev_id,
                 table_oid: Oid(0),
                 pagetype: PageType::Free,
                 next: Some(id),
@@ -196,18 +200,10 @@ impl Pager {
                 lower: 0,
                 upper: 0,
             };
-            write_header(&mut self.file, prev_id, &buf)?;
+            self.write::<FreePage>(prev_id, FreePage(new_header));
         }
 
-        let mut buf = [0u8; PAGE_SIZE];
-        let new_tail = PageHeader {
-            page_type: PageType::Index,
-            next: None,
-            slots: None
-        };
-        // encode bytes wuz here
-        write_page(&mut self.file, id, &buf)?;
-
+        self.write::<FreePage>(id, FreePage::new(id));
         self.free_list.push(id);
         self.dirty_cache.remove(&id);
         Ok(())
@@ -226,7 +222,7 @@ impl Pager {
             free_list_head: self.free_list.first().copied(),
         };
 
-        new_dbheader.write_to(&mut self.file)?;
+        new_dbheader.write(&mut self.file)?;
         Ok(())
     }
 }
