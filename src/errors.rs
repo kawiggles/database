@@ -10,7 +10,7 @@ use simplelog::{WriteLogger, Config};
 use crate::{
     tcp::response::Response,
     query::lexer::Token,
-    store::pager::page::PageType,
+    store::pager::{PageType, PageId},
 };
 
 pub fn init_logs() {
@@ -74,9 +74,35 @@ pub enum StoreErr {
     },
     #[error("Unknown PageType {0} encountered")]
     UnknownPagetype(u8),
+    #[error("An error was encounted with the b+ tree")]
+    TreeErr(#[from] TreeErr),
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
+
+#[derive(Error, Debug)]
+pub enum TreeErr {
+    #[error("Tree is empty")]
+    Empty,
+    #[error("Less than 2 children in root node")]
+    RootTooFewChildren,
+    #[error("Leaf node keys not sorted")]
+    LeafKeysBadSeq,
+    #[error("Branch node found in Leaf node sequence")]
+    BranchInLeafSeq,
+    #[error("Page {0} has unsorted keys")]
+    NodeKeySeqErr(PageId),
+    #[error("Node {0} has an incorrect number of keys or children")]
+    KeyChildDesync(PageId),
+    #[error("Node {0} has an incorrect number of keys given the tree order")]
+    KeyCountErr(PageId),
+    #[error("Leaf {0} has an incorrect number of keys and values")]
+    KeyValueDesync(PageId),
+    #[error("Leaf {0} found at incorrect tree depth")]
+    LeafBadDepth(PageId),
+    #[error("Page {0} has an out-of-bounds key")]
+    KeyOOB(PageId),
+}
 
 #[derive(Error, Debug)]
 pub enum UserErr {
@@ -84,7 +110,7 @@ pub enum UserErr {
     NoValue,
     #[error("Value input is invalid")]
     BadVal,
-    #[error("API call is malformed")]
+    #[error("SQL query is malformed")]
     BadQuery(#[from] QueryErr),
     #[error("Put call was unsuccessful")]
     BadPut,

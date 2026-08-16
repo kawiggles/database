@@ -1,14 +1,10 @@
-use std::{
-    fs::File,
-    io::{Read, Seek, SeekFrom},
-    num::NonZeroUsize, u8,
-};
+use std::io::Read;
 
 use crate::{
     errors::{StoreResult, StoreErr},
 };
 
-use super::{Oid, read_usize, read_u16};
+use super::{Oid, read_usize, read_u16, PageId};
 
 pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
@@ -29,32 +25,20 @@ pub struct PageHeader {
 }
 
 impl PageHeader {
-    pub fn read(id: PageId, file: &mut File) -> StoreResult<Self> {
-        file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64))?;
+    pub fn deserialize(bytes: &mut &[u8]) -> StoreResult<Self> {
+        let id = PageId::new(read_usize(bytes)?)
+            .expect("read PageId of 0");
 
-        let table_oid = Oid(read_usize(file)?);
+        let table_oid = Oid(read_usize(bytes)?);
 
-        let pagetype = PageType::deserialize(file)?;
+        let pagetype = PageType::deserialize(bytes)?;
 
-        let next = PageId::new(read_usize(file)?);
-        let slots = read_u16(file)?;
-        let lower = read_u16(file)?;
-        let upper = read_u16(file)?;
+        let next = PageId::new(read_usize(bytes)?);
+        let slots = read_u16(bytes)?;
+        let lower = read_u16(bytes)?;
+        let upper = read_u16(bytes)?;
         
         Ok(PageHeader { id, table_oid , pagetype, next, slots, lower, upper })
-    }
-}
-
-#[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
-pub struct PageId(pub NonZeroUsize);
-
-impl PageId {
-    pub fn new(offset: usize) -> Option<Self> {
-        NonZeroUsize::new(offset).map(PageId)
-    }
-
-    pub fn get(self) -> usize {
-        self.0.get()
     }
 }
 
@@ -78,9 +62,9 @@ impl PageType {
         }
     }
 
-    fn deserialize(file: &mut File) -> StoreResult<Self> {
+    fn deserialize<R: Read>(bytes: &mut R) -> StoreResult<Self> {
         let mut buf = [0u8; 1];
-        file.read_exact(&mut buf)?;
+        bytes.read_exact(&mut buf)?;
         
         match u8::from_le_bytes(buf) {
             0 => Ok(Self::Free),
@@ -93,163 +77,3 @@ impl PageType {
     }
 }
 
-pub struct BranchPage {
-    pub header: PageHeader,
-    pub keys: Vec<String>,
-    pub children: Vec<PageId>,
-}
-
-impl BranchPage {
-    pub fn new() -> Self {
-        todo!()
-    }
-}
-
-impl Page for BranchPage {
-    fn header(&self) -> &PageHeader {
-        &self.header
-    }
-
-    fn pagetype() -> PageType {
-        PageType::Branch
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self> {
-        todo!();
-        /*
-        let header = ;
-        let keys = ;
-        let children = ;
-
-        Ok( Self { header, keys, children })
-        */
-    }
-}
-
-pub struct LeafPage {
-    header: PageHeader,
-    pub keys: Vec<String>,
-    pages: Vec<PageId>,
-    next_leaf: Option<PageId>
-}
-
-impl LeafPage {
-    pub fn new() -> Self {
-        todo!()
-    }
-}
-
-impl Page for LeafPage {
-    fn header(&self) -> &PageHeader {
-        &self.header
-    }
-
-    fn pagetype() -> PageType {
-        PageType::Leaf
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self> {
-        todo!()
-    }
-}
-
-pub struct DataPage {
-    header: PageHeader,
-    overflow: Option<PageId>,
-}
-
-impl DataPage {
-    pub fn new() -> Self {
-        todo!()
-    }
-}
-
-impl Page for DataPage {
-    fn header(&self) -> &PageHeader {
-        &self.header
-    }
-
-    fn pagetype() -> PageType {
-        PageType::Data
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self> {
-        todo!()
-    }
-}
-
-pub struct OverflowPage {
-    header: PageHeader,
-    data: Vec<u8>,
-    next: Option<PageId>,
-}
-
-impl OverflowPage {
-    pub fn new() -> Self {
-        todo!()
-    }
-}
-
-impl Page for OverflowPage {
-    fn header(&self) -> &PageHeader {
-        &self.header
-    }
-
-    fn pagetype() -> PageType {
-        PageType::Overflow
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self> {
-        todo!()
-    }
-}
-
-pub struct FreePage(pub PageHeader);
-
-impl FreePage {
-    pub fn new(id: PageId) -> Self {
-        Self(PageHeader {
-            id,
-            table_oid: Oid(0),
-            pagetype: PageType::Free,
-            next: None,
-            slots: 0,
-            lower: 0,
-            upper: 0
-        })
-    }
-}
-
-impl Page for FreePage {
-    fn header(&self) -> &PageHeader {
-        &self.0
-    }
-
-    fn pagetype() -> PageType {
-        PageType::Free
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self> {
-        todo!()
-    }
-}

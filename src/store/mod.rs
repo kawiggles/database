@@ -5,15 +5,14 @@ pub mod pager;
 use std::fs;
 use log::{info, warn};
 
-use crate::{errors::StoreResult, store::{
-    bptree::BpTree, 
-    pager::{
-        Pager, 
-        page::{BranchPage, LeafPage, Page, PageId, PageType}
-    }, 
-    value::Value
-}};
-use crate::errors::{UserErr, DbResult};
+use crate::{
+    store::{
+        bptree::BpTree, 
+        pager::{ Pager, BranchPage, LeafPage, Page, PageId, PageType },
+        value::Value,
+    },
+    errors::{ UserErr, DbResult, StoreResult},
+};
 
 pub const PAGE_SIZE: usize = 4096;
 pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
