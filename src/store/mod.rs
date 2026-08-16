@@ -5,11 +5,14 @@ pub mod pager;
 use std::fs;
 use log::{info, warn};
 
-use crate::store::{
-    bptree::BpTree,
-    value::Value,
-    pager::{Pager, NodeType, IndexPage, PageId, Page},
-};
+use crate::{errors::StoreResult, store::{
+    bptree::BpTree, 
+    pager::{
+        Pager, 
+        page::{BranchPage, LeafPage, Page, PageId, PageType}
+    }, 
+    value::Value
+}};
 use crate::errors::{UserErr, DbResult};
 
 pub const PAGE_SIZE: usize = 4096;
@@ -19,6 +22,11 @@ pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
 pub struct Store {
     pub datamap: BpTree,
     pub pager: Pager,
+}
+
+pub struct RID {
+    pub id: PageId,
+    pub slot: u16,
 }
 
 impl Store {
@@ -72,9 +80,7 @@ impl Store {
     }
 
     // Assorted functions for displaying information in tests
-    fn print_page(&self, page_id: PageId, prefix: &str, is_last: bool) {
-        let page: IndexPage = Page::read(&self.pager, page_id).unwrap();
-
+    fn print_page(&mut self, page_id: PageId, prefix: &str, is_last: bool) -> StoreResult<()> {
         print!("{}", prefix);
         if is_last {
             print!("└── ");
@@ -82,26 +88,32 @@ impl Store {
             print!("├── ");
         }
         
-        match &page.node_type {
-            NodeType::Leaf { pages: _ , next } => {
-                let next_str = match next {
-                    Some(idx) => format!(" -> (id: {})", idx),
+        let header = self.pager.read_header(page_id)?;
+        match header.pagetype {
+            PageType::Leaf => {
+                let next_str = match header.next {
+                    Some(idx) => format!(" -> (id: {:?})", idx),
                     None => " -> []".to_string(),
                 };
-                println!("Leaf(id: {}, keys: {:?}){}", page_id, page.keys, next_str);
+                let page = self.pager.read::<LeafPage>(page_id)?;
+                println!("Leaf(id: {:?}, keys: {:?}){}", page_id, page.keys, next_str);
+                Ok(())
             },
-            NodeType::Branch { children } => {
-                println!("Branch(id: {}, keys: {:?})", page_id, page.keys);
+            PageType::Branch => {
+                let page = self.pager.read::<BranchPage>(page_id)?;
+                println!("Branch(id: {:?}, keys: {:?})", page_id, page.keys);
                 let new_prefix = format!("{}{}", prefix, if is_last { "    " } else {"|   "});
-                for (i, &child_idx) in children.iter().enumerate() {
-                    let child_is_last = i == children.len() - 1;
+                for (i, &child_idx) in page.children.iter().enumerate() {
+                    let child_is_last = i == page.children.len() - 1;
                     self.print_page(child_idx, &new_prefix, child_is_last);
                 }
+                Ok(())
             },
+            _ => Err(todo!())
         }
     }
 
-    pub fn print_tree(&self) {
+    pub fn print_tree(&mut self) {
         println!();
         let Some(root) = self.datamap.root else {
             println!("Tree is empty");
@@ -109,7 +121,7 @@ impl Store {
             return;
         };
 
-        println!("Root (id: {})", root);
+        println!("Root (id: {:?})", root);
         self.print_page(root, "", true);
         println!();
     }
@@ -120,9 +132,10 @@ impl Store {
             return Some(TreeErr::Empty);
         };
 
-        let root_page: IndexPage = Page::read(&self.pager, root).unwrap();
-        if let NodeType::Branch { children } = root_page.node_type {
-            if children.len() < 2 {
+        let header = self.pager.read_header(root);
+        if let PageType::Branch = header.pagetype {
+            let page = self.pager.read::<BranchPage>(root);
+            if page.children.len() < 2 {
                 return Some(TreeErr::RootTooFewChildren);
             }
         }
@@ -238,6 +251,7 @@ impl Store {
     }
 }
 
+// TODO: add to error system
 #[derive(Debug)]
 pub enum TreeErr {
     Empty,

@@ -141,6 +141,11 @@ impl Pager {
         }, header.root_page, header.order))
     }
 
+    pub fn read_header(&mut self, id: PageId) -> StoreResult<PageHeader> {
+        let header = PageHeader::read(id, &mut self.file)?;
+        Ok(header)
+    }
+
     // e.g. read::<DataPage>
     pub fn read<T: Page>(&mut self, id: PageId) -> StoreResult<T> {
         self.file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));

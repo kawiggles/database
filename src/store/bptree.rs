@@ -1,7 +1,12 @@
-use crate::errors::{DbErr, DbResult, UserErr};
-use crate::store::{
-    value::Value,
-    pager::{DataPage, IndexPage, NodeType, Page, PageId, Pager},
+use crate::{
+    store::{
+        value::Value,
+        pager::{
+            Pager,
+            page::{Page, PageId, DataPage, BranchPage, LeafPage, PageType},
+        },
+    },
+    errors::{DbErr, DbResult, UserErr},
 };
 
 pub struct BpTree {
@@ -12,7 +17,7 @@ pub struct BpTree {
 impl BpTree {
     // Easiest method on the tree
     pub fn new(root: Option<PageId>, order: usize) -> Self {
-        BpTree { 
+        BpTree {
             root,
             order 
         }
@@ -26,26 +31,24 @@ impl BpTree {
         };
 
         loop {
-            let page: IndexPage = Page::read(pager, current)?;
-            match &page.node_type {
-                NodeType::Branch { children } => {
-                    let i = match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+            let header = pager.read_header(current)?;
+            match &header.pagetype {
+                PageType::Branch => {
+                    let branch = pager.read::<BranchPage>(current)?;
+                    let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         // A hit guarentees the right node, because right is always >=
                         Ok(i) => i + 1,
                         // A miss returns the would be index, which is always the target
                         Err(i) => i,
                     };
-                    current = children[i];
+                    current = branch.children[i];
                 },
-                NodeType::Leaf { pages, .. } => { 
-                    let data: DataPage = match page.keys.binary_search_by(|probe| { 
-                        probe.as_str().cmp(key) }) {
+                PageType::Leaf => { 
+                    let leaf = pager.read::<LeafPage>(current)?;
 
-                        Ok(i) => Page::read(pager, pages[i])?,
-                        Err(_) => return Err(UserErr::NoValue)?,
-                    };
                     return Ok(data.value);
-                }
+                },
+                _ => Err()
             }
         }
     }

@@ -94,9 +94,9 @@ impl PageType {
 }
 
 pub struct BranchPage {
-    header: PageHeader,
-    keys: Vec<String>,
-    children: Vec<PageId>,
+    pub header: PageHeader,
+    pub keys: Vec<String>,
+    pub children: Vec<PageId>,
 }
 
 impl BranchPage {
@@ -132,6 +132,7 @@ impl Page for BranchPage {
 
 pub struct LeafPage {
     header: PageHeader,
+    pub keys: Vec<String>,
     pages: Vec<PageId>,
     next_leaf: Option<PageId>
 }
