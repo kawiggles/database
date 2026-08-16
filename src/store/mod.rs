@@ -2,16 +2,18 @@ pub mod value;
 pub mod bptree;
 pub mod pager;
 
+pub use bptree::RID;
+
 use std::fs;
 use log::{info, warn};
 
 use crate::{
     store::{
         bptree::BpTree, 
-        pager::{ Pager, BranchPage, LeafPage, Page, PageId, PageType },
+        pager::{ Pager, BranchPage, LeafPage, DataPage, Page, PageId, PageType },
         value::Value,
     },
-    errors::{ UserErr, DbResult, StoreResult},
+    errors::{ UserErr, DbResult, StoreResult, StoreErr, TreeErr},
 };
 
 pub const PAGE_SIZE: usize = 4096;
@@ -19,13 +21,8 @@ pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
 
 // Buffer pool for database, holds cache?
 pub struct Store {
-    pub datamap: BpTree,
+    pub tree: BpTree,
     pub pager: Pager,
-}
-
-pub struct RID {
-    pub id: PageId,
-    pub slot: u16,
 }
 
 impl Store {
@@ -42,15 +39,17 @@ impl Store {
             Pager::new(filepath, new_order)?
         };
         
-        let datamap = BpTree::new(root, order);
+        let tree = BpTree::new(root, order);
         Ok(Store {
-            datamap: datamap,
+            tree: tree,
             pager: pager,
         })
     }
 
-    pub fn get(&self, key: &str) -> DbResult<Value> {
-        self.datamap.get(key, &self.pager)
+    pub fn get(&mut self, key: &str) -> DbResult<Value> {
+        let rid = self.tree.get(key, &mut self.pager)?;
+        let mut page = self.pager.read::<DataPage>(rid.id)?;
+        Ok(page.get_slot(rid.slot)?)
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> DbResult<Value> {
@@ -63,18 +62,18 @@ impl Store {
         // TODO: Value Overflow logic
 
         let if_new = val.clone();
-        match self.datamap.insert(key, val, &mut self.pager)? {
+        match self.tree.insert(key, val, &mut self.pager)? {
             Some(x) => Ok(x),
             None => Ok(if_new),
         }
     }
 
     pub fn del(&mut self, key: &str) -> DbResult<Value> {
-        self.datamap.remove(key, &mut self.pager)
+        self.tree.remove(key, &mut self.pager)
     }
 
     pub fn exit(&mut self) -> DbResult<()> {
-        self.pager.close(self.datamap.root, self.datamap.order)?;
+        self.pager.close(self.tree.root, self.tree.order)?;
         Ok(())
     }
 
@@ -108,13 +107,16 @@ impl Store {
                 }
                 Ok(())
             },
-            _ => Err(todo!())
+            _ => Err(StoreErr::UnexpectedPagetype{
+                found: header.pagetype,
+                expected: PageType::Branch,
+            })
         }
     }
 
     pub fn print_tree(&mut self) {
         println!();
-        let Some(root) = self.datamap.root else {
+        let Some(root) = self.tree.root else {
             println!("Tree is empty");
             println!();
             return;
@@ -126,16 +128,16 @@ impl Store {
     }
 
     // Function to check if a tree is valid
-    pub fn validate(&self) -> Option<TreeErr> {
-        let Some(root) = self.datamap.root else {
-            return Some(TreeErr::Empty);
+    pub fn validate(&self) -> StoreResult<()> {
+        let Some(root) = self.tree.root else {
+            return Err(StoreErr::TreeErr(TreeErr::Empty));
         };
 
-        let header = self.pager.read_header(root);
+        let header = self.pager.read_header(root)?;
         if let PageType::Branch = header.pagetype {
-            let page = self.pager.read::<BranchPage>(root);
+            let page = self.pager.read::<BranchPage>(root)?;
             if page.children.len() < 2 {
-                return Some(TreeErr::RootTooFewChildren);
+                return Err(StoreErr::TreeErr(TreeErr::RootTooFewChildren));
             }
         }
 
@@ -208,9 +210,9 @@ impl Store {
         }
 
         // Ensure node is above minimum value
-        if let Some(root) = self.datamap.root {
-            if idx != root && (current.keys.len() < self.datamap.order / 2 ||
-                current.keys.len() > self.datamap.order - 1) {
+        if let Some(root) = self.tree.root {
+            if idx != root && (current.keys.len() < self.tree.order / 2 ||
+                current.keys.len() > self.tree.order - 1) {
                 return Some(TreeErr::KeyCountErr(idx));
             }
         }
@@ -247,52 +249,6 @@ impl Store {
             },
         }
         None
-    }
-}
-
-// TODO: add to error system
-#[derive(Debug)]
-pub enum TreeErr {
-    Empty,
-    RootTooFewChildren,
-    LeafKeysBadSeq,
-    BranchInLeafSeq,
-    NodeKeySeqErr(PageId),
-    KeyChildDesync(PageId),
-    KeyCountErr(PageId),
-    KeyValueDesync(PageId),
-    LeafBadDepth(PageId),
-    KeyOOB(PageId),
-}
-
-impl From<TreeErr> for std::fmt::Error {
-    fn from(_error: TreeErr) -> Self {
-        std::fmt::Error
-    }
-}
-
-impl std::fmt::Display for TreeErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-			TreeErr::Empty => write!(f, "Tree is empy"),
-			TreeErr::RootTooFewChildren => write!(f, "Less than 2 children in root node"),
-			TreeErr::LeafKeysBadSeq => write!(f, "Leaf node keys not sorted"),
-			TreeErr::BranchInLeafSeq => write!(f, "Branch node found at leaf level"),
-			TreeErr::NodeKeySeqErr(idx) => write!(f, "Page {} has unsorted keys", idx),
-			TreeErr::KeyChildDesync(idx) => {
-                write!(f, "Branch {} has wrong number of keys or children", idx)
-            },
-			TreeErr::KeyCountErr(idx) => {
-                write!(f, "Node {} is outside min or max number of keys for order", idx)
-            },
-			TreeErr::KeyValueDesync(idx) => {
-                write!(f, "Leaf {} has an unequal number of keys and values", idx)
-            },
-			TreeErr::LeafBadDepth(idx) => write!(f, "Leaf {} is not at leaf node depth", idx),
-			TreeErr::KeyOOB(idx) => {
-                write!(f, "Node {} has keys out of bounds defined by parent", idx)
-            },
-        }
     }
 }
 

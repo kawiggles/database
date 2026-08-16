@@ -1,10 +1,11 @@
 use crate::{
     store::{
+        RID,
         value::Value,
         pager::{ Pager, Page, PageId,  PageType, DataPage },
         BranchPage, LeafPage, 
     },
-    errors::{DbErr, DbResult, UserErr},
+    errors::{DbErr, DbResult, UserErr, StoreErr },
 };
 
 pub struct BpTree {
@@ -22,7 +23,7 @@ impl BpTree {
     }
 
     // This function shows the basic pattern for searching the tree with a key
-    pub fn get(&self, key: &str, pager: &Pager) -> DbResult<Value> {
+    pub fn get(&self, key: &str, pager: &mut Pager) -> DbResult<RID> {
         let mut current = match self.root {
             Some(x) => x,
             None => return Err(DbErr::UserErr(UserErr::NoRoot)),
@@ -30,7 +31,7 @@ impl BpTree {
 
         loop {
             let header = pager.read_header(current)?;
-            match &header.pagetype {
+            match header.pagetype {
                 PageType::Branch => {
                     let branch = pager.read::<BranchPage>(current)?;
                     let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
@@ -43,10 +44,18 @@ impl BpTree {
                 },
                 PageType::Leaf => { 
                     let leaf = pager.read::<LeafPage>(current)?;
+                    let index = leaf.keys.binary_search_by(|probe| {
+                        probe.as_str().cmp(key)
+                    }).map_err(|_| UserErr::NoRID(key.into()))?;
 
-                    return Ok(data.value);
+                    return Ok(leaf.rids[index]);
                 },
-                _ => Err()
+                _ => { 
+                    return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
+                        found: header.pagetype,
+                        expected: PageType::Branch,
+                    }));
+                }
             }
         }
     }

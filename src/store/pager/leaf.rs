@@ -8,7 +8,7 @@ use crate::{
 pub struct LeafPage {
     header: PageHeader,
     pub keys: Vec<String>,
-    rids: Vec<RID>,
+    pub rids: Vec<RID>,
     next_leaf: Option<PageId>
 }
 

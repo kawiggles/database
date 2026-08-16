@@ -4,19 +4,18 @@ use crate::{
     errors::{StoreResult, StoreErr},
 };
 
-use super::{Oid, read_usize, read_u16, PageId};
+use super::{ read_usize, read_u16, PageId};
 
 pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
     fn pagetype() -> PageType;
     fn serialize(&self) -> Vec<u8>;
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self>;
+    fn deserialize(header: PageHeader, bytes: &mut &[u8]) -> StoreResult<Self>;
 }
 
 pub struct PageHeader {
     pub id: PageId,             // 8
-    pub table_oid: Oid,         // 8
     pub pagetype: PageType,     // 8
     pub next: Option<PageId>,   // 8
     pub slots: u16,             // 2
@@ -29,8 +28,6 @@ impl PageHeader {
         let id = PageId::new(read_usize(bytes)?)
             .expect("read PageId of 0");
 
-        let table_oid = Oid(read_usize(bytes)?);
-
         let pagetype = PageType::deserialize(bytes)?;
 
         let next = PageId::new(read_usize(bytes)?);
@@ -38,7 +35,7 @@ impl PageHeader {
         let lower = read_u16(bytes)?;
         let upper = read_u16(bytes)?;
         
-        Ok(PageHeader { id, table_oid , pagetype, next, slots, lower, upper })
+        Ok(PageHeader { id, pagetype, next, slots, lower, upper })
     }
 }
 
@@ -77,3 +74,15 @@ impl PageType {
     }
 }
 
+pub struct Slot {
+    pub offset: usize,
+    pub len: usize
+}
+
+impl Slot {
+    pub fn read<R: Read>(bytes: &mut R) -> StoreResult<Self> {
+        let offset = read_usize(bytes)?;
+        let len = read_usize(bytes)?;
+        Ok(Self { offset, len })
+    }
+}

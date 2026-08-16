@@ -1,6 +1,7 @@
 use super::{Page, PageId, PageType, PageHeader};
 
 use crate::errors::StoreResult;
+use crate::store::value::Value;
 
 pub struct DataPage {
     header: PageHeader,
@@ -9,6 +10,10 @@ pub struct DataPage {
 
 impl DataPage {
     pub fn new() -> Self {
+        todo!()
+    }
+
+    pub fn get_slot(&mut self, slot: usize) -> StoreResult<Value> {
         todo!()
     }
 }

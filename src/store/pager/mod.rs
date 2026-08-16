@@ -9,9 +9,9 @@ pub mod overflow;
 pub mod free;
 
 pub use dbheader::DbHeader;
-pub use utils::{ read_u16, read_u32, read_usize, scan_page };
+pub use utils::{ read_u16, read_u32, read_usize, read_str, scan_page };
 pub use page_id::PageId;
-pub use page::{Page, PageHeader, PageType, PAGE_SIZE};
+pub use page::{Page, PageHeader, PageType, PAGE_SIZE, Slot };
 pub use free::FreePage;
 pub use overflow::OverflowPage;
 pub use data::DataPage;
@@ -26,7 +26,7 @@ use crate::{
 
 use std::{
     fs::{File, OpenOptions},
-    io::{Write, Read, Seek, SeekFrom },
+    io::{Write, Seek, SeekFrom },
     collections::HashMap,
 };
 use log::{info};
@@ -42,6 +42,14 @@ pub struct Pager {
     free_list: Vec<PageId>,
     dirty_cache: HashMap<PageId, Vec<u8>>,
     pub num_pages: usize,
+}
+
+pub enum AnyPage {
+    Leaf(LeafPage),
+    Branch(BranchPage),
+    Data(DataPage),
+    OverFlow(OverflowPage),
+    Free(FreePage),
 }
 
 impl Pager {
@@ -100,30 +108,48 @@ impl Pager {
         }, header.root_page, header.order))
     }
 
-    pub fn read_header(&mut self, id: PageId) -> StoreResult<PageHeader> {
-        let bytes = scan_page(id, &mut self.file)?;
-        let header = PageHeader::deserialize(&mut &bytes[..])?;
-        Ok(header)
+    pub fn read_any(&mut self, id: PageId) -> StoreResult<AnyPage> {
+        let bytes = match self.dirty_cache.get(&id) {
+            Some(bytes) => bytes.as_slice(),
+            None => &scan_page(id, &mut self.file)?,
+        };
+
+        let mut cursor = &bytes[..];
+        let header = PageHeader::deserialize(&mut cursor)?;
+        match header.pagetype {
+            PageType::Leaf => Ok(AnyPage::Leaf(LeafPage::deserialize(header, &mut cursor)?)),
+            PageType::Branch => Ok(AnyPage::Branch(BranchPage::deserialize(header, &mut cursor)?)),
+            PageType::Data => Ok(AnyPage::Data(DataPage::deserialize(header, &mut cursor)?)),
+            PageType::Overflow => {
+                Ok(AnyPage::OverFlow(OverflowPage::deserialize(header, &mut cursor)?))
+            },
+            PageType::Free => Ok(AnyPage::Free(FreePage::deserialize(header, &mut cursor)?)),
+        }
     }
 
     // e.g. read::<DataPage>
     pub fn read<T: Page>(&mut self, id: PageId) -> StoreResult<T> {
-        let page: T = T::deserialize(&scan_page(id, &mut self.file)?)?;
-        
-        if page.header().pagetype != T::pagetype() {
+        let bytes = match self.dirty_cache.get(&id) {
+            Some(bytes) => bytes.as_slice(),
+            None => &scan_page(id, &mut self.file)?,
+        };
+
+        let mut cursor = &bytes[..];
+        let header = PageHeader::deserialize(&mut cursor)?;
+
+        if header.pagetype != T::pagetype() {
             return Err(StoreErr::UnexpectedPagetype { 
-                found: page.header().pagetype,
+                found: header.pagetype,
                 expected: T::pagetype()
             });
         }
 
-        Ok(page)
+        T::deserialize(header, &mut cursor)
     }
 
     pub fn write<T: Page>(&mut self, id: PageId, page: T) {
         let bytes = page.serialize();
-        self.file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));
-        self.file.write_all(&bytes);
+        self.dirty_cache.insert(id, bytes);
     }
 
     // Clear out the cache and write it to disk
@@ -154,7 +180,6 @@ impl Pager {
         if let Some(prev_id) = self.free_list.last().copied() {
             let new_header = PageHeader {
                 id: prev_id,
-                table_oid: Oid(0),
                 pagetype: PageType::Free,
                 next: Some(id),
                 slots: 0,

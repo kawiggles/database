@@ -76,6 +76,8 @@ pub enum StoreErr {
     UnknownPagetype(u8),
     #[error("An error was encounted with the b+ tree")]
     TreeErr(#[from] TreeErr),
+    #[error("Non-utf-8 char found in query")]
+    NonUtf8(#[from] std::str::Utf8Error),
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
@@ -104,10 +106,14 @@ pub enum TreeErr {
     KeyOOB(PageId),
 }
 
+pub type TreeResult<T> = std::result::Result<T, TreeErr>;
+
 #[derive(Error, Debug)]
 pub enum UserErr {
     #[error("No value found at requested key")]
     NoValue,
+    #[error("No RID found for key {0}")]
+    NoRID(String),
     #[error("Value input is invalid")]
     BadVal,
     #[error("SQL query is malformed")]

@@ -1,4 +1,4 @@
-use super::{Page, PageId, PageType, PageHeader};
+use super::{Page, PageId, PageType, PageHeader, Slot, read_str, read_usize };
 
 use crate::errors::StoreResult;
 
@@ -27,15 +27,19 @@ impl Page for BranchPage {
         todo!()
     }
 
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self> {
-        todo!();
-        /*
-        let header = ;
-        let keys = ;
-        let children = ;
+    fn deserialize(header: PageHeader, bytes: &mut &[u8]) -> StoreResult<Self> {
+        let mut keys: Vec<String> = Vec::new();
+        let mut children: Vec<PageId> = Vec::new();
+
+        for _ in 0..header.slots {
+            let slot = Slot::read(bytes)?;
+            let mut slot_bytes = &bytes[slot.offset..slot.offset+slot.len];
+            keys.push(read_str(&mut slot_bytes)?);
+            children.push(PageId::new(read_usize(&mut slot_bytes)?)
+                .expect("Attempted to read PageId 0!!!"));
+        }
 
         Ok( Self { header, keys, children })
-        */
     }
 }
 
