@@ -9,9 +9,9 @@ pub mod overflow;
 pub mod free;
 
 pub use dbheader::DbHeader;
-pub use utils::{ read_u16, read_u32, read_usize, read_str, scan_page };
+pub use utils::{ write_at, read_u16, read_u32, read_usize, read_str, scan_page };
 pub use page_id::PageId;
-pub use page::{Page, PageHeader, PageType, PAGE_SIZE, Slot };
+pub use page::{Page, PageHeader, PageType, PageCursor, PAGE_SIZE };
 pub use free::FreePage;
 pub use overflow::OverflowPage;
 pub use data::DataPage;
@@ -114,8 +114,8 @@ impl Pager {
             None => &scan_page(id, &mut self.file)?,
         };
 
-        let mut cursor = &bytes[..];
-        let header = PageHeader::deserialize(&mut cursor)?;
+        let mut cursor = PageCursor::new(&bytes);
+        let header = PageHeader::deserialize(&mut &bytes[..])?;
         match header.pagetype {
             PageType::Leaf => Ok(AnyPage::Leaf(LeafPage::deserialize(header, &mut cursor)?)),
             PageType::Branch => Ok(AnyPage::Branch(BranchPage::deserialize(header, &mut cursor)?)),
@@ -134,8 +134,8 @@ impl Pager {
             None => &scan_page(id, &mut self.file)?,
         };
 
-        let mut cursor = &bytes[..];
-        let header = PageHeader::deserialize(&mut cursor)?;
+        let mut cursor = PageCursor::new(bytes);
+        let header = PageHeader::deserialize(&mut &bytes[..])?;
 
         if header.pagetype != T::pagetype() {
             return Err(StoreErr::UnexpectedPagetype { 

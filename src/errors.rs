@@ -78,6 +78,11 @@ pub enum StoreErr {
     TreeErr(#[from] TreeErr),
     #[error("Non-utf-8 char found in query")]
     NonUtf8(#[from] std::str::Utf8Error),
+    #[error("Slot read went out of bounds of page bytes, offset was {}, len was {}", offset, len)]
+    SlotOOB {
+        offset: usize,
+        len: usize,
+    },
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;

@@ -11,9 +11,10 @@ pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
     fn pagetype() -> PageType;
     fn serialize(&self) -> Vec<u8>;
-    fn deserialize(header: PageHeader, bytes: &mut &[u8]) -> StoreResult<Self>;
+    fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self>;
 }
 
+pub const PAGEHEADER_SIZE: usize = 30;
 pub struct PageHeader {
     pub id: PageId,             // 8
     pub pagetype: PageType,     // 8
@@ -36,6 +37,21 @@ impl PageHeader {
         let upper = read_u16(bytes)?;
         
         Ok(PageHeader { id, pagetype, next, slots, lower, upper })
+    }
+    
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes: Vec<u8> = Vec::new();
+
+        bytes.extend_from_slice(&self.id.get().to_le_bytes());
+        bytes.push(self.pagetype.serialize());
+        bytes.extend_from_slice(&self.next
+            .map(|PageId(num)| num.get())
+            .unwrap_or(0)
+            .to_le_bytes());
+        bytes.extend_from_slice(&self.slots.to_le_bytes());
+        bytes.extend_from_slice(&self.lower.to_le_bytes());
+        bytes.extend_from_slice(&self.upper.to_le_bytes());
+        bytes
     }
 }
 
@@ -74,15 +90,21 @@ impl PageType {
     }
 }
 
-pub struct Slot {
-    pub offset: usize,
-    pub len: usize
+pub struct PageCursor<'a> {
+    page: &'a [u8],
+    pos: usize,
 }
 
-impl Slot {
-    pub fn read<R: Read>(bytes: &mut R) -> StoreResult<Self> {
-        let offset = read_usize(bytes)?;
-        let len = read_usize(bytes)?;
-        Ok(Self { offset, len })
+impl<'a> PageCursor<'a> {
+    pub fn new(page: &'a [u8]) -> Self {
+        Self { page, pos: PAGEHEADER_SIZE }
+    }
+
+    pub fn next(&mut self) -> StoreResult<&'a [u8]> {
+        let mut entry = &self.page[self.pos..self.pos + 4]; // u16 + u16 for 4 bytes total
+        let offset = read_u16(&mut entry)? as usize;
+        let len = read_u16(&mut entry)? as usize;
+        self.pos += 4;
+        self.page.get(offset..offset+len).ok_or(StoreErr::SlotOOB { offset, len })
     }
 }
