@@ -10,7 +10,7 @@ pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
     fn pagetype() -> PageType;
-    fn serialize(&self) -> Vec<u8>;
+    fn serialize(&self) -> StoreResult<Vec<u8>>;
     fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self>;
 }
 
@@ -45,7 +45,7 @@ impl PageHeader {
         bytes.extend_from_slice(&self.id.get().to_le_bytes());
         bytes.push(self.pagetype.serialize());
         bytes.extend_from_slice(&self.next
-            .map(|PageId(num)| num.get())
+            .map(|id| id.get())
             .unwrap_or(0)
             .to_le_bytes());
         bytes.extend_from_slice(&self.slots.to_le_bytes());

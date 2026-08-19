@@ -2,8 +2,6 @@ pub mod value;
 pub mod bptree;
 pub mod pager;
 
-pub use bptree::RID;
-
 use std::fs;
 use log::{info, warn};
 
@@ -18,6 +16,11 @@ use crate::{
 
 pub const PAGE_SIZE: usize = 4096;
 pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
+
+pub struct Rid {
+    pub page: PageId,
+    pub slot: usize,
+}
 
 // Buffer pool for database, holds cache?
 pub struct Store {

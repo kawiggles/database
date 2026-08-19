@@ -1,4 +1,7 @@
-use super::{Page, PageHeader, PageId, PageType, Oid, };
+use super::{
+    Page, PageHeader, PageId, PageType,
+    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE},
+};
 use crate::errors::StoreResult;
 
 pub struct FreePage(pub PageHeader);
@@ -7,7 +10,6 @@ impl FreePage {
     pub fn new(id: PageId) -> Self {
         Self(PageHeader {
             id,
-            table_oid: Oid(0),
             pagetype: PageType::Free,
             next: None,
             slots: 0,
@@ -26,11 +28,14 @@ impl Page for FreePage {
         PageType::Free
     }
 
-    fn serialize(&self) -> Vec<u8> {
-        todo!()
+    fn serialize(&self) -> StoreResult<Vec<u8>> {
+        let mut bytes = vec![0u8; PAGE_SIZE];
+        bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.0.serialize());
+
+        Ok(bytes)
     }
 
-    fn deserialize(bytes: &[u8]) -> StoreResult<Self> {
-        todo!()
+    fn deserialize(header: PageHeader, _cursor: &mut PageCursor) -> StoreResult<Self> {
+        Ok(Self(header))
     }
 }

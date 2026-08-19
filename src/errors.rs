@@ -3,7 +3,6 @@ use std::{
     io,
     fs::File,
 };
-use bincode_next;
 use log::LevelFilter;
 use simplelog::{WriteLogger, Config};
 
@@ -55,10 +54,6 @@ pub type TcpResult<T> = std::result::Result<T, TcpErr>;
 pub enum StoreErr {
     #[error("Filetype does not match kawikadb filetype")]
     BadFile,
-    #[error("Bincode encoding error occured: {0}")]
-    EncodeErr(#[from] bincode_next::error::EncodeError),
-    #[error("Bincode decoding error occured: {0}")]
-    DecodeErr(#[from] bincode_next::error::DecodeError),
     #[error("Page read overflow")]
     ReadOverflow,
     #[error("I/O error occurred: {0}")]
@@ -82,6 +77,12 @@ pub enum StoreErr {
     SlotOOB {
         offset: usize,
         len: usize,
+    },
+    #[error("Attempted slot write resulted in overflow, page was {}, len was {}, pagetype was {:?}", page, len, pagetype)]
+    SlotOverwrite {
+        page: PageId,
+        len: usize,
+        pagetype: PageType,
     },
 }
 
