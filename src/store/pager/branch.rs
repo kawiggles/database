@@ -16,6 +16,13 @@ impl BranchPage {
     pub fn new() -> Self {
         todo!()
     }
+
+    pub fn insert(&mut self) -> StoreErr<()> {
+        Ok(())
+    }
+
+    pub fn can_fit(&self, &)
+
 }
 
 impl Page for BranchPage {
@@ -78,6 +85,7 @@ impl Page for BranchPage {
         bytes[dir..dir+2].copy_from_slice(&((end - 8) as u16).to_le_bytes());
         bytes[dir+2..dir+4].copy_from_slice(&(8 as u16).to_le_bytes());
 
+        // TODO: check that dir and end match lower and upper
         Ok(bytes)
     }
 
@@ -99,3 +107,18 @@ impl Page for BranchPage {
     }
 }
 
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn branch_serialize() {
+    }
+
+    #[test]
+    fn branch_deserialize() {
+    }
+
+    #[test]
+    fn branch_round_trip() {
+    }
+}

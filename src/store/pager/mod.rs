@@ -9,7 +9,7 @@ pub mod overflow;
 pub mod free;
 
 pub use dbheader::DbHeader;
-pub use utils::{ write_at, read_u16, read_u32, read_usize, read_str, scan_page };
+pub use utils::{ read_u16, read_u32, read_usize, read_str, scan_page };
 pub use page_id::PageId;
 pub use page::{Page, PageHeader, PageType, PageCursor, PAGE_SIZE };
 pub use free::FreePage;
