@@ -42,6 +42,7 @@ pub struct Pager {
     free_list: Vec<PageId>,
     dirty_cache: HashMap<PageId, Vec<u8>>,
     pub num_pages: usize,
+    pub active_data: PageId,
 }
 
 pub enum AnyPage {

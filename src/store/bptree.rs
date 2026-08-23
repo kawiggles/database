@@ -60,8 +60,13 @@ impl BpTree {
     pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> DbResult<Option<Value>> {
         let mut return_val = None;
 
-        // Create a DataPage and write the value to it
-        let data_id = DataPage::new(pager, val)?;
+        // Check current datapage. 
+        // If can insert, insert.
+        // If not, create a new data page, set it as current, and insert
+        let data_rid = Rid {
+            page: ,
+            slot: ,
+        };
         
         // If the tree is empty, create a new root
         let Some(root) = self.root else {

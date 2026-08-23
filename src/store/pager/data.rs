@@ -4,7 +4,10 @@ use super::{
     read_usize
 };
 
-use crate::errors::{StoreResult, StoreErr};
+use crate::{
+    errors::{StoreResult, StoreErr},
+    store::{ Value, Rid },
+};
 
 pub struct DataPage {
     header: PageHeader,
@@ -15,6 +18,16 @@ pub struct DataPage {
 impl DataPage {
     pub fn new() -> Self {
         todo!()
+    }
+    
+    pub fn insert(&mut self, val: Value) -> StoreResult<Rid> {
+        let page = self.header.id;
+        let slot = self.header.slots + 1;
+
+        Ok(Rid {
+            page,
+            slot,
+        })
     }
 }
 
