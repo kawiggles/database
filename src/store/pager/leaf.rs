@@ -17,8 +17,20 @@ pub struct LeafPage {
 }
 
 impl LeafPage {
-    pub fn new() -> Self {
-        todo!()
+    pub fn new(id: PageId, key: String, rid: Rid, next_leaf: Option<PageId>) -> Self {
+        Self {
+            header: PageHeader { 
+                id,
+                pagetype: PageType::Leaf,
+                next: None,
+                slots: 1,
+                lower: 4, // One slot, 2 u16, 4 bytes total
+                upper: 12 + key.len() as u16, // 1 key/RID pair, which is u16 + keylen + usize + u16
+            },
+            keys: vec![key],
+            rids: vec![rid],
+            next_leaf,
+        }
     }
 }
 
@@ -45,7 +57,7 @@ impl Page for LeafPage {
             let mut body: Vec<u8> = Vec::new();
             body.extend_from_slice(&(key.len() as u16).to_le_bytes());
             body.extend_from_slice(key.as_bytes());
-            body.extend_from_slice(&(rid.page.get() as u16).to_le_bytes());
+            body.extend_from_slice(&rid.page.get().to_le_bytes());
             body.extend_from_slice(&(rid.slot as u16).to_le_bytes());
 
             let len = body.len();

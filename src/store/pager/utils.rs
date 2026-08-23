@@ -3,7 +3,6 @@ use std::str::from_utf8;
 use std::io::{Read, Seek, SeekFrom};
 
 use super::{PAGE_SIZE, PageId};
-use crate::store::Rid;
 
 use crate::errors::StoreResult;
 

@@ -52,6 +52,18 @@ pub enum AnyPage {
     Free(FreePage),
 }
 
+impl AnyPage {
+    pub fn to_pagetype(&self) -> PageType {
+        match self {
+            AnyPage::Leaf(_) => PageType::Leaf,
+            AnyPage::Branch(_) => PageType::Branch,
+            AnyPage::Data(_) => PageType::Data,
+            AnyPage::OverFlow(_) => PageType::Overflow,
+            AnyPage::Free(_) => PageType::Free,
+        }
+    }
+}
+
 impl Pager {
     pub fn new(path: &str, new_order: usize) -> StoreResult<(Self, Option<PageId>, usize)> {
         let filepath = if path.is_empty() { DEFAULT_FILE } else { path };
@@ -147,9 +159,10 @@ impl Pager {
         T::deserialize(header, &mut cursor)
     }
 
-    pub fn write<T: Page>(&mut self, id: PageId, page: T) {
-        let bytes = page.serialize();
-        self.dirty_cache.insert(id, bytes);
+    pub fn write<T: Page>(&mut self, page: T) -> StoreResult<()> {
+        let bytes = page.serialize()?;
+        self.dirty_cache.insert(page.header().id, bytes);
+        Ok(())
     }
 
     // Clear out the cache and write it to disk

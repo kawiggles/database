@@ -1,11 +1,10 @@
 use crate::{
+    errors::{DbErr, DbResult, StoreErr, UserErr },
     store::{
-        RID,
-        value::Value,
-        pager::{ Pager, Page, PageId,  PageType, DataPage },
-        BranchPage, LeafPage, 
-    },
-    errors::{DbErr, DbResult, UserErr, StoreErr },
+        Rid,
+        pager::{ AnyPage, DataPage, LeafPage, Page, PageId, PageType, Pager },
+        value::Value 
+    }
 };
 
 pub struct BpTree {
@@ -23,17 +22,16 @@ impl BpTree {
     }
 
     // This function shows the basic pattern for searching the tree with a key
-    pub fn get(&self, key: &str, pager: &mut Pager) -> DbResult<RID> {
+    pub fn get(&self, key: &str, pager: &mut Pager) -> DbResult<Rid> {
         let mut current = match self.root {
             Some(x) => x,
             None => return Err(DbErr::UserErr(UserErr::NoRoot)),
         };
 
         loop {
-            let header = pager.read_header(current)?;
-            match header.pagetype {
-                PageType::Branch => {
-                    let branch = pager.read::<BranchPage>(current)?;
+            let page = pager.read_any(current)?;
+            match page {
+                AnyPage::Branch(branch) => {
                     let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         // A hit guarentees the right node, because right is always >=
                         Ok(i) => i + 1,
@@ -42,8 +40,7 @@ impl BpTree {
                     };
                     current = branch.children[i];
                 },
-                PageType::Leaf => { 
-                    let leaf = pager.read::<LeafPage>(current)?;
+                AnyPage::Leaf(leaf) => { 
                     let index = leaf.keys.binary_search_by(|probe| {
                         probe.as_str().cmp(key)
                     }).map_err(|_| UserErr::NoRID(key.into()))?;
@@ -52,7 +49,7 @@ impl BpTree {
                 },
                 _ => { 
                     return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
-                        found: header.pagetype,
+                        found: page.to_pagetype(),
                         expected: PageType::Branch,
                     }));
                 }
@@ -69,8 +66,8 @@ impl BpTree {
         // If the tree is empty, create a new root
         let Some(root) = self.root else {
             let new_id = pager.alloc();
-            let page = IndexPage::new_leaf(new_id, vec![key.to_string()], vec![data_id], None);
-            Page::write(pager, page)?;
+            let page = LeafPage::new(new_id, key.to_string(), data_id, None);
+            pager.write(page)?;
             pager.flush()?;
 
             self.root = Some(new_id);
@@ -515,17 +512,17 @@ mod tests {
     #[test]
     fn bptree_insert_and_get() {
         let mut store = setup();
-        store.datamap.insert("one", Value::Int(1), &mut store.pager).unwrap();
+        store.tree.insert("one", Value::Int(1), &mut store.pager).unwrap();
         assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        store.datamap.insert("two", Value::Int(2), &mut store.pager).unwrap();
+        store.tree.insert("two", Value::Int(2), &mut store.pager).unwrap();
         assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        store.datamap.insert("three", Value::Int(3), &mut store.pager).unwrap();
+        store.tree.insert("three", Value::Int(3), &mut store.pager).unwrap();
         assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        store.datamap.insert("four", Value::Int(4), &mut store.pager).unwrap();
+        store.tree.insert("four", Value::Int(4), &mut store.pager).unwrap();
         assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        store.datamap.insert("five", Value::Int(5), &mut store.pager).unwrap();
+        store.tree.insert("five", Value::Int(5), &mut store.pager).unwrap();
         assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        store.datamap.insert("six", Value::Int(6), &mut store.pager).unwrap();
+        store.tree.insert("six", Value::Int(6), &mut store.pager).unwrap();
         assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
     }
 

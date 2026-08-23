@@ -16,13 +16,6 @@ impl BranchPage {
     pub fn new() -> Self {
         todo!()
     }
-
-    pub fn insert(&mut self) -> StoreErr<()> {
-        Ok(())
-    }
-
-    pub fn can_fit(&self, &)
-
 }
 
 impl Page for BranchPage {
