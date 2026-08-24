@@ -25,7 +25,8 @@ impl LeafPage {
                 next: None,
                 slots: 1,
                 lower: 4, // One slot, 2 u16, 4 bytes total
-                upper: 12 + key.len() as u16, // 1 key/RID pair, which is u16 + keylen + usize + u16
+                // 1 key/RID pair, which is u16 + keylen + usize + u16
+                upper: (PAGE_SIZE - (12 + key.len())) as u16, 
             },
             keys: vec![key],
             rids: vec![rid],

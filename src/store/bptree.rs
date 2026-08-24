@@ -57,16 +57,14 @@ impl BpTree {
         }
     }
 
-    pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> DbResult<Option<Value>> {
+    pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> DbResult<Option<Rid>> {
         let mut return_val = None;
 
         // Check current datapage. 
         // If can insert, insert.
         // If not, create a new data page, set it as current, and insert
-        let data_rid = Rid {
-            page: ,
-            slot: ,
-        };
+        // Return the associated Rid
+        let data_id = pager.insert_data(val)?;
         
         // If the tree is empty, create a new root
         let Some(root) = self.root else {
@@ -84,19 +82,25 @@ impl BpTree {
         // First: find the leaf node while tracking path
         let mut current = root;
         loop {
-            let page: IndexPage = Page::read(pager, current)?;
-            match &page.node_type {
-                NodeType::Branch { children } => {
+            let page = pager.read_any(current)?;
+            match page {
+                AnyPage::Branch(branch) => {
                     path.push(current);
-                    let i = match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                    let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         Ok(i) => i + 1,
                         Err(i) => i,
                     }; 
-                    current = children[i];
+                    current = branch.children[i];
                 },
-                NodeType::Leaf { .. } => {
+                AnyPage::Leaf(leaf) => {
                     path.push(current);
                     break;
+                },
+                _ => { 
+                    return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
+                        found: page.to_pagetype(),
+                        expected: PageType::Branch,
+                    }));
                 }
             }
         }

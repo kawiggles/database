@@ -22,12 +22,16 @@ impl DataPage {
     
     pub fn insert(&mut self, val: Value) -> StoreResult<Rid> {
         let page = self.header.id;
-        let slot = self.header.slots + 1;
+        let slot = (self.header.slots + 1) as usize;
 
-        Ok(Rid {
-            page,
-            slot,
-        })
+        let bytes = val.to_bytes();
+
+        self.header.upper -= (bytes.len() + 2) as u16;
+        self.header.lower += 4;
+        self.header.slots += 1;
+        self.data.push(bytes);
+
+        Ok(Rid { page, slot })
     }
 }
 

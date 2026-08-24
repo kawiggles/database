@@ -22,6 +22,7 @@ use crate::{
     VERSION,
     errors::{StoreErr, StoreResult},
     tcp::DEFAULT_FILE,
+    store::{ Rid, Value },
 };
 
 use std::{
@@ -86,8 +87,10 @@ impl Pager {
             .open(filepath)?;
         new_head.write(&mut file)?;
 
+        let active_data = DataPage::new().header().id;
+
         Ok((
-            Pager { file, free_list: Vec::new(), dirty_cache: HashMap::new(), num_pages: 1, },
+            Pager { file, free_list: Vec::new(), dirty_cache: HashMap::new(), num_pages: 1, active_data },
             new_head.root_page,
             new_head.order
         ))
@@ -164,6 +167,23 @@ impl Pager {
         let bytes = page.serialize()?;
         self.dirty_cache.insert(page.header().id, bytes);
         Ok(())
+    }
+
+    pub fn insert_data(&mut self, val: Value) -> StoreResult<Rid> {
+        let current_page = self.read::<DataPage>(self.active_data)?;
+        let free_space = current_page.header().upper - current_page.header().lower;
+        let page = if free_space > val.to_bytes().len() as u16 {
+            let new_data_id = self.alloc();
+            // TODO: create new data page
+            // TODO: if doesn't fit in new page, create overflow page
+            self.active_data = new_data_id;
+            new_data_id
+        } else {
+            self.active_data
+        };
+
+        let mut data_page = self.read::<DataPage>(page)?;
+        Ok(data_page.insert(val)?)
     }
 
     // Clear out the cache and write it to disk

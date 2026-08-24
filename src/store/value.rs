@@ -1,6 +1,4 @@
-use bincode_next::{Encode, Decode};
-
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(isize),
     Float(f64),
@@ -26,7 +24,7 @@ impl Value {
         }
     }
 
-    pub fn to_bytes(self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::new();
         match self {
             Value::Int(x) => buf.extend(x.to_be_bytes()),
