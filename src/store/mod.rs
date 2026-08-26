@@ -17,6 +17,7 @@ use crate::{
 pub const PAGE_SIZE: usize = 4096;
 pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
 
+pub const RID_SIZE: usize = 16; // usize + usize when serialized
 #[derive(Clone, Copy)]
 pub struct Rid {
     pub page: PageId,

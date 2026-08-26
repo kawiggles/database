@@ -1,12 +1,12 @@
 use super::{
     Page, PageId, PageType, PageHeader, 
-    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE },
+    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE },
     read_str, read_usize
 };
 
 use crate::{
     errors::{StoreResult, StoreErr, TreeErr},
-    store::Rid,
+    store::{Rid, RID_SIZE},
 };
 
 pub struct LeafPage {
@@ -32,6 +32,11 @@ impl LeafPage {
             rids: vec![rid],
             next_leaf,
         }
+    }
+
+    pub fn check_fit(&self, key: String) -> bool {
+        let size = RID_SIZE + SLOT_POINTER_SIZE + key.len();
+        if size >= self.free_space() { true } else { false }
     }
 }
 

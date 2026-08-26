@@ -57,8 +57,10 @@ impl BpTree {
         }
     }
 
-    // Returns true if overwrite occurs
-    pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<bool> {
+    // Returns Some(Rid) if the associated RID needs to be deleted
+    pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<Option<Rid>> {
+        let return_val = None;
+        
         // If the tree is empty, create a new root
         let Some(root) = self.root else {
             let new_id = pager.alloc();
@@ -100,24 +102,32 @@ impl BpTree {
 
         // Second: insert key into node
         let mut page = pager.read::<LeafPage>(current)?;
-        // TODO: Check capacity here
-        match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-            Ok(i) => {
-                let data: DataPage = Page::read(pager, pages[i])?;
-                return_val = Some(data.value);
-                page.keys[i] = key.to_string();
-                pager.free(pages[i])?;
-            },
-            Err(i) => page.keys.insert(i, key.to_string()),
+        if page.check_fit(key.into()) {
+            match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                Ok(i) => {
+                    return_val = Some(page.rids[i]); // we need to delete value at this RID
+                    page.rids[i] = rid;
+                    page.keys[i] = key.to_string();
+                },
+                Err(i) => {
+                    page.rids.insert(i, rid);
+                    page.keys.insert(i, key.to_string());
+                },
+            }
+        } else {
+            // TODO: figure out this split logic
         }
         pager.write(page)?;
 
         // Third: handle splits, iterating through path
         let mut path_iter = path.iter().rev().peekable();
-        while let Some(index) = path_iter.next() {
+        while let Some(id) = path_iter.next() {
             // First check if a split is necessary
             let split_result = {
-                let mut page: IndexPage = Page::read(pager, *index)?;
+                let mut page = pager.read_any(*id)?;
+                match page {
+                    // TODO: Convert below logic to this match
+                }
                 if page.keys.len() >= self.order { // This is where max keys is defined
                     let mut new_page = match &mut page.node_type {
                         NodeType::Leaf { pages, next } => {
@@ -510,17 +520,17 @@ mod tests {
     fn bptree_insert_and_get() {
         let mut store = setup();
         store.tree.insert("one", Value::Int(1), &mut store.pager).unwrap();
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
         store.tree.insert("two", Value::Int(2), &mut store.pager).unwrap();
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
         store.tree.insert("three", Value::Int(3), &mut store.pager).unwrap();
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
         store.tree.insert("four", Value::Int(4), &mut store.pager).unwrap();
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
         store.tree.insert("five", Value::Int(5), &mut store.pager).unwrap();
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
         store.tree.insert("six", Value::Int(6), &mut store.pager).unwrap();
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }
 
     #[test]
@@ -528,71 +538,71 @@ mod tests {
         for n in [10, 20, 50, 100] {
             let mut store = setup();
             for i in 0..n {
-                store.datamap.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
-                assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+                store.tree.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
+                assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
             }
             // verify all keys retrievable
             for i in 0..n {
-                assert!(store.datamap.get(&format!("key{:03}", i), &mut store.pager).is_ok());
+                assert!(store.tree.get(&format!("key{:03}", i), &mut store.pager).is_ok());
             }
         }
     }
 
     fn build_store(n: isize) -> Store {
         let mut store = setup();
-        println!("{}", store.datamap.order);
+        println!("{}", store.tree.order);
         for i in 1..n {
-            store.datamap.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
+            store.tree.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
         }
         store
     }
 
     #[test]
     fn bptree_show_tree() {
-        let store = build_store(16);
+        let mut store = build_store(16);
         store.print_tree();
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }
 
     #[test]
     fn bptree_remove_simple() {
         let mut store = build_store(20);
         store.print_tree();
-        let _ = store.datamap.remove("key018", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key018", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }
 
     #[test]
     fn bptree_remove_borrow() {
         let mut store = build_store(20);
         store.print_tree();
-        let _ = store.datamap.remove("key015", &mut store.pager);
-        let _ = store.datamap.remove("key014", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key015", &mut store.pager);
+        let _ = store.tree.remove("key014", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }
     
     #[test]
     fn bptree_remove_merge() {
         let mut store = build_store(21);
         store.print_tree();
-        let _ = store.datamap.remove("key020", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        let _ = store.datamap.remove("key019", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key020", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key019", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }
 
     #[test]
     fn bptree_remove_cascade() {
         let mut store = build_store(14);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
         store.print_tree();
-        let _ = store.datamap.remove("key003", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        let _ = store.datamap.remove("key006", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        let _ = store.datamap.remove("key009", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
-        let _ = store.datamap.remove("key012", &mut store.pager);
-        assert!(store.validate().is_none(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key003", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key006", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key009", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+        let _ = store.tree.remove("key012", &mut store.pager);
+        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }
 }

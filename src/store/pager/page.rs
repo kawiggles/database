@@ -6,6 +6,7 @@ use crate::{
 
 use super::{ read_usize, read_u16, PageId};
 
+pub const SLOT_POINTER_SIZE: usize = 4; // u16 + u16
 pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
