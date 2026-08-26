@@ -9,6 +9,7 @@ use super::{ read_usize, read_u16, PageId};
 pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
+    fn free_space(&self) -> usize;
     fn pagetype() -> PageType;
     fn serialize(&self) -> StoreResult<Vec<u8>>;
     fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self>;

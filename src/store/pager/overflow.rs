@@ -26,6 +26,10 @@ impl Page for OverflowPage {
         PageType::Overflow
     }
 
+    fn free_space(&self) -> usize {
+        (self.header.upper - self.header.lower) as usize
+    }
+
     fn serialize(&self) -> StoreResult<Vec<u8>> {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].clone_from_slice(&self.header.serialize());

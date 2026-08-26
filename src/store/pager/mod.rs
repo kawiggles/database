@@ -169,21 +169,20 @@ impl Pager {
         Ok(())
     }
 
-    pub fn insert_data(&mut self, val: Value) -> StoreResult<Rid> {
+    // Checks the current active data page's free space
+    // If free space, return the active data page and next slot 
+    // If not, alloc a new page id and return 1st slot
+    // ALERT: YOU NEED TO ACTUALLY CREATE THIS DATA PAGE LATER
+    pub fn check_active_data_space(&mut self, val: Value) -> StoreResult<Rid> {
         let current_page = self.read::<DataPage>(self.active_data)?;
         let free_space = current_page.header().upper - current_page.header().lower;
-        let page = if free_space > val.to_bytes().len() as u16 {
+        if free_space > val.to_bytes().len() as u16 {
             let new_data_id = self.alloc();
-            // TODO: create new data page
-            // TODO: if doesn't fit in new page, create overflow page
             self.active_data = new_data_id;
-            new_data_id
+            Ok(Rid { page: new_data_id, slot: 1})
         } else {
-            self.active_data
-        };
-
-        let mut data_page = self.read::<DataPage>(page)?;
-        Ok(data_page.insert(val)?)
+            Ok(Rid { page: self.active_data, slot: (current_page.header().slots + 1) as usize })
+        }
     }
 
     // Clear out the cache and write it to disk
@@ -220,10 +219,10 @@ impl Pager {
                 lower: 0,
                 upper: 0,
             };
-            self.write::<FreePage>(prev_id, FreePage(new_header));
+            self.write::<FreePage>(FreePage(new_header));
         }
 
-        self.write::<FreePage>(id, FreePage::new(id));
+        self.write::<FreePage>(FreePage::new(id));
         self.free_list.push(id);
         self.dirty_cache.remove(&id);
         Ok(())

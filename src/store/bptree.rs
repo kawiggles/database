@@ -57,24 +57,17 @@ impl BpTree {
         }
     }
 
-    pub fn insert(&mut self, key: &str, val: Value, pager: &mut Pager) -> DbResult<Option<Rid>> {
-        let mut return_val = None;
-
-        // Check current datapage. 
-        // If can insert, insert.
-        // If not, create a new data page, set it as current, and insert
-        // Return the associated Rid
-        let data_id = pager.insert_data(val)?;
-        
+    // Returns true if overwrite occurs
+    pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<bool> {
         // If the tree is empty, create a new root
         let Some(root) = self.root else {
             let new_id = pager.alloc();
-            let page = LeafPage::new(new_id, key.to_string(), data_id, None);
+            let page = LeafPage::new(new_id, key.to_string(), rid, None);
             pager.write(page)?;
             pager.flush()?;
 
             self.root = Some(new_id);
-            return Ok(None);
+            return Ok(false);
         };
 
         let mut path: Vec<PageId> = Vec::new(); // for tracking nodes to edit if split is needed
@@ -106,23 +99,18 @@ impl BpTree {
         }
 
         // Second: insert key into node
-        let mut page: IndexPage = Page::read(pager, current)?;
-        if let NodeType::Leaf { pages, .. } = &mut page.node_type {
-             match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-                Ok(i) => {
-                    let data: DataPage = Page::read(pager, pages[i])?;
-                    return_val = Some(data.value);
-                    page.keys[i] = key.to_string();
-                    pages[i] = data_id;
-                    pager.free(pages[i])?;
-                },
-                Err(i) => {
-                    page.keys.insert(i, key.to_string());
-                    pages.insert(i, data_id);
-                }
-             }
+        let mut page = pager.read::<LeafPage>(current)?;
+        // TODO: Check capacity here
+        match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+            Ok(i) => {
+                let data: DataPage = Page::read(pager, pages[i])?;
+                return_val = Some(data.value);
+                page.keys[i] = key.to_string();
+                pager.free(pages[i])?;
+            },
+            Err(i) => page.keys.insert(i, key.to_string()),
         }
-        Page::write(pager, page)?;
+        pager.write(page)?;
 
         // Third: handle splits, iterating through path
         let mut path_iter = path.iter().rev().peekable();
