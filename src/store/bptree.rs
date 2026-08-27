@@ -2,26 +2,21 @@ use crate::{
     errors::{DbErr, DbResult, StoreErr, UserErr },
     store::{
         Rid,
-        pager::{ AnyPage, DataPage, LeafPage, Page, PageId, PageType, Pager },
+        pager::{ AnyPage, DataPage, LeafPage, BranchPage, Page, PageId, PageType, Pager },
         value::Value 
     }
 };
 
 pub struct BpTree {
     pub root: Option<PageId>,
-    pub order: usize,
 }
 
 impl BpTree {
     // Easiest method on the tree
-    pub fn new(root: Option<PageId>, order: usize) -> Self {
-        BpTree {
-            root,
-            order 
-        }
+    pub fn new(root: Option<PageId>) -> Self {
+        BpTree { root }
     }
 
-    // This function shows the basic pattern for searching the tree with a key
     pub fn get(&self, key: &str, pager: &mut Pager) -> DbResult<Rid> {
         let mut current = match self.root {
             Some(x) => x,
@@ -33,17 +28,15 @@ impl BpTree {
             match page {
                 AnyPage::Branch(branch) => {
                     let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-                        // A hit guarentees the right node, because right is always >=
-                        Ok(i) => i + 1,
-                        // A miss returns the would be index, which is always the target
-                        Err(i) => i,
+                        Ok(i) => i + 1, // On a hit, go to the right
+                        Err(i) => i, // A miss is where we would go if it existed
                     };
                     current = branch.children[i];
                 },
                 AnyPage::Leaf(leaf) => { 
-                    let index = leaf.keys.binary_search_by(|probe| {
-                        probe.as_str().cmp(key)
-                    }).map_err(|_| UserErr::NoRID(key.into()))?;
+                    let index = leaf.keys
+                        .binary_search_by(|probe| { probe.as_str().cmp(key) })
+                        .map_err(|_| UserErr::NoRID(key.into()))?;
 
                     return Ok(leaf.rids[index]);
                 },
@@ -59,22 +52,20 @@ impl BpTree {
 
     // Returns Some(Rid) if the associated RID needs to be deleted
     pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<Option<Rid>> {
-        let return_val = None;
         
         // If the tree is empty, create a new root
         let Some(root) = self.root else {
             let new_id = pager.alloc();
-            let page = LeafPage::new(new_id, key.to_string(), rid, None);
+            let page = LeafPage::new(new_id, vec![key.to_string()], vec![rid], None);
             pager.write(page)?;
             pager.flush()?;
 
             self.root = Some(new_id);
-            return Ok(false);
+            return Ok(None);
         };
 
-        let mut path: Vec<PageId> = Vec::new(); // for tracking nodes to edit if split is needed
-
-        // First: find the leaf node while tracking path
+        // First: find the leaf page while tracking path
+        let mut path: Vec<PageId> = Vec::new();
         let mut current = root;
         loop {
             let page = pager.read_any(current)?;
@@ -87,10 +78,7 @@ impl BpTree {
                     }; 
                     current = branch.children[i];
                 },
-                AnyPage::Leaf(leaf) => {
-                    path.push(current);
-                    break;
-                },
+                AnyPage::Leaf(leaf) => break,
                 _ => { 
                     return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
                         found: page.to_pagetype(),
@@ -100,110 +88,98 @@ impl BpTree {
             }
         }
 
-        // Second: insert key into node
+        // Second: insert key and rid into leaf
+        let mut replaced = None;
         let mut page = pager.read::<LeafPage>(current)?;
-        if page.check_fit(key.into()) {
-            match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-                Ok(i) => {
-                    return_val = Some(page.rids[i]); // we need to delete value at this RID
-                    page.rids[i] = rid;
-                    page.keys[i] = key.to_string();
-                },
-                Err(i) => {
-                    page.rids.insert(i, rid);
-                    page.keys.insert(i, key.to_string());
-                },
-            }
-        } else {
-            // TODO: figure out this split logic
+        match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+            Ok(i) => {
+                replaced = Some(page.rids[i]); // we need to delete value at this RID
+                page.rids[i] = rid;
+                page.keys[i] = key.to_string();
+            },
+            Err(i) => {
+                page.rids.insert(i, rid);
+                page.keys.insert(i, key.to_string());
+            },
         }
-        pager.write(page)?;
+        // TODO: need to handle split separately, since and overflowing page can't be serialized
+        // probably need to make a function which basically does the thing equal to split result
+        // can be implemented only for branch and leaf pages
+        // the instance here is guarenteed to be a leaf page, everything else is always a branch
 
         // Third: handle splits, iterating through path
-        let mut path_iter = path.iter().rev().peekable();
-        while let Some(id) = path_iter.next() {
+        let path = path.iter().rev().peekable();
+        while let Some(id) = path.next() {
             // First check if a split is necessary
-            let split_result = {
-                let mut page = pager.read_any(*id)?;
-                if page.keys.len() >= self.order { // This is where max keys is defined
-                    let mut new_page = match &mut page.node_type {
-                        NodeType::Leaf { pages, next } => {
-                            let mid = (page.keys.len() + 1) / 2; // ⌈m/2⌉ 
-                            let new_keys = page.keys.split_off(mid);
-                            let new_values = pages.split_off(mid);
-                            // TODO: Fix bug, the fix is pattern matching 
-                            let old_next = *next;
-                            let new_id = pager.alloc();
-                            *next = Some(new_id);
-                            IndexPage::new_leaf(new_id, new_keys, new_values, old_next)
-                        },
-                        NodeType::Branch { children } => {
-                            let mid = page.keys.len() / 2; // m/2 for branches 
-                            let new_keys = page.keys.split_off(mid); 
-                            // increment by 1 because there are 1 more children than keys
-                            let new_children = children.split_off(mid + 1);
-                            IndexPage::new_branch(pager.alloc(), new_keys, new_children)
-                        }
-                    };
-
-                    // The promoted key is the key that'll get pushed up to the parent
-                    let promoted = match &mut new_page.node_type {
-                        NodeType::Leaf { .. } => new_page.keys[0].clone(),
-                        NodeType::Branch { .. } => new_page.keys.remove(0),
-                    };
-
-                    Page::write(pager, page)?;
-                    Some((promoted, new_page))
-                } else {
-                    None
-                }
+            let mut page = pager.read_any(*id)?;
+            // TODO: match over optional instead
+            let split_result = if page.check_space() == 0 {
                 match page {
+                    // TODO: split by byte count, not by slot count
                     AnyPage::Leaf(leaf) => {
                         let mid = (leaf.keys.len() + 1) / 2; // ⌈m/2⌉ 
                         let new_keys = leaf.keys.split_off(mid);
-                        let new_values = leaf.rids.split_off(mid);
-                        // TODO: Fix bug, the fix is pattern matching 
+                        let new_rids = leaf.rids.split_off(mid);
                         let old_next = leaf.next_leaf;
                         let new_id = pager.alloc();
                         leaf.next_leaf = Some(new_id);
-                        IndexPage::new_leaf(new_id, new_keys, new_values, old_next)
+
+                        let new_page = LeafPage::new(new_id, new_keys, new_rids, old_next);
+                        let promoted = new_page.keys[0].clone();
+                        pager.write(leaf)?;
+                        Some((promoted, AnyPage::Leaf(new_page)))
                     },
                     AnyPage::Branch(branch) => {
+                        let mid = branch.keys.len() / 2; // m/2 for branches 
+                        let new_keys = branch.keys.split_off(mid); 
+                        // increment by 1 because there are 1 more children than keys
+                        let new_children = branch.children.split_off(mid + 1);
+
+                        // TODO: Implement this new function
+                        let new_page = BranchPage::new(pager.alloc(), new_keys, new_children);
+                        let promoted = new_page.keys.remove(0);
+                        pager.write(branch)?;
+                        Some((promoted, AnyPage::Branch(new_page)))
+                    },
+                    _ => {
+                        return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
+                            found: page.to_pagetype(),
+                            expected: PageType::Branch,
+                        }));
                     },
                 }
-            };
+            } else { None };
 
             // If it is, insert the promoted key and new node into the parent and node vector
             if let Some((promoted, new_page)) = split_result {
-                let new_page_id = new_page.page_id();
-                Page::write(pager, new_page)?;
+                // TODO: Something about this
+                pager.write(new_page.get())?;
 
                 // The parent is the next node in the path (since the iterator was reversed)
-                if let Some(&parent_id) = path_iter.peek() {
-                    let mut parent: IndexPage = Page::read(pager, *parent_id)?;
-                    let i = parent.keys.binary_search_by(|probe| probe.as_str().cmp(&promoted))
+                if let Some(&parent_id) = path.peek() {
+                    let mut parent = pager.read::<BranchPage>(*parent_id)?;
+                    let i = parent.keys
+                        .binary_search_by(|probe| probe.as_str().cmp(&promoted))
                         .unwrap_or_else(|i| i);
                     parent.keys.insert(i, promoted);
-
-                    if let NodeType::Branch { children } = &mut parent.node_type {
-                        children.insert(i + 1, new_page_id);
-                    }
-                    Page::write(pager, parent)?;
+                    parent.children.insert(i + 1, new_page.id());
+                    pager.write(parent)?;
                 } else {
                     // If there's no parent, we make a new root
-                    let parent = IndexPage::new_branch(
-                        pager.alloc(), vec![promoted], vec![*index, new_page_id]);
-                    self.root = Some(parent.page_id());
-                    Page::write(pager, parent)?;
+                    let root_id = pager.alloc();
+                    let parent = BranchPage::new(root_id, vec![promoted], vec![*id, new_page.id()]);
+                    self.root = Some(root_id);
+                    pager.write(parent)?;
                 }
             }
         }
 
         pager.flush()?;
-        Ok(return_val)
+        Ok(replaced)
     }
 
     // Holy fucking shit (Tool reference)
+    // No fucking kidding, past me. WTF is this???
     pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<Value> {
         let mut return_val: Option<Value> = None;
         // Handle empty tree case
@@ -519,12 +495,12 @@ impl BpTree {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
-    use crate::store::Store;
+    use crate::{errors::StoreResult, store::Store};
 
     fn setup() -> Store {
         let tmp = NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap();
-        Store::start(path, 4).unwrap()
+        Store::start(path).unwrap()
     }
 
     #[test]
@@ -561,7 +537,6 @@ mod tests {
 
     fn build_store(n: isize) -> Store {
         let mut store = setup();
-        println!("{}", store.tree.order);
         for i in 1..n {
             store.tree.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
         }
@@ -583,13 +558,15 @@ mod tests {
         assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }
 
+    // TODO: use this pattern for tests
     #[test]
-    fn bptree_remove_borrow() {
+    fn bptree_remove_borrow() -> StoreResult<()> {
         let mut store = build_store(20);
         store.print_tree();
         let _ = store.tree.remove("key015", &mut store.pager);
         let _ = store.tree.remove("key014", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+        store.validate()?;
+        Ok(())
     }
     
     #[test]
@@ -597,7 +574,7 @@ mod tests {
         let mut store = build_store(21);
         store.print_tree();
         let _ = store.tree.remove("key020", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+        store.validate();
         let _ = store.tree.remove("key019", &mut store.pager);
         assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
     }

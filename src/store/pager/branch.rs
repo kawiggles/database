@@ -13,7 +13,7 @@ pub struct BranchPage {
 }
 
 impl BranchPage {
-    pub fn new() -> Self {
+    pub fn new(id: PageId, keys: Vec<String>, children: Vec<PageId>) -> Self {
         todo!()
     }
 }
@@ -27,7 +27,8 @@ impl Page for BranchPage {
         PageType::Branch
     }
 
-    fn free_space(&self) -> usize {
+    fn free_space(&self) -> Option<u16> {
+        // TODO: use checked_sub, and also remember the extra child
         (self.header.upper - self.header.lower) as usize
     }
 

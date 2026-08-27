@@ -31,20 +31,20 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn start(filepath: &str, new_order: usize) -> DbResult<Self> {
+    pub fn start(filepath: &str) -> DbResult<Self> {
         let is_initialized = fs::metadata(filepath)
             .map(|m| m.len() >= PAGE_SIZE as u64)
             .unwrap_or(false);
 
-        let (pager, root, order) = if is_initialized {
+        let (pager, root) = if is_initialized {
             info!(" - Opening existing database at {}", filepath);
             Pager::open(filepath)?
         } else {
             warn!(" - Database not found at path, creating new database at {}", filepath);
-            Pager::new(filepath, new_order)?
+            Pager::new(filepath)?
         };
         
-        let tree = BpTree::new(root, order);
+        let tree = BpTree::new(root);
         Ok(Store {
             tree: tree,
             pager: pager,
@@ -53,7 +53,8 @@ impl Store {
 
     pub fn get(&mut self, key: &str) -> DbResult<Value> {
         let rid = self.tree.get(key, &mut self.pager)?;
-        let mut page = self.pager.read::<DataPage>(rid.id)?;
+        let mut page = self.pager.read::<DataPage>(rid.page)?;
+        // TODO: after getting slot, convert to proper value using catalog lookup
         Ok(page.get_slot(rid.slot)?)
     }
 
@@ -78,7 +79,7 @@ impl Store {
     }
 
     pub fn exit(&mut self) -> DbResult<()> {
-        self.pager.close(self.tree.root, self.tree.order)?;
+        self.pager.close(self.tree.root)?;
         Ok(())
     }
 

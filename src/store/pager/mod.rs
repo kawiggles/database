@@ -55,10 +55,30 @@ impl AnyPage {
             AnyPage::Free(_) => PageType::Free,
         }
     }
+
+    pub fn check_space(&self) -> usize {
+        match self {
+            AnyPage::Leaf(l) => l.free_space(),
+            AnyPage::Branch(b) => b.free_space(),
+            AnyPage::Data(d) => d.free_space(),
+            AnyPage::OverFlow(o) => o.free_space(),
+            AnyPage::Free(f) => f.free_space(),
+        }
+    }
+
+    pub fn id(&self) -> PageId {
+        match self {
+            AnyPage::Leaf(l) => l.header().id,
+            AnyPage::Branch(b) => b.header().id,
+            AnyPage::Data(d) => d.header().id,
+            AnyPage::OverFlow(o) => o.header().id,
+            AnyPage::Free(f) => f.header().id,
+        }
+    }
 }
 
 impl Pager {
-    pub fn new(path: &str, new_order: usize) -> StoreResult<(Self, Option<PageId>, usize)> {
+    pub fn new(path: &str) -> StoreResult<(Self, Option<PageId>)> {
         let filepath = if path.is_empty() { DEFAULT_FILE } else { path };
 
         let new_head = DbHeader {
@@ -66,7 +86,6 @@ impl Pager {
             version: VERSION,
             page_size: PAGE_SIZE,
             root_page: None, // None means no root (no dip, me)
-            order: new_order,
             num_pages: 1,
             free_list_head: None,
             active_data: None,
@@ -86,12 +105,11 @@ impl Pager {
                 num_pages: 1,
                 active_data: None,
             },
-            new_head.root_page,
-            new_head.order
+            new_head.root_page
         ))
     }
 
-    pub fn open(path: &str) -> StoreResult<(Self, Option<PageId>, usize)> {
+    pub fn open(path: &str) -> StoreResult<(Self, Option<PageId>)> {
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -117,7 +135,7 @@ impl Pager {
             dirty_cache: HashMap::new(),
             num_pages: header.num_pages,
             active_data: header.active_data,
-        }, header.root_page, header.order))
+        }, header.root_page))
     }
 
     pub fn read_any(&mut self, id: PageId) -> StoreResult<AnyPage> {
@@ -229,7 +247,7 @@ impl Pager {
         Ok(())
     }
 
-    pub fn close(&mut self, root: Option<PageId>, order: usize) -> StoreResult<()> {
+    pub fn close(&mut self, root: Option<PageId>) -> StoreResult<()> {
         info!(" - Pager is closing...");
         self.flush()?;
         let new_dbheader = DbHeader {
@@ -237,7 +255,6 @@ impl Pager {
             version: VERSION,
             page_size: PAGE_SIZE,
             root_page: root,
-            order: order,
             num_pages: self.num_pages,
             free_list_head: self.free_list.first().copied(),
             active_data: self.active_data,
@@ -254,7 +271,6 @@ pub struct DbHeader {
     pub version: u32,
     pub page_size: usize,
     pub root_page: Option<PageId>,
-    pub order: usize,
     pub num_pages: usize,
     pub free_list_head: Option<PageId>,
     pub active_data: Option<PageId>,
@@ -268,14 +284,11 @@ impl DbHeader {
         let version = read_u32(file)?;
         let page_size = read_usize(file)?;
         let root_page = PageId::new(read_usize(file)?);
-        let order = read_usize(file)?;
         let num_pages = read_usize(file)?;
         let free_list_head = PageId::new(read_usize(file)?);
         let active_data = PageId::new(read_usize(file)?);
 
-        Ok(DbHeader{
-            magic, version, page_size, root_page, order, num_pages, free_list_head, active_data
-        }) 
+        Ok(DbHeader{ magic, version, page_size, root_page, num_pages, free_list_head, active_data }) 
     }
 
     pub fn write(&self, file: &mut File) -> StoreResult<()> {
@@ -291,7 +304,6 @@ impl DbHeader {
             buf.extend_from_slice(&(0 as usize).to_le_bytes());
         }
 
-        buf.extend_from_slice(&self.order.to_le_bytes());
         buf.extend_from_slice(&self.num_pages.to_le_bytes());
 
         if let Some(id) = self.free_list_head {

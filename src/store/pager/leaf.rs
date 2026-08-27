@@ -50,8 +50,8 @@ impl Page for LeafPage {
         PageType::Leaf
     }
 
-    fn free_space(&self) -> usize {
-        (self.header.upper - self.header.lower - 8) as usize // 8 is for next_leaf
+    fn free_space(&self) -> Option<u16> {
+        (self.header.upper - 8).checked_sub(self.header.lower) // 8 is for next_leaf
     }
 
     // Slot is usize for page, u16 for slot, and rest for key string.
