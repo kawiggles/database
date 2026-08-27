@@ -21,7 +21,7 @@ pub const RID_SIZE: usize = 16; // usize + usize when serialized
 #[derive(Clone, Copy)]
 pub struct Rid {
     pub page: PageId,
-    pub slot: usize,
+    pub slot: u16,
 }
 
 // Buffer pool for database, holds cache?

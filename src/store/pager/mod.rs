@@ -1,6 +1,5 @@
 pub mod page;
 pub mod dbheader;
-pub mod utils;
 pub mod page_id;
 pub mod branch;
 pub mod leaf;
@@ -9,7 +8,6 @@ pub mod overflow;
 pub mod free;
 
 pub use dbheader::DbHeader;
-pub use utils::{ read_u16, read_u32, read_usize, read_str, scan_page };
 pub use page_id::PageId;
 pub use page::{Page, PageHeader, PageType, PageCursor, PAGE_SIZE };
 pub use free::FreePage;
@@ -27,23 +25,20 @@ use crate::{
 
 use std::{
     fs::{File, OpenOptions},
-    io::{Write, Seek, SeekFrom },
+    io::{Read, Write, Seek, SeekFrom},
     collections::HashMap,
+    str::from_utf8,
 };
 use log::{info};
 
 const MAGIC: [u8; 8] = *b"KAWIKADB";
-
-// TODO: Figure out what this is
-pub struct Oid(pub usize);
-
 
 pub struct Pager {
     pub file: File,
     free_list: Vec<PageId>,
     dirty_cache: HashMap<PageId, Vec<u8>>,
     pub num_pages: usize,
-    pub active_data: PageId,
+    pub active_data: Option<PageId>,
 }
 
 pub enum AnyPage {
@@ -78,6 +73,7 @@ impl Pager {
             order: new_order,
             num_pages: 1,
             free_list_head: None,
+            active_data: None,
         };
 
         let mut file = OpenOptions::new()
@@ -87,10 +83,13 @@ impl Pager {
             .open(filepath)?;
         new_head.write(&mut file)?;
 
-        let active_data = DataPage::new().header().id;
-
-        Ok((
-            Pager { file, free_list: Vec::new(), dirty_cache: HashMap::new(), num_pages: 1, active_data },
+        Ok((Pager {
+                file,
+                free_list: Vec::new(),
+                dirty_cache: HashMap::new(),
+                num_pages: 1,
+                active_data: None,
+            },
             new_head.root_page,
             new_head.order
         ))
@@ -117,10 +116,11 @@ impl Pager {
         }
 
         Ok((Pager {
-            file: file,
-            free_list: free_list,
+            file,
+            free_list,
             dirty_cache: HashMap::new(),
             num_pages: header.num_pages,
+            active_data: header.active_data,
         }, header.root_page, header.order))
     }
 
@@ -174,15 +174,20 @@ impl Pager {
     // If not, alloc a new page id and return 1st slot
     // ALERT: YOU NEED TO ACTUALLY CREATE THIS DATA PAGE LATER
     pub fn check_active_data_space(&mut self, val: Value) -> StoreResult<Rid> {
-        let current_page = self.read::<DataPage>(self.active_data)?;
-        let free_space = current_page.header().upper - current_page.header().lower;
-        if free_space > val.to_bytes().len() as u16 {
-            let new_data_id = self.alloc();
-            self.active_data = new_data_id;
-            Ok(Rid { page: new_data_id, slot: 1})
+        if let Some(pageid) = self.active_data {
+            let page = self.read::<DataPage>(pageid)?;
+            let free_space = page.header().upper - page.header().lower;
+            if free_space > val.to_bytes().len() as u16 {
+                let new_data_id = self.alloc();
+                self.active_data = Some(new_data_id);
+                Ok(Rid { page: new_data_id, slot: 1})
+            } else {
+                Ok(Rid { page: page.header().id, slot: page.header().slots + 1 })
+            }
         } else {
-            Ok(Rid { page: self.active_data, slot: (current_page.header().slots + 1) as usize })
-        }
+            todo!();
+            // TODO: create a new data page
+        } 
     }
 
     // Clear out the cache and write it to disk
@@ -239,11 +244,44 @@ impl Pager {
             order: order,
             num_pages: self.num_pages,
             free_list_head: self.free_list.first().copied(),
+            active_data: self.active_data,
         };
 
         new_dbheader.write(&mut self.file)?;
         Ok(())
     }
+}
+
+pub fn read_usize<R: Read>(bytes: &mut R) -> StoreResult<usize> {
+    let mut buf = [0u8; 8];
+    bytes.read_exact(&mut buf)?;
+    Ok(u64::from_le_bytes(buf) as usize)
+}
+
+pub fn read_u32<R: Read>(bytes: &mut R) -> StoreResult<u32> {
+    let mut buf = [0u8; 4];
+    bytes.read_exact(&mut buf)?;
+    Ok(u32::from_le_bytes(buf))
+}
+
+pub fn read_u16<R: Read>(bytes: &mut R) -> StoreResult<u16> {
+    let mut buf = [0u8; 2];
+    bytes.read_exact(&mut buf)?;
+    Ok(u16::from_le_bytes(buf))
+}
+
+pub fn read_str<R: Read>(bytes: &mut R) -> StoreResult<String> {
+    let len = read_u16(bytes)?;
+    let mut buf: Vec<u8> = vec![0; len as usize];
+    bytes.read_exact(&mut buf)?;
+    Ok(from_utf8(&buf)?.into())
+}
+
+pub fn scan_page(id: PageId, file: &mut File) -> StoreResult<[u8; PAGE_SIZE]> {
+    file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));
+    let mut buf = [0u8; PAGE_SIZE];
+    file.read_exact(&mut buf)?;
+    Ok(buf)
 }
 
 #[cfg(test)]

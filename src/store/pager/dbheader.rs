@@ -3,13 +3,9 @@ use std::{
     io::{Read, Write},
 };
 
-use crate::{
-    errors::StoreResult,
-    store::pager::{
-        PageId,
-        utils::{ read_u32, read_usize },
-    }
-};
+use crate::errors::StoreResult;
+
+use super::{PageId, read_u32, read_usize};
 
 const DBHEADER_SIZE: usize = 3000;
 pub struct DbHeader {
@@ -20,6 +16,7 @@ pub struct DbHeader {
     pub order: usize,
     pub num_pages: usize,
     pub free_list_head: Option<PageId>,
+    pub active_data: Option<PageId>,
 }
 
 impl DbHeader {
@@ -33,8 +30,9 @@ impl DbHeader {
         let order = read_usize(file)?;
         let num_pages = read_usize(file)?;
         let free_list_head = PageId::new(read_usize(file)?);
+        let active_data = PageId::new(read_usize(file)?);
 
-        Ok(DbHeader { magic, version, page_size, root_page, order, num_pages, free_list_head })
+        Ok(DbHeader{ magic, version, page_size, root_page, order, num_pages, free_list_head, active_data }) // cry about it
     }
 
     pub fn write(&self, file: &mut File) -> StoreResult<()> {
@@ -54,6 +52,12 @@ impl DbHeader {
         buf.extend_from_slice(&self.num_pages.to_le_bytes());
 
         if let Some(id) = self.free_list_head {
+            buf.extend_from_slice(&id.get().to_le_bytes());
+        } else {
+            buf.extend_from_slice(&(0 as usize).to_le_bytes());
+        }
+
+        if let Some(id) = self.active_data {
             buf.extend_from_slice(&id.get().to_le_bytes());
         } else {
             buf.extend_from_slice(&(0 as usize).to_le_bytes());

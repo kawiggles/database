@@ -125,9 +125,6 @@ impl BpTree {
             // First check if a split is necessary
             let split_result = {
                 let mut page = pager.read_any(*id)?;
-                match page {
-                    // TODO: Convert below logic to this match
-                }
                 if page.keys.len() >= self.order { // This is where max keys is defined
                     let mut new_page = match &mut page.node_type {
                         NodeType::Leaf { pages, next } => {
@@ -159,6 +156,20 @@ impl BpTree {
                     Some((promoted, new_page))
                 } else {
                     None
+                }
+                match page {
+                    AnyPage::Leaf(leaf) => {
+                        let mid = (leaf.keys.len() + 1) / 2; // ⌈m/2⌉ 
+                        let new_keys = leaf.keys.split_off(mid);
+                        let new_values = leaf.rids.split_off(mid);
+                        // TODO: Fix bug, the fix is pattern matching 
+                        let old_next = leaf.next_leaf;
+                        let new_id = pager.alloc();
+                        leaf.next_leaf = Some(new_id);
+                        IndexPage::new_leaf(new_id, new_keys, new_values, old_next)
+                    },
+                    AnyPage::Branch(branch) => {
+                    },
                 }
             };
 

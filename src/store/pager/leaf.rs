@@ -1,7 +1,7 @@
 use super::{
     Page, PageId, PageType, PageHeader, 
     page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE },
-    read_str, read_usize
+    read_str, read_usize, read_u16,
 };
 
 use crate::{
@@ -13,23 +13,24 @@ pub struct LeafPage {
     header: PageHeader,
     pub keys: Vec<String>,
     pub rids: Vec<Rid>,
-    next_leaf: Option<PageId>
+    pub next_leaf: Option<PageId>
 }
 
 impl LeafPage {
-    pub fn new(id: PageId, key: String, rid: Rid, next_leaf: Option<PageId>) -> Self {
+    pub fn new(id: PageId, keys: Vec<String>, rids: Vec<Rid>, next_leaf: Option<PageId>) -> Self {
+        // A key/RID pair is keylen + usize + u16
+        let slot_size: usize = keys.iter().map(|k| k.len() + 10).sum();
         Self {
             header: PageHeader { 
                 id,
                 pagetype: PageType::Leaf,
                 next: None,
-                slots: 1,
-                lower: 4, // One slot, 2 u16, 4 bytes total
-                // 1 key/RID pair, which is u16 + keylen + usize + u16
-                upper: (PAGE_SIZE - (12 + key.len())) as u16, 
+                slots: keys.len() as u16,
+                lower: (keys.len() as u16) * 4, // One slot, 2 u16, 4 bytes total
+                upper: (PAGE_SIZE - slot_size) as u16, 
             },
-            keys: vec![key],
-            rids: vec![rid],
+            keys: keys,
+            rids: rids,
             next_leaf,
         }
     }
@@ -50,9 +51,11 @@ impl Page for LeafPage {
     }
 
     fn free_space(&self) -> usize {
-        (self.header.upper - self.header.lower) as usize
+        (self.header.upper - self.header.lower - 8) as usize // 8 is for next_leaf
     }
 
+    // Slot is usize for page, u16 for slot, and rest for key string.
+    // Last slot is usize for next_leaf.
     fn serialize(&self) -> StoreResult<Vec<u8>> {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.header.serialize());
@@ -65,10 +68,9 @@ impl Page for LeafPage {
                 .ok_or(StoreErr::TreeErr(TreeErr::KeyCountErr(self.header.id)))?;
 
             let mut body: Vec<u8> = Vec::new();
-            body.extend_from_slice(&(key.len() as u16).to_le_bytes());
-            body.extend_from_slice(key.as_bytes());
             body.extend_from_slice(&rid.page.get().to_le_bytes());
             body.extend_from_slice(&(rid.slot as u16).to_le_bytes());
+            body.extend_from_slice(key.as_bytes());
 
             let len = body.len();
             let offset = end - len;
@@ -115,11 +117,12 @@ impl Page for LeafPage {
         
         for _ in 0..header.slots - 1 {
             let mut slot_bytes = cursor.next()?;
-            keys.push(read_str(&mut slot_bytes)?);
             let page = PageId::new(read_usize(&mut slot_bytes)?)
                 .expect("Attempted to read PageId 0!!!");
-            let slot = read_usize(&mut slot_bytes)?;
+            let slot = read_u16(&mut slot_bytes)?;
             rids.push(Rid { page, slot });
+
+            keys.push(read_str(&mut slot_bytes)?);
         }
 
         let next_leaf = PageId::new(read_usize(&mut cursor.next()?)?);
