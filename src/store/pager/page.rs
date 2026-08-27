@@ -1,10 +1,12 @@
-use std::io::Read;
-
-use crate::{
-    errors::{StoreResult, StoreErr},
+use std::{
+    io::Read,
+    num::NonZeroUsize,
+    fmt::{Display, Formatter, Result},
 };
 
-use super::{ read_usize, read_u16, PageId};
+use crate::errors::{StoreResult, StoreErr};
+
+use super::{ read_usize, read_u16 };
 
 pub const SLOT_POINTER_SIZE: usize = 4; // u16 + u16
 pub const PAGE_SIZE: usize = 4096;
@@ -14,6 +16,25 @@ pub trait Page: Sized {
     fn pagetype() -> PageType;
     fn serialize(&self) -> StoreResult<Vec<u8>>;
     fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self>;
+}
+
+#[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
+pub struct PageId(pub NonZeroUsize);
+
+impl PageId {
+    pub fn new(offset: usize) -> Option<Self> {
+        NonZeroUsize::new(offset).map(PageId)
+    }
+
+    pub fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+impl Display for PageId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 pub const PAGEHEADER_SIZE: usize = 30;
