@@ -18,9 +18,14 @@ impl BranchPage {
     }
 
     // TODO: REMEMBER TO UPDATE HEADER VALUES
-    pub fn split(&mut self, pager: &mut Pager) -> Self {
+    pub fn split(&mut self, pager: &mut Pager) -> (String, Self) {
         let new_id = pager.alloc();
-        todo!()
+        // TODO: split logic
+
+        let mut new_page = BranchPage::new(new_id, split_keys, split_children);
+        // TODO: see if you can just pull out the key without having to do a remove
+        let promoted = new_page.keys.remove(0);
+        (promoted, new_page)
     }
 }
 

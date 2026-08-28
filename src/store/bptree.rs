@@ -98,8 +98,8 @@ impl BpTree {
             let new_id = new_page.header().id;
 
             let promoted = new_page.keys[0].clone();
-            pager.write(page)?;
             pager.write(new_page)?;
+            pager.write(page)?;
 
             // Then we promote the key to the parent branch
             if let Some(&parent_id) = path.peek() {
@@ -118,16 +118,17 @@ impl BpTree {
                 self.root = Some(root_id);
                 pager.write(parent)?;
             }
+        } else {
+            pager.write(page)?;
         }
 
         // Fourth: repeat the above, but this time all for branch pages, iterating through the path
         while let Some(id) = path.next() {
             let mut page = pager.read::<BranchPage>(*id)?;
             if page.free_space() == None {
-                let mut new_page = page.split(pager);
+                let (promoted, new_page) = page.split(pager);
                 let new_id = new_page.header().id;
 
-                let promoted = new_page.keys.remove(0);
                 pager.write(page)?;
                 pager.write(new_page)?;
 
