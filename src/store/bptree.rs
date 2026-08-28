@@ -52,7 +52,6 @@ impl BpTree {
 
     // Returns Some(Rid) if the associated RID needs to be deleted
     pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<Option<Rid>> {
-        
         // If the tree is empty, create a new root
         let Some(root) = self.root else {
             let new_id = pager.alloc();
@@ -72,13 +71,12 @@ impl BpTree {
             match page {
                 AnyPage::Branch(branch) => {
                     path.push(current);
-                    let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-                        Ok(i) => i + 1,
-                        Err(i) => i,
-                    }; 
+                    let i = branch.keys
+                        .binary_search_by(|probe| probe.as_str().cmp(key))
+                        .unwrap_or_else(|i| i);
                     current = branch.children[i];
                 },
-                AnyPage::Leaf(leaf) => break,
+                AnyPage::Leaf(_) => break,
                 _ => { 
                     return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
                         found: page.to_pagetype(),
@@ -87,91 +85,68 @@ impl BpTree {
                 }
             }
         }
+        let mut path = path.iter().rev().peekable();
 
         // Second: insert key and rid into leaf
-        let mut replaced = None;
         let mut page = pager.read::<LeafPage>(current)?;
-        match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-            Ok(i) => {
-                replaced = Some(page.rids[i]); // we need to delete value at this RID
-                page.rids[i] = rid;
-                page.keys[i] = key.to_string();
-            },
-            Err(i) => {
-                page.rids.insert(i, rid);
-                page.keys.insert(i, key.to_string());
-            },
+        let replaced = page.insert(key, rid);
+
+        // Third: split the leaf if needed
+        if page.free_space() == None {
+            let new_page = page.split(pager);
+            let new_id = new_page.header().id;
+
+            let promoted = new_page.keys[0].clone();
+            pager.write(page)?;
+            pager.write(new_page)?;
+
+            // Then we promote the key to the parent branch
+            if let Some(&parent_id) = path.peek() {
+                let mut parent = pager.read::<BranchPage>(*parent_id)?;
+                let i = parent.keys
+                    .binary_search_by(|probe| probe.as_str().cmp(&promoted))
+                    .unwrap_or_else(|i| i);
+                parent.keys.insert(i, promoted);
+                debug_assert!(parent.children[i] == current);
+                parent.children.insert(i + 1, new_id);
+                pager.write(parent)?;
+            } else {
+                // If there's no parent, we make a new root
+                let root_id = pager.alloc();
+                let parent = BranchPage::new(root_id, vec![promoted], vec![current, new_id]);
+                self.root = Some(root_id);
+                pager.write(parent)?;
+            }
         }
-        // TODO: need to handle split separately, since and overflowing page can't be serialized
-        // probably need to make a function which basically does the thing equal to split result
-        // can be implemented only for branch and leaf pages
-        // the instance here is guarenteed to be a leaf page, everything else is always a branch
 
-        // Third: handle splits, iterating through path
-        let path = path.iter().rev().peekable();
+        // Fourth: repeat the above, but this time all for branch pages, iterating through the path
         while let Some(id) = path.next() {
-            // First check if a split is necessary
-            let mut page = pager.read_any(*id)?;
-            // TODO: match over optional instead
-            let split_result = if page.check_space() == 0 {
-                match page {
-                    // TODO: split by byte count, not by slot count
-                    AnyPage::Leaf(leaf) => {
-                        let mid = (leaf.keys.len() + 1) / 2; // ⌈m/2⌉ 
-                        let new_keys = leaf.keys.split_off(mid);
-                        let new_rids = leaf.rids.split_off(mid);
-                        let old_next = leaf.next_leaf;
-                        let new_id = pager.alloc();
-                        leaf.next_leaf = Some(new_id);
+            let mut page = pager.read::<BranchPage>(*id)?;
+            if page.free_space() == None {
+                let mut new_page = page.split(pager);
+                let new_id = new_page.header().id;
 
-                        let new_page = LeafPage::new(new_id, new_keys, new_rids, old_next);
-                        let promoted = new_page.keys[0].clone();
-                        pager.write(leaf)?;
-                        Some((promoted, AnyPage::Leaf(new_page)))
-                    },
-                    AnyPage::Branch(branch) => {
-                        let mid = branch.keys.len() / 2; // m/2 for branches 
-                        let new_keys = branch.keys.split_off(mid); 
-                        // increment by 1 because there are 1 more children than keys
-                        let new_children = branch.children.split_off(mid + 1);
+                let promoted = new_page.keys.remove(0);
+                pager.write(page)?;
+                pager.write(new_page)?;
 
-                        // TODO: Implement this new function
-                        let new_page = BranchPage::new(pager.alloc(), new_keys, new_children);
-                        let promoted = new_page.keys.remove(0);
-                        pager.write(branch)?;
-                        Some((promoted, AnyPage::Branch(new_page)))
-                    },
-                    _ => {
-                        return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
-                            found: page.to_pagetype(),
-                            expected: PageType::Branch,
-                        }));
-                    },
-                }
-            } else { None };
-
-            // If it is, insert the promoted key and new node into the parent and node vector
-            if let Some((promoted, new_page)) = split_result {
-                // TODO: Something about this
-                pager.write(new_page.get())?;
-
-                // The parent is the next node in the path (since the iterator was reversed)
+                // Tried writing this as function because copied code, but the signature was insane
                 if let Some(&parent_id) = path.peek() {
                     let mut parent = pager.read::<BranchPage>(*parent_id)?;
                     let i = parent.keys
                         .binary_search_by(|probe| probe.as_str().cmp(&promoted))
                         .unwrap_or_else(|i| i);
                     parent.keys.insert(i, promoted);
-                    parent.children.insert(i + 1, new_page.id());
+                    debug_assert!(parent.children[i] == *id);
+                    parent.children.insert(i + 1, new_id);
                     pager.write(parent)?;
                 } else {
-                    // If there's no parent, we make a new root
                     let root_id = pager.alloc();
-                    let parent = BranchPage::new(root_id, vec![promoted], vec![*id, new_page.id()]);
+                    let parent = BranchPage::new(root_id, vec![promoted], vec![*id, new_id]);
                     self.root = Some(root_id);
                     pager.write(parent)?;
                 }
-            }
+            } 
         }
 
         pager.flush()?;

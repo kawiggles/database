@@ -1,5 +1,5 @@
 use super::{
-    Page, PageId, PageType, PageHeader, 
+    Page, PageId, PageType, PageHeader, Pager,
     page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE},
     read_str, read_usize
 };
@@ -16,6 +16,12 @@ impl BranchPage {
     pub fn new(id: PageId, keys: Vec<String>, children: Vec<PageId>) -> Self {
         todo!()
     }
+
+    // TODO: REMEMBER TO UPDATE HEADER VALUES
+    pub fn split(&mut self, pager: &mut Pager) -> Self {
+        let new_id = pager.alloc();
+        todo!()
+    }
 }
 
 impl Page for BranchPage {
@@ -29,7 +35,7 @@ impl Page for BranchPage {
 
     fn free_space(&self) -> Option<u16> {
         // TODO: use checked_sub, and also remember the extra child
-        (self.header.upper - self.header.lower) as usize
+        todo!()
     }
 
     fn serialize(&self) -> StoreResult<Vec<u8>> {
@@ -118,5 +124,9 @@ mod tests {
 
     #[test]
     fn branch_round_trip() {
+    }
+
+    #[test]
+    fn branch_split() {
     }
 }

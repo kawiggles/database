@@ -1,5 +1,5 @@
 use super::{
-    Page, PageId, PageType, PageHeader, 
+    Page, PageId, PageType, PageHeader, Pager,
     page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE },
     read_str, read_usize, read_u16,
 };
@@ -18,26 +18,39 @@ pub struct LeafPage {
 
 impl LeafPage {
     pub fn new(id: PageId, keys: Vec<String>, rids: Vec<Rid>, next_leaf: Option<PageId>) -> Self {
+        let slots = keys.len() as u16;
+        let lower = (keys.len() as u16) * 4; // One slot, 2 u16, 4 bytes total
         // A key/RID pair is keylen + usize + u16
-        let slot_size: usize = keys.iter().map(|k| k.len() + 10).sum();
+        let upper = (PAGE_SIZE - keys.iter().map(|k| k.len() + 10).sum::<usize>()) as u16;
         Self {
-            header: PageHeader { 
-                id,
-                pagetype: PageType::Leaf,
-                next: None,
-                slots: keys.len() as u16,
-                lower: (keys.len() as u16) * 4, // One slot, 2 u16, 4 bytes total
-                upper: (PAGE_SIZE - slot_size) as u16, 
-            },
-            keys: keys,
-            rids: rids,
-            next_leaf,
+            header: PageHeader{ id, pagetype: PageType::Leaf, next: None, slots, lower, upper },
+            keys, rids, next_leaf
         }
     }
 
-    pub fn check_fit(&self, key: String) -> bool {
-        let size = RID_SIZE + SLOT_POINTER_SIZE + key.len();
-        if size >= self.free_space() { true } else { false }
+    // TODO: split the page and also update header values
+    pub fn split(&mut self, pager: &mut Pager) -> Self {
+        let new_id = pager.alloc();
+
+        self.next_leaf = Some(new_id);
+        todo!()
+    }
+
+    // TODO: update header values: slot, upper, and lower
+    pub fn insert(&mut self, key: &str, rid: Rid) -> Option<Rid> {
+        match self.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+            Ok(i) => {
+                let old_rid = self.rids[i];
+                self.rids[i] = rid;
+                self.keys[i] = key.to_string();
+                Some(old_rid)
+            },
+            Err(i) => {
+                self.rids.insert(i, rid);
+                self.keys.insert(i, key.to_string());
+                None
+            },
+        }
     }
 }
 
@@ -128,5 +141,29 @@ impl Page for LeafPage {
         let next_leaf = PageId::new(read_usize(&mut cursor.next()?)?);
 
         Ok(Self { header, keys, rids, next_leaf })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn leaf_serialize() {
+    }
+
+    #[test]
+    fn leaf_deserialize() {
+    }
+
+    #[test]
+    fn leaf_round_trip() {
+    }
+
+    #[test]
+    fn leaf_split() {
+    }
+
+    #[test]
+    fn leaf_insert() {
     }
 }
