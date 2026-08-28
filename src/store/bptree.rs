@@ -71,9 +71,10 @@ impl BpTree {
             match page {
                 AnyPage::Branch(branch) => {
                     path.push(current);
-                    let i = branch.keys
-                        .binary_search_by(|probe| probe.as_str().cmp(key))
-                        .unwrap_or_else(|i| i);
+                    let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                        Ok(i) => i + 1,
+                        Err(i) => i,
+                    };
                     current = branch.children[i];
                 },
                 AnyPage::Leaf(_) => break,
