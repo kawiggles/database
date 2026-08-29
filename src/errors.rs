@@ -116,8 +116,6 @@ pub type TreeResult<T> = std::result::Result<T, TreeErr>;
 
 #[derive(Error, Debug)]
 pub enum UserErr {
-    #[error("No value found at requested key")]
-    NoValue,
     #[error("No RID found for key {0}")]
     NoRID(String),
     #[error("Value input is invalid")]

@@ -1,9 +1,8 @@
 use crate::{
-    errors::{DbErr, DbResult, StoreErr, UserErr },
+    errors::{DbResult, StoreErr, UserErr },
     store::{
         Rid,
-        pager::{ AnyPage, DataPage, LeafPage, BranchPage, Page, PageId, PageType, Pager },
-        value::Value 
+        pager::{AnyPage, LeafPage, BranchPage, Page, PageId, PageType, Pager, page::PAGE_CAPACITY},
     }
 };
 
@@ -20,7 +19,7 @@ impl BpTree {
     pub fn get(&self, key: &str, pager: &mut Pager) -> DbResult<Rid> {
         let mut current = match self.root {
             Some(x) => x,
-            None => return Err(DbErr::UserErr(UserErr::NoRoot)),
+            None => return Err(UserErr::NoRoot)?,
         };
 
         loop {
@@ -41,10 +40,10 @@ impl BpTree {
                     return Ok(leaf.rids[index]);
                 },
                 _ => { 
-                    return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
+                    return Err(StoreErr::UnexpectedPagetype{
                         found: page.to_pagetype(),
                         expected: PageType::Branch,
-                    }));
+                    })?;
                 }
             }
         }
@@ -79,10 +78,10 @@ impl BpTree {
                 },
                 AnyPage::Leaf(_) => break,
                 _ => { 
-                    return Err(DbErr::StoreErr(StoreErr::UnexpectedPagetype{
+                    return Err(StoreErr::UnexpectedPagetype{
                         found: page.to_pagetype(),
                         expected: PageType::Branch,
-                    }));
+                    })?;
                 }
             }
         }
@@ -157,57 +156,63 @@ impl BpTree {
 
     // Holy fucking shit (Tool reference)
     // No fucking kidding, past me. WTF is this???
-    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<Option<Rid>> {
-        let mut return_val: Option<Value> = None;
+    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<Rid> {
         // Handle empty tree case
         let Some(root) = self.root else {
             return Err(UserErr::NoRoot)?;
         };
 
-        // First, search for the leaf node with the key to delete
+        // First: search for the leaf node with the key to delete
+        let mut path: Vec<PageId> = Vec::new();
         let mut current = root;
-        let mut path = Vec::new();
         loop {
-            let page: IndexPage = Page::read(pager, current)?;
-            match &page.node_type {
-                NodeType::Branch { children } => {
+            let page = pager.read_any(current)?;
+            match page {
+                AnyPage::Branch(branch) => {
                     path.push(current);
-                    let i = match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+                    let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         Ok(i) => i + 1,
                         Err(i) => i,
                     };
-                    current = children[i];
+                    current = branch.children[i];
                 }
-                NodeType::Leaf { .. } => {
-                    path.push(current);
-                    break;
+                AnyPage::Leaf(_) => break,
+                _ => {
+                    return Err(StoreErr::UnexpectedPagetype{
+                        found: page.to_pagetype(),
+                        expected: PageType::Branch,
+                    })?;
                 },
             }
         }
+        let mut path = path.iter().rev().peekable();
 
-        // Second, delete the key and shift the key vector
-        let mut page: IndexPage = Page::read(pager, current)?;
-        match page.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
-            Ok(i) => {
-                page.keys.remove(i);
-                if let NodeType::Leaf { pages , .. } = &mut page.node_type {
-                    let data: DataPage = Page::read(pager, pages.remove(i))?;
-                    pager.free(data.page_id())?;
-                    return_val = Some(data.value);
+        // Second: delete the key and rid
+        let mut leaf = pager.read::<LeafPage>(current)?;
+        let mut return_rid = leaf.delete(key)?;
+
+        // Third: handle leaf underflow if needed
+        if leaf.free_space().unwrap() >= PAGE_CAPACITY / 2 {
+            if let Some(&&parent_id) = path.peek() {
+                let mut parent = pager.read::<BranchPage>(parent_id)?;
+                // TODO: Merge logic goes here
+            } else { // Means that the leaf is the root
+                if leaf.keys.is_empty() { // So if the delete emptied it, free it 
+                    self.root = None;
+                    pager.free(leaf.header().id)?;
+                } else {
+                    pager.write(leaf)?;
                 }
-            },
-            Err(_) => return Err(UserErr::NoValue)?,
+            }
+        } else {
+            pager.write(leaf)?;
         }
-        Page::write(pager, page)?;
 
-        // Third, handle underflow vectors
-        let mut path_iter = path.iter().rev().peekable();
-        // Like insertion, iterating through every visited node
-        while let Some(idx) = path_iter.next() {
-            // The parent node is important for retrieving and storing separator keys
-            let parent_idx = match path_iter.peek() {
+        // Third, handle underflow
+        while let Some(id) = path_iter.next() {
+            let parent_id = match path_iter.peek() {
                 Some(&&p) => p,
-                // If prior operations destroy the root, then create a new one from the children
+                // If root was , then create a new one from the children
                 None => {
                     let root_page: IndexPage = Page::read(pager, root)?;
                     if root_page.keys.is_empty() {
@@ -460,11 +465,7 @@ impl BpTree {
             }
         }
         pager.flush()?;
-        if let Some(val) = return_val {
-            Ok(val)
-        } else {
-            Err(UserErr::BadDel)?
-        }
+        Ok(return_rid)
     }
 }
 

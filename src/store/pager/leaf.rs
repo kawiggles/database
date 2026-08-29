@@ -1,12 +1,12 @@
 use super::{
     Page, PageId, PageType, PageHeader, Pager,
-    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE },
+    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE, PAGEID_SIZE},
     read_str, read_usize, read_u16,
 };
 
 use crate::{
-    errors::{StoreResult, StoreErr, TreeErr},
-    store::{Rid, RID_SIZE},
+    errors::{StoreErr, StoreResult, TreeErr, UserResult, UserErr},
+    store::{RID_SIZE, Rid},
 };
 
 pub struct LeafPage {
@@ -22,7 +22,10 @@ impl LeafPage {
         // One slot, 2 u16, 4 bytes total, then add 4 for next_leaf slot
         let lower = (keys.len() * SLOT_POINTER_SIZE + SLOT_POINTER_SIZE) as u16; 
         // A key/RID pair is keylen + usize + u16, which is 10, the 8 is for next_leaf slot
-        let upper = (PAGE_SIZE - keys.iter().map(|k| k.len() + 10).sum::<usize>() - 8) as u16;
+        let upper = (PAGE_SIZE - keys
+            .iter()
+            .map(|k| k.len() + RID_SIZE)
+            .sum::<usize>() - PAGEID_SIZE) as u16;
 
         Self {
             header: PageHeader{ id, pagetype: PageType::Leaf, next: None, slots, lower, upper },
@@ -31,12 +34,12 @@ impl LeafPage {
     }
 
     pub fn split(&mut self, pager: &mut Pager) -> Self {
-        let slot_mid = (PAGE_SIZE - self.header.upper as usize - 8) / 2;
+        let slot_mid = (PAGE_SIZE - self.header.upper as usize - PAGEID_SIZE) / 2;
 
         let mut num_bytes = 0;
         let mut slot_idx = 0;
         for (index, key) in self.keys.iter().enumerate() {
-            num_bytes += key.len() + 10;
+            num_bytes += key.len() + RID_SIZE;
             if num_bytes >= slot_mid {
                 slot_idx = index;
                 break;
@@ -55,8 +58,8 @@ impl LeafPage {
         self.header.lower = (self.keys.len() * SLOT_POINTER_SIZE + SLOT_POINTER_SIZE) as u16;
         self.header.upper = (PAGE_SIZE - self.keys
             .iter()
-            .map(|k| k.len() + 10)
-            .sum::<usize>() - 8) as u16;
+            .map(|k| k.len() + RID_SIZE)
+            .sum::<usize>() - PAGEID_SIZE) as u16;
 
         new_page
     }
@@ -77,6 +80,20 @@ impl LeafPage {
                 self.keys.insert(i, key.to_string());
                 None
             },
+        }
+    }
+
+    pub fn delete(&mut self, key: &str) -> UserResult<Rid> {
+        match self.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
+            Ok(i) => {
+                self.header.slots -= 1;
+                self.header.lower -= SLOT_POINTER_SIZE as u16;
+                self.header.upper += (RID_SIZE + key.len()) as u16;
+
+                self.keys.remove(i);
+                Ok(self.rids.remove(i))
+            },
+            Err(_) => Err(UserErr::NoRID(key.into())),
         }
     }
 }
@@ -111,7 +128,7 @@ impl Page for LeafPage {
             let len = body.len();
             let offset = end - len;
 
-            if offset < dir + 4 {
+            if offset < dir + SLOT_POINTER_SIZE {
                 return Err(StoreErr::SlotOverwrite {
                     page: self.header.id,
                     len,
@@ -124,13 +141,13 @@ impl Page for LeafPage {
 
             bytes[dir..dir+2].copy_from_slice(&(offset as u16).to_le_bytes());
             bytes[dir+2..dir+4].copy_from_slice(&(len as u16).to_le_bytes());
-            dir += 4;
+            dir += SLOT_POINTER_SIZE;
         }
 
-        if end - 8 < dir + 4 {
+        if end - PAGEID_SIZE < dir + SLOT_POINTER_SIZE {
             return Err(StoreErr::SlotOverwrite {
                 page: self.header.id,
-                len: 8,
+                len: PAGEID_SIZE,
                 pagetype: PageType::Leaf,
             });
         }
@@ -140,9 +157,9 @@ impl Page for LeafPage {
             .unwrap_or(0)
             .to_le_bytes();
 
-        bytes[end-8..end].copy_from_slice(&next);
-        bytes[dir..dir+2].copy_from_slice(&((end - 8) as u16).to_le_bytes());
-        bytes[dir+2..dir+4].copy_from_slice(&(8 as u16).to_le_bytes());
+        bytes[end-PAGEID_SIZE..end].copy_from_slice(&next);
+        bytes[dir..dir+2].copy_from_slice(&((end - PAGEID_SIZE) as u16).to_le_bytes());
+        bytes[dir+2..dir+4].copy_from_slice(&(PAGEID_SIZE as u16).to_le_bytes());
 
         Ok(bytes)
     }

@@ -23,6 +23,7 @@ pub trait Page: Sized {
 #[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
 pub struct PageId(pub NonZeroUsize);
 
+pub const PAGEID_SIZE: usize = 8;
 impl PageId {
     pub fn new(offset: usize) -> Option<Self> {
         NonZeroUsize::new(offset).map(PageId)
@@ -40,6 +41,7 @@ impl Display for PageId {
 }
 
 pub const PAGEHEADER_SIZE: usize = 30;
+pub const PAGE_CAPACITY: u16 = (PAGE_SIZE - PAGEHEADER_SIZE) as u16;
 pub struct PageHeader {
     pub id: PageId,             // 8
     pub pagetype: PageType,     // 8
@@ -126,10 +128,10 @@ impl<'a> PageCursor<'a> {
     }
 
     pub fn next(&mut self) -> StoreResult<&'a [u8]> {
-        let mut entry = &self.page[self.pos..self.pos + 4]; // u16 + u16 for 4 bytes total
+        let mut entry = &self.page[self.pos..self.pos + SLOT_POINTER_SIZE];
         let offset = read_u16(&mut entry)? as usize;
         let len = read_u16(&mut entry)? as usize;
-        self.pos += 4;
+        self.pos += SLOT_POINTER_SIZE;
         self.page.get(offset..offset+len).ok_or(StoreErr::SlotOOB { offset, len })
     }
 }

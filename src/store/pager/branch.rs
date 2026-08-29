@@ -1,6 +1,6 @@
 use super::{
     Page, PageId, PageType, PageHeader, Pager,
-    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE},
+    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE, PAGEID_SIZE},
     read_str, read_usize
 };
 
@@ -17,7 +17,10 @@ impl BranchPage {
         let slots = children.len() as u16;
         let lower = (children.len() * SLOT_POINTER_SIZE) as u16;
         // A key/child pair is keylen + usize, which is 8, the 8 is for the extra child slot
-        let upper = (PAGE_SIZE - keys.iter().map(|k| k.len() + 8).sum::<usize>() - 8) as u16;
+        let upper = (PAGE_SIZE - keys
+            .iter()
+            .map(|k| k.len() + PAGEID_SIZE)
+            .sum::<usize>() - PAGEID_SIZE) as u16;
 
         Self {
             header: PageHeader { id, pagetype: PageType::Branch, next: None, slots, lower, upper },
@@ -26,12 +29,12 @@ impl BranchPage {
     }
 
     pub fn split(&mut self, pager: &mut Pager) -> (String, Self) {
-        let slot_mid = (PAGE_SIZE - self.header.upper as usize - 8) / 2;
+        let slot_mid = (PAGE_SIZE - self.header.upper as usize - PAGEID_SIZE) / 2;
 
         let mut num_bytes = 0;
         let mut slot_idx = 0;
         for (index, key) in self.keys.iter().enumerate() {
-            num_bytes += key.len() + 8;
+            num_bytes += key.len() + PAGEID_SIZE;
             if num_bytes >= slot_mid {
                 slot_idx = index;
                 break;
@@ -50,7 +53,7 @@ impl BranchPage {
         self.header.lower = (self.children.len() * SLOT_POINTER_SIZE) as u16;
         self.header.upper = (PAGE_SIZE - self.keys
             .iter()
-            .map(|k| k.len() + 8)
+            .map(|k| k.len() + PAGEID_SIZE)
             .sum::<usize>() - 8) as u16;
 
         (promoted, new_page)
@@ -83,7 +86,7 @@ impl Page for BranchPage {
             let len = body.len();
             let offset = end - len;
 
-            if offset < dir + 4 {
+            if offset < dir + SLOT_POINTER_SIZE {
                 return Err(StoreErr::SlotOverwrite {
                     page: self.header.id,
                     len,
@@ -96,7 +99,7 @@ impl Page for BranchPage {
 
             bytes[dir..dir+2].copy_from_slice(&(offset as u16).to_le_bytes());
             bytes[dir+2..dir+4].copy_from_slice(&(len as u16).to_le_bytes());
-            dir += 4;
+            dir += SLOT_POINTER_SIZE;
         }
 
         let last_child = self.children.last()
@@ -104,16 +107,16 @@ impl Page for BranchPage {
             .get()
             .to_le_bytes();
 
-        if end - 8 < dir + 4 {
+        if end - PAGEID_SIZE < dir + SLOT_POINTER_SIZE {
             return Err(StoreErr::SlotOverwrite {
                 page: self.header.id,
-                len: 8,
+                len: PAGEID_SIZE,
                 pagetype: PageType::Branch,
             });
         }
 
-        bytes[end-8..end].copy_from_slice(&last_child);
-        bytes[dir..dir+2].copy_from_slice(&((end - 8) as u16).to_le_bytes());
+        bytes[end-PAGEID_SIZE..end].copy_from_slice(&last_child);
+        bytes[dir..dir+2].copy_from_slice(&((end - PAGEID_SIZE) as u16).to_le_bytes());
         bytes[dir+2..dir+4].copy_from_slice(&(8 as u16).to_le_bytes());
 
         // TODO: check that dir and end match lower and upper
