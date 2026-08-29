@@ -157,7 +157,7 @@ impl BpTree {
 
     // Holy fucking shit (Tool reference)
     // No fucking kidding, past me. WTF is this???
-    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<Value> {
+    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<Option<Rid>> {
         let mut return_val: Option<Value> = None;
         // Handle empty tree case
         let Some(root) = self.root else {

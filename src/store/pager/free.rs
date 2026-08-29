@@ -28,10 +28,6 @@ impl Page for FreePage {
         PageType::Free
     }
 
-    fn free_space(&self) -> usize {
-        (self.0.upper - self.0.lower) as usize
-    }
-
     fn serialize(&self) -> StoreResult<Vec<u8>> {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.0.serialize());

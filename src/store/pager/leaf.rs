@@ -18,34 +18,61 @@ pub struct LeafPage {
 
 impl LeafPage {
     pub fn new(id: PageId, keys: Vec<String>, rids: Vec<Rid>, next_leaf: Option<PageId>) -> Self {
-        let slots = keys.len() as u16;
-        let lower = (keys.len() as u16) * 4; // One slot, 2 u16, 4 bytes total
-        // A key/RID pair is keylen + usize + u16
-        let upper = (PAGE_SIZE - keys.iter().map(|k| k.len() + 10).sum::<usize>()) as u16;
+        let slots = (keys.len() + 1) as u16;
+        // One slot, 2 u16, 4 bytes total, then add 4 for next_leaf slot
+        let lower = (keys.len() * SLOT_POINTER_SIZE + SLOT_POINTER_SIZE) as u16; 
+        // A key/RID pair is keylen + usize + u16, which is 10, the 8 is for next_leaf slot
+        let upper = (PAGE_SIZE - keys.iter().map(|k| k.len() + 10).sum::<usize>() - 8) as u16;
+
         Self {
             header: PageHeader{ id, pagetype: PageType::Leaf, next: None, slots, lower, upper },
             keys, rids, next_leaf
         }
     }
 
-    // TODO: split the page and also update header values
     pub fn split(&mut self, pager: &mut Pager) -> Self {
+        let slot_mid = (PAGE_SIZE - self.header.upper as usize - 8) / 2;
+
+        let mut num_bytes = 0;
+        let mut slot_idx = 0;
+        for (index, key) in self.keys.iter().enumerate() {
+            num_bytes += key.len() + 10;
+            if num_bytes >= slot_mid {
+                slot_idx = index;
+                break;
+            }
+        };
+
+        let new_keys = self.keys.split_off(slot_idx);
+        let new_rids = self.rids.split_off(slot_idx);
+        let old_next = self.next_leaf;
+
         let new_id = pager.alloc();
+        let new_page = LeafPage::new(new_id, new_keys, new_rids, old_next);
 
         self.next_leaf = Some(new_id);
-        todo!()
+        self.header.slots = (self.keys.len() + 1) as u16;
+        self.header.lower = (self.keys.len() * SLOT_POINTER_SIZE + SLOT_POINTER_SIZE) as u16;
+        self.header.upper = (PAGE_SIZE - self.keys
+            .iter()
+            .map(|k| k.len() + 10)
+            .sum::<usize>() - 8) as u16;
+
+        new_page
     }
 
-    // TODO: update header values: slot, upper, and lower
     pub fn insert(&mut self, key: &str, rid: Rid) -> Option<Rid> {
         match self.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
             Ok(i) => {
                 let old_rid = self.rids[i];
                 self.rids[i] = rid;
-                self.keys[i] = key.to_string();
                 Some(old_rid)
             },
             Err(i) => {
+                self.header.slots += 1;
+                self.header.lower += SLOT_POINTER_SIZE as u16;
+                self.header.upper -= (RID_SIZE + key.len()) as u16;
+
                 self.rids.insert(i, rid);
                 self.keys.insert(i, key.to_string());
                 None
@@ -61,10 +88,6 @@ impl Page for LeafPage {
 
     fn pagetype() -> PageType {
         PageType::Leaf
-    }
-
-    fn free_space(&self) -> Option<u16> {
-        (self.header.upper - 8).checked_sub(self.header.lower) // 8 is for next_leaf
     }
 
     // Slot is usize for page, u16 for slot, and rest for key string.

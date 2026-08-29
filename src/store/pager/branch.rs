@@ -1,6 +1,6 @@
 use super::{
     Page, PageId, PageType, PageHeader, Pager,
-    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE},
+    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE},
     read_str, read_usize
 };
 
@@ -14,17 +14,45 @@ pub struct BranchPage {
 
 impl BranchPage {
     pub fn new(id: PageId, keys: Vec<String>, children: Vec<PageId>) -> Self {
-        todo!()
+        let slots = children.len() as u16;
+        let lower = (children.len() * SLOT_POINTER_SIZE) as u16;
+        // A key/child pair is keylen + usize, which is 8, the 8 is for the extra child slot
+        let upper = (PAGE_SIZE - keys.iter().map(|k| k.len() + 8).sum::<usize>() - 8) as u16;
+
+        Self {
+            header: PageHeader { id, pagetype: PageType::Branch, next: None, slots, lower, upper },
+            keys, children
+        }
     }
 
-    // TODO: REMEMBER TO UPDATE HEADER VALUES
     pub fn split(&mut self, pager: &mut Pager) -> (String, Self) {
-        let new_id = pager.alloc();
-        // TODO: split logic
+        let slot_mid = (PAGE_SIZE - self.header.upper as usize - 8) / 2;
 
-        let mut new_page = BranchPage::new(new_id, split_keys, split_children);
-        // TODO: see if you can just pull out the key without having to do a remove
-        let promoted = new_page.keys.remove(0);
+        let mut num_bytes = 0;
+        let mut slot_idx = 0;
+        for (index, key) in self.keys.iter().enumerate() {
+            num_bytes += key.len() + 8;
+            if num_bytes >= slot_mid {
+                slot_idx = index;
+                break;
+            }
+        };
+
+        let new_keys = self.keys.split_off(slot_idx);
+        let new_children = self.children.split_off(slot_idx);
+
+        let new_id = pager.alloc();
+        let new_page = BranchPage::new(new_id, new_keys, new_children);
+        let promoted = self.keys.pop()
+            .expect("Error: attempt to split branch failed, page has no keys");
+
+        self.header.slots = self.children.len() as u16;
+        self.header.lower = (self.children.len() * SLOT_POINTER_SIZE) as u16;
+        self.header.upper = (PAGE_SIZE - self.keys
+            .iter()
+            .map(|k| k.len() + 8)
+            .sum::<usize>() - 8) as u16;
+
         (promoted, new_page)
     }
 }
@@ -38,11 +66,6 @@ impl Page for BranchPage {
         PageType::Branch
     }
 
-    fn free_space(&self) -> Option<u16> {
-        // TODO: use checked_sub, and also remember the extra child
-        todo!()
-    }
-
     fn serialize(&self) -> StoreResult<Vec<u8>> {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.header.serialize());
@@ -54,9 +77,8 @@ impl Page for BranchPage {
             let child = self.children.get(i)
                 .ok_or(StoreErr::TreeErr(TreeErr::KeyCountErr(self.header.id)))?;
             let mut body: Vec<u8> = Vec::new();
-            body.extend_from_slice(&(key.len() as u16).to_le_bytes());
-            body.extend_from_slice(key.as_bytes());
             body.extend_from_slice(&child.get().to_le_bytes());
+            body.extend_from_slice(key.as_bytes());
 
             let len = body.len();
             let offset = end - len;
@@ -104,9 +126,9 @@ impl Page for BranchPage {
 
         for _ in 0..header.slots - 1 {
             let mut slot_bytes = cursor.next()?;
-            keys.push(read_str(&mut slot_bytes)?);
             children.push(PageId::new(read_usize(&mut slot_bytes)?)
                 .expect("Attempted to read PageId 0!!!"));
+            keys.push(read_str(&mut slot_bytes)?);
         }
 
         children.push(PageId::new(read_usize(&mut cursor.next()?)?)

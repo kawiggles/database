@@ -56,16 +56,6 @@ impl AnyPage {
         }
     }
 
-    pub fn check_space(&self) -> usize {
-        match self {
-            AnyPage::Leaf(l) => l.free_space(),
-            AnyPage::Branch(b) => b.free_space(),
-            AnyPage::Data(d) => d.free_space(),
-            AnyPage::OverFlow(o) => o.free_space(),
-            AnyPage::Free(f) => f.free_space(),
-        }
-    }
-
     pub fn id(&self) -> PageId {
         match self {
             AnyPage::Leaf(l) => l.header().id,
@@ -183,6 +173,7 @@ impl Pager {
         Ok(())
     }
 
+    // TODO: get rid of this nonsense and put it in datapage
     // Checks the current active data page's free space
     // If free space, return the active data page and next slot 
     // If not, alloc a new page id and return 1st slot
@@ -341,10 +332,11 @@ pub fn read_u16<R: Read>(bytes: &mut R) -> StoreResult<u16> {
     Ok(u16::from_le_bytes(buf))
 }
 
+// IMPORTANT: this works by reading the rest of the bytes from the slot and turning into a string
+// It breaks immediately if the thing you're looking to read from has more than one string
 pub fn read_str<R: Read>(bytes: &mut R) -> StoreResult<String> {
-    let len = read_u16(bytes)?;
-    let mut buf: Vec<u8> = vec![0; len as usize];
-    bytes.read_exact(&mut buf)?;
+    let mut buf: Vec<u8> = Vec::new();
+    bytes.read_to_end(&mut buf)?;
     Ok(from_utf8(&buf)?.into())
 }
 
@@ -368,7 +360,7 @@ mod tests {
     fn pager_new() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (pager, root, _) = Pager::new(path, 4).unwrap();
+        let (pager, root) = Pager::new(path).unwrap();
         assert!(root.is_none());
         assert_eq!(pager.num_pages, 1);
     }
@@ -377,9 +369,9 @@ mod tests {
     fn pager_open() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        Pager::new(path, 4).unwrap();
+        Pager::new(path).unwrap();
 
-        let (pager, root, _) = Pager::open(path).unwrap();
+        let (pager, root) = Pager::open(path).unwrap();
         assert!(root.is_none());
         assert_eq!(pager.num_pages, 1);
     }
