@@ -2,16 +2,20 @@ pub mod value;
 pub mod bptree;
 pub mod pager;
 
-use std::fs;
+use std::{
+    fs, collections::HashMap,
+};
 use log::{info, warn};
 
 use crate::{
-    store::{
+    errors::{ DbResult, UserErr}, store::{
         bptree::BpTree, 
-        pager::{ Pager, BranchPage, LeafPage, DataPage, Page, PageId, PageType },
+        pager::{
+            DataPage, Page, PageId, Pager,
+            page::{PAGE_CAPACITY, SLOT_POINTER_SIZE}
+        },
         value::Value,
-    },
-    errors::{ UserErr, DbResult, StoreResult, StoreErr, TreeErr},
+    }
 };
 
 pub const PAGE_SIZE: usize = 4096;
@@ -26,63 +30,48 @@ pub struct Rid {
 
 // Buffer pool for database, holds cache?
 pub struct Store {
-    pub tree: BpTree,
+    pub tables: HashMap<String, BpTree>,
     pub pager: Pager,
 }
 
 impl Store {
     pub fn start(filepath: &str) -> DbResult<Self> {
-        let is_initialized = fs::metadata(filepath)
-            .map(|m| m.len() >= PAGE_SIZE as u64)
-            .unwrap_or(false);
-
-        let (pager, root) = if is_initialized {
-            info!(" - Opening existing database at {}", filepath);
-            Pager::open(filepath)?
-        } else {
-            warn!(" - Database not found at path, creating new database at {}", filepath);
-            Pager::new(filepath)?
-        };
-        
-        let tree = BpTree::new(root);
-        Ok(Store {
-            tree: tree,
-            pager: pager,
-        })
+        todo!()
     }
 
-    pub fn get(&mut self, key: &str) -> DbResult<Value> {
-        let rid = self.tree.get(key, &mut self.pager)?;
-        let mut page = self.pager.read::<DataPage>(rid.page)?;
-        // TODO: after getting slot, convert to proper value using catalog lookup
-        Ok(page.get_slot(rid.slot)?)
+    pub fn get(&self, key: &str) -> DbResult<Value> {
+        todo!()
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> DbResult<Value> {
-        // TODO: Eliminate value limits
-        // This is in place because of how keys are encoded by bincode, see pager
-        if key.len() > 8 {
-            return Err(UserErr::LongKey)?
+        if key.len() + val.to_bytes().len() > PAGE_CAPACITY as usize - SLOT_POINTER_SIZE {
+            return Err(UserErr::LongKey(key.into()))?
         }
 
-        // TODO: Value Overflow logic
+        let rid = match self.pager.active_data {
+            Some(active_id) => {
+                let active = self.pager.read::<DataPage>(active_id)?;
+                if (active.free_space().unwrap() as usize) < val.to_bytes().len() {
+                    // TODO: Overflow logic
+                }
+            },
+            None => {
+                let new_active = DataPage::new();
+            }
+        };
 
-        let if_new = val.clone();
-        match self.tree.insert(key, val, &mut self.pager)? {
-            Some(x) => Ok(x),
-            None => Ok(if_new),
-        }
+        todo!()
     }
 
     pub fn del(&mut self, key: &str) -> DbResult<Value> {
-        self.tree.remove(key, &mut self.pager)
+        todo!()
     }
 
     pub fn exit(&mut self) -> DbResult<()> {
-        self.pager.close(self.tree.root)?;
-        Ok(())
+        todo!()
     }
 
+    /*
     // Assorted functions for displaying information in tests
     fn print_page(&mut self, page_id: PageId, prefix: &str, is_last: bool) -> StoreResult<()> {
         print!("{}", prefix);
@@ -256,28 +245,9 @@ impl Store {
         }
         None
     }
+    */
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tempfile::NamedTempFile;
-
-    #[test]
-    fn insert_and_get() {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let mut db = Store::start(path, 4).unwrap();
-        let put = db.put("key", Value::Text("test".to_string()));
-        assert_eq!(put.unwrap(), db.get("key").unwrap());
-    }
-
-    #[test]
-    fn insert_and_remove() {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let mut db = Store::start(path, 4).unwrap();
-        let put = db.put("key", Value::Text("test".to_string()));
-        assert_eq!(put.unwrap(), db.get("key").unwrap());
-    }
 }

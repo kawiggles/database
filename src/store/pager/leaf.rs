@@ -19,9 +19,7 @@ pub struct LeafPage {
 impl LeafPage {
     pub fn new(id: PageId, keys: Vec<String>, rids: Vec<Rid>, next_leaf: Option<PageId>) -> Self {
         let slots = (keys.len() + 1) as u16;
-        // One slot, 2 u16, 4 bytes total, then add 4 for next_leaf slot
-        let lower = (keys.len() * SLOT_POINTER_SIZE + SLOT_POINTER_SIZE) as u16; 
-        // A key/RID pair is keylen + usize + u16, which is 10, the 8 is for next_leaf slot
+        let lower = slots * SLOT_POINTER_SIZE as u16; 
         let upper = (PAGE_SIZE - keys
             .iter()
             .map(|k| k.len() + RID_SIZE)
@@ -55,7 +53,7 @@ impl LeafPage {
 
         self.next_leaf = Some(new_id);
         self.header.slots = (self.keys.len() + 1) as u16;
-        self.header.lower = (self.keys.len() * SLOT_POINTER_SIZE + SLOT_POINTER_SIZE) as u16;
+        self.header.lower = self.header.slots * SLOT_POINTER_SIZE as u16;
         self.header.upper = (PAGE_SIZE - self.keys
             .iter()
             .map(|k| k.len() + RID_SIZE)
@@ -96,6 +94,45 @@ impl LeafPage {
             Err(_) => Err(UserErr::NoRID(key.into())),
         }
     }
+
+    pub fn borrow_from(&mut self, sibling: &mut Self, from_left: bool) -> String {
+        let (key, rid) = if from_left {
+            (sibling.keys.pop().expect("Leaf with no keys found!"),
+            sibling.rids.pop().expect("Leaf with no RIDs found!"))
+        } else {
+            (sibling.keys.remove(0), sibling.rids.remove(0))
+        };
+
+        if from_left {
+            self.keys.insert(0, key.clone());
+            self.rids.insert(0, rid);
+        } else {
+            self.keys.push(key.clone());
+            self.rids.push(rid);
+        }
+
+        self.header.slots += 1;
+        self.header.lower += SLOT_POINTER_SIZE as u16;
+        self.header.upper -= (RID_SIZE + key.len()) as u16;
+
+        sibling.header.slots -= 1;
+        sibling.header.lower -= SLOT_POINTER_SIZE as u16;
+        sibling.header.upper += (RID_SIZE + key.len()) as u16;
+
+        key
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.keys.extend(other.keys);
+        self.rids.extend(other.rids);
+        self.next_leaf = other.next_leaf;
+
+        self.header.slots = self.keys.len() as u16 + 1;
+        self.header.lower = self.header.slots * SLOT_POINTER_SIZE as u16;
+        self.header.upper = (PAGEID_SIZE - self.keys.iter()
+            .map(|k| RID_SIZE + k.len())
+            .sum::<usize>() - PAGEID_SIZE) as u16;
+    }
 }
 
 impl Page for LeafPage {
@@ -107,8 +144,6 @@ impl Page for LeafPage {
         PageType::Leaf
     }
 
-    // Slot is usize for page, u16 for slot, and rest for key string.
-    // Last slot is usize for next_leaf.
     fn serialize(&self) -> StoreResult<Vec<u8>> {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.header.serialize());
@@ -188,22 +223,26 @@ impl Page for LeafPage {
 mod tests {
 
     #[test]
-    fn leaf_serialize() {
+    fn serialize() {
     }
 
     #[test]
-    fn leaf_deserialize() {
+    fn deserialize() {
     }
 
     #[test]
-    fn leaf_round_trip() {
+    fn insert() {
     }
 
     #[test]
-    fn leaf_split() {
+    fn split() {
     }
 
     #[test]
-    fn leaf_insert() {
+    fn borrow() {
+    }
+
+    #[test]
+    fn merge() {
     }
 }

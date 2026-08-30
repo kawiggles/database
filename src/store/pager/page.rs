@@ -135,3 +135,14 @@ impl<'a> PageCursor<'a> {
         self.page.get(offset..offset+len).ok_or(StoreErr::SlotOOB { offset, len })
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn store_pager_page_serialize_header() {
+    }
+
+    fn store_pager_page_deserialize_header() {
+    }
+}

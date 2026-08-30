@@ -128,10 +128,8 @@ pub enum UserErr {
     BadDel,
     #[error("There is no content in the database")]
     NoRoot,
-    #[error("Key exceeds maximum length of 8 characters (sorry)")]
-    LongKey,
-    #[error("Value exceeds maximum length of ")]
-    LongVal,
+    #[error("Key {0} is too long (sorry)")]
+    LongKey(String),
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;

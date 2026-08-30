@@ -33,11 +33,9 @@ impl Query {
     pub fn execute(self, db: &RwLock<Store>) -> DbResult<Value> {
         info!(" - Executing call");
         match self {
-            Query::Get(key) => db.read().map_err(|_| StoreErr::PoisonError)?.get(&key),
-            Query::Put { key, value } => db.write()
-                .map_err(|_| StoreErr::PoisonError)?
-                .put(&key, value),
-            Query::Del(key) => db.write().map_err(|_| StoreErr::PoisonError)?.del(&key),
+            Query::Get(key) => db.read().unwrap().get(&key),
+            Query::Put { key, value } => db.write().unwrap().put(&key, value),
+            Query::Del(key) => db.write().unwrap().del(&key),
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    errors::{DbResult, StoreErr, UserErr },
+    errors::{DbResult, StoreErr, UserErr, TreeResult},
     store::{
         Rid,
         pager::{AnyPage, LeafPage, BranchPage, Page, PageId, PageType, Pager, page::PAGE_CAPACITY},
@@ -189,283 +189,167 @@ impl BpTree {
 
         // Second: delete the key and rid
         let mut leaf = pager.read::<LeafPage>(current)?;
-        let mut return_rid = leaf.delete(key)?;
+        let removed = leaf.delete(key)?;
 
         // Third: handle leaf underflow if needed
         if leaf.free_space().unwrap() >= PAGE_CAPACITY / 2 {
             if let Some(&&parent_id) = path.peek() {
                 let mut parent = pager.read::<BranchPage>(parent_id)?;
-                // TODO: Merge logic goes here
+
+                // Collect siblings from the parent
+                let pos = parent.children.iter().position(|&c| c == leaf.header().id)
+                    .expect("Leaf not found in own parent branch");
+                let siblings = [
+                    (pos > 0).then(|| (parent.children[pos-1], true)),
+                    (pos < parent.children.len() - 1).then(|| (parent.children[pos+1], false))
+                ];
+
+                // Do a borrow from a sibling if we can
+                let mut borrowed = false;
+                for (sib_id, is_left) in siblings.into_iter().flatten() {
+                    let mut sibling = pager.read::<LeafPage>(sib_id)?;
+                    if sibling.free_space().unwrap() < PAGE_CAPACITY / 2 {
+                        let borrowed_key = leaf.borrow_from(&mut sibling, is_left);
+                        if is_left {
+                            parent.keys[pos-1] = borrowed_key;
+                        } else {
+                            parent.keys[pos] = borrowed_key;
+                        }
+
+                        pager.write(sibling)?;
+                        borrowed = true;
+                        break;
+                    }
+                }
+
+                // If we did borrow, we can write and flush, if not, we gotta do a merge/loop
+                if borrowed {
+                    pager.write(leaf)?;
+                    pager.flush()?;
+                    return Ok(removed);
+                } else { // Merge logic, boy howdy
+                    if pos < parent.children.len() - 1 { // right sibling first, better complexity
+                        let sib_id = parent.children[pos+1];
+                        let sibling = pager.read::<LeafPage>(sib_id)?;
+                        leaf.merge(sibling);
+                        pager.free(sib_id)?;
+
+                        parent.keys.remove(pos);
+                        parent.children.remove(pos + 1);
+                        pager.write(parent)?;
+
+                        pager.write(leaf)?;
+                    } else if pos > 0 { // left sibling
+                        let sib_id = parent.children[pos-1];
+                        let mut sibling = pager.read::<LeafPage>(sib_id)?;
+                        sibling.merge(leaf);
+                        pager.free(current)?;
+
+                        parent.keys.remove(pos - 1);
+                        parent.children.remove(pos);
+                        pager.write(parent)?;
+
+                        pager.write(sibling)?;
+                    } else {
+                        unreachable!("How tf did you get a leaf with no siblings and a parent???");
+                    }
+                }
             } else { // Means that the leaf is the root
                 if leaf.keys.is_empty() { // So if the delete emptied it, free it 
                     self.root = None;
-                    pager.free(leaf.header().id)?;
+                    pager.free(current)?;
                 } else {
                     pager.write(leaf)?;
                 }
             }
         } else {
             pager.write(leaf)?;
+            pager.flush()?;
+            return Ok(removed);
         }
 
-        // Third, handle underflow
-        while let Some(id) = path_iter.next() {
-            let parent_id = match path_iter.peek() {
-                Some(&&p) => p,
-                // If root was , then create a new one from the children
-                None => {
-                    let root_page: IndexPage = Page::read(pager, root)?;
-                    if root_page.keys.is_empty() {
-                        if let NodeType::Branch { children } = &root_page.node_type {
-                            if children.len() == 1 {
-                                self.root = Some(children[0]);
+        // Fourth: loop through the path doing this until we stop merging or we get to the root
+        while let Some(id) = path.next() {
+            let mut page = pager.read::<BranchPage>(*id)?;
+            if page.free_space().unwrap() >= PAGE_CAPACITY / 2 {
+                if let Some(&&parent_idx) = path.peek() {
+                    let mut parent = pager.read::<BranchPage>(parent_idx)?;
+
+                    let pos = parent.children.iter().position(|&c| c == page.header().id)
+                        .expect("Branch not found in own parent branch");
+                    let siblings = [
+                        (pos > 0).then(|| (parent.children[pos-1], true)),
+                        (pos < parent.children.len() - 1).then(|| (parent.children[pos+1], false))
+                    ];
+
+                    // Do a borrow from a sibling if we can
+                    let mut borrowed = false;
+                    for (sib_id, is_left) in siblings.into_iter().flatten() {
+                        let mut sibling = pager.read::<BranchPage>(sib_id)?;
+                        if sibling.free_space().unwrap() < PAGE_CAPACITY / 2 {
+                            let borrowed_key = page.borrow_from(&mut sibling, is_left);
+                            if is_left {
+                                parent.keys[pos-1] = borrowed_key;
+                            } else {
+                                parent.keys[pos] = borrowed_key;
                             }
+
+                            pager.write(sibling)?;
+                            borrowed = true;
+                            break;
                         }
                     }
-                    break;
-                },
-            };
 
-            // Check if underflow occured and find siblings/pos
-            let (min_keys, rebalance, pos, l_sib, r_sib, is_leaf) = {
-                let page: IndexPage = Page::read(pager, *idx)?;
-                // Need to know if leaf or branch, because operations differ depending on type
-                let is_leaf = matches!(page.node_type, NodeType::Leaf { .. });
-                let min_keys = self.order / 2;
+                    // If we did borrow, we can write and flush, if not, we gotta do a merge/loop
+                    if borrowed {
+                        pager.write(page)?;
+                        pager.flush()?;
+                        break;
+                    } else { // Merge logic, boy howdy
+                        if pos < parent.children.len() - 1 { // right sibling first, better complexity
+                            let sib_id = parent.children[pos+1];
+                            let sibling = pager.read::<BranchPage>(sib_id)?;
+                            page.merge(sibling);
+                            pager.free(sib_id)?;
 
-                if page.keys.len() >= min_keys {
-                    (min_keys, false, 0, None, None, is_leaf)
-                } else {
-                    // from the parent, we grab...
-                    let parent: IndexPage = Page::read(pager, parent_idx)?;
-                    if let NodeType::Branch { children } = &parent.node_type {
-                        // ...the nodes position in the children vector
-                        let pos = children.iter().position(|&c| c == *idx).unwrap();
-                        // ...and it's siblings
-                        let left_sib = if pos > 0 { Some(children[pos - 1]) } else { None };
-                        let right_sib = if pos < children.len() - 1 { 
-                            Some(children[pos+1]) } else { None };
-                        (min_keys, true, pos, left_sib, right_sib, is_leaf)
-                    } else { panic!("You somehow have a parent that's a leaf node") }
-                }
-            };
+                            let sep_key = parent.keys.remove(pos);
+                            parent.children.remove(pos + 1);
+                            pager.write(parent)?;
 
-            // Need to break loop out here because borrow checker
-            if !rebalance { break; }
+                            page.keys.push(sep_key);
+                            pager.write(page)?;
+                        } else if pos > 0 { // left sibling
+                            let sib_id = parent.children[pos-1];
+                            let mut sibling = pager.read::<BranchPage>(sib_id)?;
+                            sibling.merge(page);
+                            pager.free(current)?;
 
-            // Ignore this sketchy code
-            let left_surplus = l_sib.map_or(false, |s| {
-                IndexPage::read(pager, s).unwrap().keys.len() > min_keys});
-            let right_surplus = r_sib.map_or(false, |s| {
-                IndexPage::read(pager, s).unwrap().keys.len() > min_keys});
+                            let sep_key = parent.keys.remove(pos - 1);
+                            parent.children.remove(pos);
+                            pager.write(parent)?;
 
-            // Attempt the following in order: left borrow, right borrow, right merge, left merge
-            if left_surplus {
-                let mut sibling: IndexPage = Page::read(pager, l_sib.unwrap())?; // assume l_sib
-                // The sibling has to have enough keys to borrow hence > and not >=
-                if sibling.keys.len() > min_keys {
-                    if is_leaf {
-                        // We pop the last key and value, because left
-                        let borrow_key = sibling.keys.remove(sibling.keys.len() - 1);
-                        let borrow_val = {
-                            if let NodeType::Leaf { pages, .. } = &mut sibling.node_type {
-                                Some(pages.remove(pages.len() - 1))
-                            } else { None }
-                        };
-
-                        // We insert both into the first position of our node
-                        let mut current: IndexPage = Page::read(pager, *idx)?;
-                        current.keys.insert(0, borrow_key.clone());
-                        if let Some(val) = borrow_val {
-                            if let NodeType::Leaf { pages, .. } = &mut current.node_type {
-                                pages.insert(0, val);
-                            }
-                        }
-                        Page::write(pager, current)?;
-
-                        // And then update the parent separator
-                        let mut parent: IndexPage = Page::read(pager, parent_idx)?;
-                        parent.keys[pos-1] = borrow_key.clone();
-                        Page::write(pager, parent)?;
-                    } else {
-                        // Branches have separate logic
-                        // First we pop the key and child from the sibling
-                        let borrow = {
-                            if let NodeType::Branch { children } = &mut sibling.node_type {
-                                let key = sibling.keys.remove(sibling.keys.len() - 1);
-                                let child = children.remove(children.len() - 1);
-                                Some((key, child))
-                            } else { None }
-                        };
-
-                        if let Some((new_key, new_child)) = borrow {
-                            // Take separator...
-                            let mut parent: IndexPage = Page::read(pager, parent_idx)?;
-                            let sep_key = parent.keys[pos-1].clone();
-                            // insert sibling's key into parent in separator position
-                            parent.keys[pos-1] = new_key;
-                            Page::write(pager, parent)?;
-
-                            let mut current: IndexPage = Page::read(pager, *idx)?;
-                            // ...and insert it into the current node
-                            current.keys.insert(0, sep_key);
-                            // and insert the child from the sibling
-                            if let NodeType::Branch { children } = &mut current.node_type {
-                                children.insert(0, new_child);
-                            }
-                            Page::write(pager, current)?;
-                        }
-                    }
-                    Page::write(pager, sibling)?;
-                }
-            } else if right_surplus {
-                // For right, everything is popped differently
-                let mut sibling: IndexPage = Page::read(pager, r_sib.unwrap())?;
-                if sibling.keys.len() > min_keys {
-                    if is_leaf {
-                        let borrow_key = sibling.keys.remove(0);
-                        let borrow_val = {
-                            if let NodeType::Leaf { pages, .. } = &mut sibling.node_type {
-                                Some(pages.remove(0))
-                            } else { None }
-                        };
-
-                        let mut current: IndexPage = Page::read(pager, *idx)?;
-                        current.keys.push(borrow_key.clone());
-                        if let Some(val) = borrow_val {
-                            if let NodeType::Leaf { pages, .. } = &mut current.node_type {
-                                pages.push(val);
-                            }
-                        }
-                        Page::write(pager, current)?;
-
-                        // Also, the new separator isn't the borrowed key
-                        let mut parent: IndexPage = Page::read(pager, parent_idx)?;
-                        let new_sep = sibling.keys[0].clone();
-                        parent.keys[pos] = new_sep;
-                        Page::write(pager, parent)?;
-                    } else {
-                        // Logic for right branches is nearly identical, save pos and where pops go
-                        let borrow = {
-                            if let NodeType::Branch { children } = &mut sibling.node_type {
-                                let key = sibling.keys.remove(0);
-                                let child = children.remove(0);
-                                Some((key, child))
-                            } else { None }
-                        };
-
-                        if let Some((new_key, new_child)) = borrow {
-                            let mut parent: IndexPage = Page::read(pager, parent_idx)?;
-                            let sep_key = parent.keys[pos].clone();
-                            parent.keys[pos] = new_key;
-                            Page::write(pager, parent)?;
-
-                            let mut current: IndexPage = Page::read(pager, *idx)?;
-                            current.keys.push(sep_key);
-                            if let NodeType::Branch { children } = &mut current.node_type {
-                                children.push(new_child);
-                            }
-                            Page::write(pager, current)?;
-                        }
-                    }
-                    Page::write(pager, sibling)?;
-                }
-            } else if r_sib.is_some() {
-                // If borrowing isn't possible, we attempt merging with the right node first
-                // With right merge, we destroy the right node and push it's values to the back of
-                // the current node
-                let (old_keys, old_children, old_values, old_next) = {
-                    let mut sibling: IndexPage = Page::read(pager, r_sib.unwrap())?;
-                    let keys = sibling.keys.drain(..).collect::<Vec<_>>();
-
-                    match &mut sibling.node_type {
-                        NodeType::Branch { children } => {
-                            let old_children = children.drain(..).collect::<Vec<_>>();
-                            (keys, Some(old_children), None, None)
-                        },
-                        NodeType::Leaf { pages, next } => {
-                            let old_values = pages.drain(..).collect::<Vec<_>>();
-                            (keys, None, Some(old_values), Some(*next))
-                        },
-                    }
-                };
-
-                // Then we grab the separator key
-                let mut parent: IndexPage = Page::read(pager, parent_idx)?;
-                let sep_key = parent.keys.remove(pos);
-                // And remove the record of the sibling
-                if let NodeType::Branch { children } = &mut parent.node_type {
-                    children.remove(pos + 1);
-                }
-                pager.free(r_sib.unwrap())?;
-                Page::write(pager, parent)?;
-
-                let mut current: IndexPage = Page::read(pager, *idx)?;
-                match &mut current.node_type {
-                    NodeType::Leaf { pages, next } => {
-                        if let Some(old_values) = old_values {
-                            pages.extend(old_values);
-                            *next = old_next.unwrap();
-                        }
-                    },
-                    NodeType::Branch { children } => {
-                        if let Some(old_children) = old_children {
-                            current.keys.push(sep_key);
-                            children.extend(old_children);
-                        }
-                    },
-                }
-                // This comes after the match in case the node is a branch, so the sep_key goes in
-                // between the two branches' keys
-                current.keys.extend(old_keys);
-                Page::write(pager, current)?;
-            } else if l_sib.is_some() {
-                // Same logic for left but we destroy the current node instead
-                let (old_keys, old_children, old_values, old_next) = {
-                    let mut current: IndexPage = Page::read(pager, *idx)?;
-                    let keys = current.keys.drain(..).collect::<Vec<_>>();
-
-                    match &mut current.node_type {
-                        NodeType::Branch { children } => {
-                            let old_children = children.drain(..).collect::<Vec<_>>();
-                            (keys, Some(old_children), None, None)
-                        },
-                        NodeType::Leaf { pages, next } => {
-                            let old_values = pages.drain(..).collect::<Vec<_>>();
-                            (keys, None, Some(old_values), Some(*next))
-                        },
-                    }
-                };
-
-                let mut parent: IndexPage = Page::read(pager, parent_idx)?;
-                let sep_key = parent.keys.remove(pos-1);
-                if let NodeType::Branch { children } = &mut parent.node_type {
-                    children.remove(pos);
-                }
-                pager.free(*idx)?;
-                Page::write(pager, parent)?;
-
-                let mut sibling: IndexPage = Page::read(pager, l_sib.unwrap())?;
-                match &mut sibling.node_type {
-                    NodeType::Leaf { pages, next } => {
-                        if let Some(old_values) = old_values {
-                            pages.extend(old_values);
-                        }
-                        *next = old_next.unwrap();
-                    },
-                    NodeType::Branch { children } => {
-                        if let Some(old_children) = old_children {
                             sibling.keys.push(sep_key);
-                            children.extend(old_children);
+                            pager.write(sibling)?;
+                        } else {
+                            unreachable!("How tf did you get a branch with no siblings and a parent???");
                         }
-                    },
-                }
-                sibling.keys.extend(old_keys);
-                Page::write(pager, sibling)?;
-            }
+                    }
+                } else { break; }
+            } else { break; }
         }
+
+        let root_page = pager.read::<BranchPage>(self.root.unwrap())?;
+        if root_page.keys.is_empty() {
+            self.root = Some(root_page.children[0]);
+
+        }
+
         pager.flush()?;
-        Ok(return_rid)
+        Ok(removed)
+    }
+
+    pub fn validate(&self) -> TreeResult<()> {
+        todo!()
     }
 }
 
@@ -473,102 +357,46 @@ impl BpTree {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
-    use crate::{errors::StoreResult, store::Store};
 
-    fn setup() -> Store {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        Store::start(path).unwrap()
-    }
-
-    #[test]
-    fn bptree_insert_and_get() {
-        let mut store = setup();
-        store.tree.insert("one", Value::Int(1), &mut store.pager).unwrap();
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        store.tree.insert("two", Value::Int(2), &mut store.pager).unwrap();
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        store.tree.insert("three", Value::Int(3), &mut store.pager).unwrap();
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        store.tree.insert("four", Value::Int(4), &mut store.pager).unwrap();
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        store.tree.insert("five", Value::Int(5), &mut store.pager).unwrap();
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        store.tree.insert("six", Value::Int(6), &mut store.pager).unwrap();
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-    }
-
-    #[test]
-    fn bptree_stress_test() {
-        for n in [10, 20, 50, 100] {
-            let mut store = setup();
-            for i in 0..n {
-                store.tree.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
-                assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-            }
-            // verify all keys retrievable
-            for i in 0..n {
-                assert!(store.tree.get(&format!("key{:03}", i), &mut store.pager).is_ok());
-            }
-        }
-    }
-
-    fn build_store(n: isize) -> Store {
-        let mut store = setup();
+    fn build_tree(n: usize) -> BpTree {
+        let file = NamedTempFile::new().unwrap();
+        let (mut pager, _) = Pager::new(file.path().to_str().unwrap()).unwrap();
+        let mut tree = BpTree::new(None);
         for i in 1..n {
-            store.tree.insert(&format!("key{:03}", i), Value::Int(i), &mut store.pager).unwrap();
+            let key = format!("key{}", n);
+            tree.insert(&key, Rid { page: PageId::new(i).unwrap(), slot: i as u16 }, &mut pager)
+                .unwrap();
         }
-        store
+        tree
     }
 
     #[test]
-    fn bptree_show_tree() {
-        let mut store = build_store(16);
-        store.print_tree();
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+    fn insert_until_split() {
     }
 
     #[test]
-    fn bptree_remove_simple() {
-        let mut store = build_store(20);
-        store.print_tree();
-        let _ = store.tree.remove("key018", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-    }
-
-    // TODO: use this pattern for tests
-    #[test]
-    fn bptree_remove_borrow() -> StoreResult<()> {
-        let mut store = build_store(20);
-        store.print_tree();
-        let _ = store.tree.remove("key015", &mut store.pager);
-        let _ = store.tree.remove("key014", &mut store.pager);
-        store.validate()?;
-        Ok(())
-    }
-    
-    #[test]
-    fn bptree_remove_merge() {
-        let mut store = build_store(21);
-        store.print_tree();
-        let _ = store.tree.remove("key020", &mut store.pager);
-        store.validate();
-        let _ = store.tree.remove("key019", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+    fn delete_root() {
     }
 
     #[test]
-    fn bptree_remove_cascade() {
-        let mut store = build_store(14);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        store.print_tree();
-        let _ = store.tree.remove("key003", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        let _ = store.tree.remove("key006", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        let _ = store.tree.remove("key009", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
-        let _ = store.tree.remove("key012", &mut store.pager);
-        assert!(store.validate().is_ok(), "Error is: {:?}", store.validate());
+    fn delete_leaf_root() {
+    }
+
+    #[test]
+    fn stress_test() {
+    }
+
+    #[test]
+    fn delete_until_borrow() {
+        let tree = build_tree(20);
+        assert!(tree.validate().is_ok());
+    }
+
+    #[test]
+    fn delete_until_merge() {
+    }
+
+    #[test]
+    fn delete_until_cascading_merge() {
     }
 }

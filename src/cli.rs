@@ -88,12 +88,9 @@ fn parse_cli(input: &str) -> Cli {
 fn exec_cli(cli: Cli, db: &RwLock<Store>) {
     info!(" - Executing command\n");
     match cli {
-        Cli::PrintTree => db.read().unwrap().print_tree(),
+        Cli::PrintTree => todo!(),
         Cli::ValidateTree => {
-            match db.read().unwrap().validate() {
-                Some(x) => println!("Error encountered validating tree: {}", x),
-                None => println!("Tree is valid!"),
-            }
+            todo!()
         },
         Cli::FlushPager => db.write().unwrap().pager.flush().unwrap(),
         Cli::Stop => return,

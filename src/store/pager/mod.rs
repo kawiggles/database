@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn pager_new() {
+    fn new() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
         let (pager, root) = Pager::new(path).unwrap();
@@ -366,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn pager_open() {
+    fn open() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
         Pager::new(path).unwrap();

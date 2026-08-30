@@ -16,7 +16,6 @@ impl BranchPage {
     pub fn new(id: PageId, keys: Vec<String>, children: Vec<PageId>) -> Self {
         let slots = children.len() as u16;
         let lower = (children.len() * SLOT_POINTER_SIZE) as u16;
-        // A key/child pair is keylen + usize, which is 8, the 8 is for the extra child slot
         let upper = (PAGE_SIZE - keys
             .iter()
             .map(|k| k.len() + PAGEID_SIZE)
@@ -46,8 +45,7 @@ impl BranchPage {
 
         let new_id = pager.alloc();
         let new_page = BranchPage::new(new_id, new_keys, new_children);
-        let promoted = self.keys.pop()
-            .expect("Error: attempt to split branch failed, page has no keys");
+        let promoted = self.keys.pop().expect("Branch with no keys found!");
 
         self.header.slots = self.children.len() as u16;
         self.header.lower = (self.children.len() * SLOT_POINTER_SIZE) as u16;
@@ -57,6 +55,44 @@ impl BranchPage {
             .sum::<usize>() - 8) as u16;
 
         (promoted, new_page)
+    }
+
+    pub fn borrow_from(&mut self, sibling: &mut Self, from_left: bool) -> String {
+        let (key, child) = if from_left {
+            (sibling.keys.pop().expect("Branch with no keys found!"),
+            sibling.children.pop().expect("Branch with no children found!"))
+        } else {
+            (sibling.keys.remove(0), sibling.children.remove(0))
+        };
+
+        if from_left {
+            self.keys.insert(0, key.clone());
+            self.children.insert(0, child);
+        } else {
+            self.keys.push(key.clone());
+            self.children.push(child);
+        }
+
+        self.header.slots += 1;
+        self.header.lower += SLOT_POINTER_SIZE as u16;
+        self.header.upper -= (PAGEID_SIZE + key.len()) as u16;
+
+        sibling.header.slots -= 1;
+        sibling.header.lower -= SLOT_POINTER_SIZE as u16;
+        sibling.header.upper += (PAGEID_SIZE + key.len()) as u16;
+
+        key
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.keys.extend(other.keys);
+        self.children.extend(other.children);
+        
+        self.header.slots = self.children.len() as u16 + 1;
+        self.header.lower = self.header.slots * SLOT_POINTER_SIZE as u16;
+        self.header.upper = (PAGEID_SIZE - self.keys.iter()
+            .map(|k| PAGEID_SIZE + k.len())
+            .sum::<usize>() - PAGEID_SIZE) as u16;
     }
 }
 
@@ -145,18 +181,22 @@ impl Page for BranchPage {
 mod tests {
 
     #[test]
-    fn branch_serialize() {
+    fn serialize() {
     }
 
     #[test]
-    fn branch_deserialize() {
+    fn deserialize() {
     }
 
     #[test]
-    fn branch_round_trip() {
+    fn split() {
     }
 
     #[test]
-    fn branch_split() {
+    fn borrow() {
+    }
+
+    #[test]
+    fn merge() {
     }
 }

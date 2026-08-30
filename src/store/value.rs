@@ -34,6 +34,10 @@ impl Value {
         }
         buf
     }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        todo!()
+    }
 }
 
 // Implement this later

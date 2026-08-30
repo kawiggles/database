@@ -44,7 +44,7 @@ impl Server {
         info!("Starting server...");
 
         // TODO: add way to configure file and order selection
-        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE, DEFAULT_ORDER)
+        let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE)
                 .expect("Failed to start database")));
         info!(" - Database initialized");
 

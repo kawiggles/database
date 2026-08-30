@@ -1,12 +1,12 @@
 use super::{
     Page, PageId, PageType, PageHeader,
-    page::{PageCursor, PAGEHEADER_SIZE, PAGE_SIZE},
+    page::{PageCursor, PAGEHEADER_SIZE, PAGE_SIZE, SLOT_POINTER_SIZE},
     read_usize
 };
 
 use crate::{
-    errors::{StoreResult, StoreErr},
-    store::{ Value, Rid },
+    errors::{StoreErr, StoreResult},
+    store::{ Rid, Value, pager::page::PAGEID_SIZE },
 };
 
 pub struct DataPage {
@@ -20,18 +20,30 @@ impl DataPage {
         todo!()
     }
     
-    pub fn insert(&mut self, val: Value) -> StoreResult<Rid> {
+    pub fn get(&self, slot: u16) -> StoreResult<Value> {
+        todo!()
+    }
+
+    pub fn insert(&mut self, slot: u16, val: Value) -> StoreResult<()> {
+        todo!()
+    }
+    
+    pub fn insert_new(&mut self, val: Value) -> StoreResult<Rid> {
         let page = self.header.id;
-        let slot = (self.header.slots + 1) as usize;
+        let slot = self.header.slots + 1;
 
         let bytes = val.to_bytes();
 
-        self.header.upper -= (bytes.len() + 2) as u16;
-        self.header.lower += 4;
+        self.header.upper -= bytes.len() as u16;
+        self.header.lower += SLOT_POINTER_SIZE as u16;
         self.header.slots += 1;
         self.data.push(bytes);
 
         Ok(Rid { page, slot })
+    }
+
+    pub fn delete(&mut self, slot: u16) -> StoreResult<Value> {
+        todo!()
     }
 }
 
@@ -54,7 +66,7 @@ impl Page for DataPage {
         for data in &self.data {
             let offset = end - data.len();
 
-            if offset < dir + 4 {
+            if offset < dir + SLOT_POINTER_SIZE {
                 return Err(StoreErr::SlotOverwrite {
                     page: self.header.id,
                     len: data.len(),
@@ -62,7 +74,7 @@ impl Page for DataPage {
                 });
             }
 
-            bytes[offset..offset].clone_from_slice(&data);
+            bytes[offset..end].clone_from_slice(&data);
             end = offset;
 
             bytes[dir..dir+2].clone_from_slice(&(offset as u16).to_le_bytes());
@@ -83,9 +95,9 @@ impl Page for DataPage {
             .unwrap_or(0)
             .to_le_bytes();
 
-        bytes[end-8..end].copy_from_slice(&next);
-        bytes[dir..dir+2].copy_from_slice(&((end - 8) as u16).to_le_bytes());
-        bytes[dir+2..dir+4].copy_from_slice(&(8 as u16).to_le_bytes());
+        bytes[end-PAGEID_SIZE..end].copy_from_slice(&next);
+        bytes[dir..dir+2].copy_from_slice(&((end - PAGEID_SIZE) as u16).to_le_bytes());
+        bytes[dir+2..dir+4].copy_from_slice(&(PAGEID_SIZE as u16).to_le_bytes());
 
         Ok(bytes)
     }
@@ -93,7 +105,7 @@ impl Page for DataPage {
     fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self> {
         let mut data: Vec<Vec<u8>> = Vec::new();
 
-        for _ in 0..header.slots - 1 { data.push(cursor.next()?.to_vec()); }
+        for _ in 1..header.slots { data.push(cursor.next()?.to_vec()); }
 
         let overflow = PageId::new(read_usize(&mut cursor.next()?)?);
         
@@ -101,3 +113,18 @@ impl Page for DataPage {
     }
 }
 
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn serialize() {
+    }
+
+    #[test]
+    fn deserialize() {
+    }
+
+    #[test]
+    fn get_slot() {
+    }
+}
