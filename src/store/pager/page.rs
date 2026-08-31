@@ -42,6 +42,7 @@ impl Display for PageId {
 
 pub const PAGEHEADER_SIZE: usize = 30;
 pub const PAGE_CAPACITY: u16 = (PAGE_SIZE - PAGEHEADER_SIZE) as u16;
+#[derive(Debug, PartialEq)]
 pub struct PageHeader {
     pub id: PageId,             // 8
     pub pagetype: PageType,     // 8

@@ -9,6 +9,7 @@ use crate::{
     store::{RID_SIZE, Rid},
 };
 
+#[derive(Debug, PartialEq)]
 pub struct LeafPage {
     header: PageHeader,
     pub keys: Vec<String>,
@@ -221,17 +222,22 @@ impl Page for LeafPage {
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn serialize() {
-    }
-
-    #[test]
-    fn deserialize() {
-    }
+    use super::*;
 
     #[test]
     fn insert() {
+        let leaf = LeafPage::new(PageId::new(1).unwrap(),
+            vec!["astring".into()], 
+            vec![Rid{ page: PageId::new(3).unwrap(), slot: 1 }],
+            None);
+        let bytes = leaf.serialize().unwrap();
+        let byte_copy = bytes.clone();
+        let mut cursor = PageCursor::new(&byte_copy);
+
+        let header = PageHeader::deserialize(&mut &byte_copy[..]).unwrap();
+        let new_leaf = LeafPage::deserialize(header, &mut cursor).unwrap();
+
+        assert_eq!(leaf, new_leaf);
     }
 
     #[test]
