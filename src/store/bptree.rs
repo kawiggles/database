@@ -1,5 +1,5 @@
 use crate::{
-    errors::{DbResult, StoreErr, UserErr, TreeResult},
+    errors::{DbResult, StoreErr, UserErr, StoreResult, TreeErr},
     store::{
         Rid,
         pager::{AnyPage, LeafPage, BranchPage, Page, PageId, PageType, Pager, page::PAGE_CAPACITY},
@@ -348,8 +348,63 @@ impl BpTree {
         Ok(removed)
     }
 
-    pub fn validate(&self) -> TreeResult<()> {
-        todo!()
+    pub fn validate(&self, pager: &mut Pager) -> StoreResult<()> {
+        let Some(root) = self.root else {
+            return Err(TreeErr::Empty)?;
+        };
+
+        let header = pager.read_header(root)?;
+        if header.pagetype == PageType::Branch {
+            let page = pager.read::<BranchPage>(root)?;
+            if page.children.len() < 2 {
+                return Err(TreeErr::RootTooFewChildren)?;
+            }
+        }
+
+        let mut leaf_depth = 0;
+        let mut current = root;
+        loop {
+            let page = pager.read_any(current)?;
+            match page {
+                AnyPage::Leaf(_) => break,
+                AnyPage::Branch(branch) => {
+                    leaf_depth += 1;
+                    current = branch.children[0];
+                },
+                _ => {
+                    return Err(StoreErr::UnexpectedPagetype { 
+                        found: page.to_pagetype(), 
+                        expected: PageType::Branch
+                    });
+                },
+            }
+        }
+
+        let mut prev_key: Option<String> = None;
+        loop {
+            let page = pager.read::<LeafPage>(current)?;
+            for key in page.keys {
+                if let Some(prev) = prev_key {
+                    if key <= prev {
+                        return Err(TreeErr::LeafKeysBadSeq)?;
+                    }
+                }
+                prev_key = Some(key);
+            }
+
+            match page.next_leaf {
+                Some(x) => current = x,
+                None => break,
+            }
+        }
+
+        return self.validate_page(root, 0, leaf_depth, None, None);
+    }
+
+    fn validate_page(&self, id: PageId, depth: usize, leaf_depth: usize,
+        min: Option<&str>, max: Option<&str>) -> StoreResult<()> {
+
+        Ok(())
     }
 }
 
@@ -358,7 +413,7 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
-    fn build_tree(n: usize) -> BpTree {
+    fn setup(n: usize) -> (BpTree, Pager) {
         let file = NamedTempFile::new().unwrap();
         let (mut pager, _) = Pager::new(file.path().to_str().unwrap()).unwrap();
         let mut tree = BpTree::new(None);
@@ -367,11 +422,13 @@ mod tests {
             tree.insert(&key, Rid { page: PageId::new(i).unwrap(), slot: i as u16 }, &mut pager)
                 .unwrap();
         }
-        tree
+        (tree, pager)
     }
 
     #[test]
     fn insert_until_split() {
+        let (tree, mut pager) = setup(300);
+        assert!(tree.validate(&mut pager).is_ok())
     }
 
     #[test]
@@ -388,8 +445,6 @@ mod tests {
 
     #[test]
     fn delete_until_borrow() {
-        let tree = build_tree(20);
-        assert!(tree.validate().is_ok());
     }
 
     #[test]

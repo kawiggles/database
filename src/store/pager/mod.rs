@@ -167,6 +167,15 @@ impl Pager {
         T::deserialize(header, &mut cursor)
     }
 
+    pub fn read_header(&mut self, id: PageId) -> StoreResult<PageHeader> {
+        let bytes = match self.dirty_cache.get(&id) {
+            Some(bytes) => bytes.as_slice(),
+            None => &scan_page(id, &mut self.file)?,
+        };
+        let header = PageHeader::deserialize(&mut &bytes[..])?;
+        Ok(header)
+    }
+
     pub fn write<T: Page>(&mut self, page: T) -> StoreResult<()> {
         let bytes = page.serialize()?;
         self.dirty_cache.insert(page.header().id, bytes);
@@ -200,7 +209,7 @@ impl Pager {
         let cache = std::mem::take(&mut self.dirty_cache);
 
         for (id, page) in cache {
-            self.file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));
+            self.file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64))?;
             self.file.write_all(&page)?;
         }
         Ok(())
@@ -229,10 +238,10 @@ impl Pager {
                 lower: 0,
                 upper: 0,
             };
-            self.write::<FreePage>(FreePage(new_header));
+            self.write::<FreePage>(FreePage(new_header))?;
         }
 
-        self.write::<FreePage>(FreePage::new(id));
+        self.write::<FreePage>(FreePage::new(id))?;
         self.free_list.push(id);
         self.dirty_cache.remove(&id);
         Ok(())
@@ -341,7 +350,7 @@ pub fn read_str<R: Read>(bytes: &mut R) -> StoreResult<String> {
 }
 
 pub fn scan_page(id: PageId, file: &mut File) -> StoreResult<[u8; PAGE_SIZE]> {
-    file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64));
+    file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64))?;
     let mut buf = [0u8; PAGE_SIZE];
     file.read_exact(&mut buf)?;
     Ok(buf)

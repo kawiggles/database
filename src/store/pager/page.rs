@@ -40,12 +40,12 @@ impl Display for PageId {
     }
 }
 
-pub const PAGEHEADER_SIZE: usize = 30;
+pub const PAGEHEADER_SIZE: usize = 23;
 pub const PAGE_CAPACITY: u16 = (PAGE_SIZE - PAGEHEADER_SIZE) as u16;
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct PageHeader {
     pub id: PageId,             // 8
-    pub pagetype: PageType,     // 8
+    pub pagetype: PageType,     // 1
     pub next: Option<PageId>,   // 8
     pub slots: u16,             // 2
     pub lower: u16,             // 2
@@ -139,11 +139,21 @@ impl<'a> PageCursor<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     #[test]
-    fn store_pager_page_serialize_header() {
-    }
+    fn serialize_and_deserialize_header() {
+        let header = PageHeader { 
+            id: PageId::new(4).unwrap(),
+            pagetype: PageType::Free,
+            next: None,
+            slots: 0, lower: 0, upper: 0,
+        };
 
-    fn store_pager_page_deserialize_header() {
+        let bytes = header.serialize();
+        let new_header = PageHeader::deserialize(&mut bytes.as_slice()).unwrap();
+        println!("{:?}", new_header);
+        
+        assert_eq!(header, new_header);
     }
 }

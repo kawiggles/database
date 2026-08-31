@@ -225,30 +225,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn insert() {
+    fn serialize_and_deserialize() {
         let leaf = LeafPage::new(PageId::new(1).unwrap(),
             vec!["astring".into()], 
             vec![Rid{ page: PageId::new(3).unwrap(), slot: 1 }],
             None);
+        println!("{:?}", leaf);
         let bytes = leaf.serialize().unwrap();
-        let byte_copy = bytes.clone();
-        let mut cursor = PageCursor::new(&byte_copy);
+        println!("{}", bytes.len());
+        let mut cursor = PageCursor::new(&bytes.as_slice());
 
-        let header = PageHeader::deserialize(&mut &byte_copy[..]).unwrap();
+        let header = leaf.header.clone();
+        println!("{:?}", leaf.header());
         let new_leaf = LeafPage::deserialize(header, &mut cursor).unwrap();
+        println!("{:?}", new_leaf);
 
         assert_eq!(leaf, new_leaf);
     }
 
     #[test]
-    fn split() {
-    }
+    fn insert() {
+        let mut leaf = LeafPage::new(PageId::new(1).unwrap(),
+            vec!["akey".into()], 
+            vec![Rid{ page: PageId::new(3).unwrap(), slot: 1 }],
+            None);
 
-    #[test]
-    fn borrow() {
-    }
+        leaf.insert("anotherkey", Rid { page: PageId::new(4).unwrap(), slot: 2 });
 
-    #[test]
-    fn merge() {
+        let new_leaf = LeafPage::new(PageId::new(1).unwrap(),
+            vec!["akey".into(), "anotherkey".into()], 
+            vec![Rid{ page: PageId::new(3).unwrap(), slot: 1 },
+                Rid{ page: PageId::new(4).unwrap(), slot: 2 }],
+            None);
+
+        assert_eq!(leaf, new_leaf);
     }
 }

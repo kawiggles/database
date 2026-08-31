@@ -6,6 +6,7 @@ use super::{
 
 use crate::errors::{StoreResult, StoreErr, TreeErr};
 
+#[derive(Debug, PartialEq)]
 pub struct BranchPage {
     pub header: PageHeader,
     pub keys: Vec<String>,
@@ -179,24 +180,21 @@ impl Page for BranchPage {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     #[test]
-    fn serialize() {
-    }
+    fn serialize_and_deserialize() {
+        let branch = BranchPage::new(
+            PageId::new(1).unwrap(),
+            vec!["akey".into()],
+            vec![PageId::new(2).unwrap(), PageId::new(3).unwrap()],
+        );
 
-    #[test]
-    fn deserialize() {
-    }
+        let bytes = branch.serialize().unwrap();
+        let mut cursor = PageCursor::new(&bytes);
+        let header = branch.header.clone();
+        let new_branch = BranchPage::deserialize(header, &mut cursor).unwrap();
 
-    #[test]
-    fn split() {
-    }
-
-    #[test]
-    fn borrow() {
-    }
-
-    #[test]
-    fn merge() {
+        assert_eq!(branch, new_branch);
     }
 }
