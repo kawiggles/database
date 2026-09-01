@@ -1,8 +1,8 @@
 use crate::{
-    errors::{DbResult, StoreErr, UserErr, StoreResult, TreeErr},
+    errors::{DbResult, StoreErr, StoreResult, TreeErr, UserErr},
     store::{
         Rid,
-        pager::{AnyPage, LeafPage, BranchPage, Page, PageId, PageType, Pager, page::PAGE_CAPACITY},
+        pager::{AnyPage, BranchPage, LeafPage, Page, PageId, PageType, Pager, page::PAGE_CAPACITY},
     }
 };
 
@@ -398,11 +398,79 @@ impl BpTree {
             }
         }
 
-        return self.validate_page(root, 0, leaf_depth, None, None);
+        return self.validate_page(root, 0, leaf_depth, None, None, pager);
     }
 
+    // TODO: FIGURE OUT RETURN TYPE
     fn validate_page(&self, id: PageId, depth: usize, leaf_depth: usize,
-        min: Option<&str>, max: Option<&str>) -> StoreResult<()> {
+        min: Option<&str>, max: Option<&str>, pager: &mut Pager) -> StoreResult<()> {
+        let current = pager.read_any(id)?;
+
+        match current {
+            AnyPage::Branch(branch) => {
+                let mut key_iter = branch.keys.iter().peekable();
+                while let Some(key) = key_iter.next() {
+                    if let Some(minkey) = min {
+                        if key.as_str() <= minkey { return Err(TreeErr::KeyOOB(id))?; }
+                    }
+                    if let Some(maxkey) = max {
+                        if key.as_str() > maxkey { return Err(TreeErr::KeyOOB(id))?; }
+                    }
+                    if let Some(next) = key_iter.peek() {
+                        if key >= *next {
+                            return Err(TreeErr::NodeKeySeqErr(id))?;
+                        }
+                    }
+                }
+
+                if children.len() != current.keys.len() + 1 {
+                    // TODO: check that keys + 1 = children
+                    return Some(T
+                }
+
+                for (i, &child) in branch.children.iter().enumerate() {
+                    let new_min = if i > 0 {
+                        Some(branch.keys[i-1].as_str())
+                    } else { min };
+                    let new_max = if i < branch.keys.len() {
+                        Some(branch.keys[i].as_str())
+                    } else { max };
+                    return self.validate_page(child, depth+1, leaf_depth, new_min, new_max, pager);
+                }
+            },
+            AnyPage::Leaf(leaf) => {
+                let mut key_iter = leaf.keys.iter().peekable();
+                while let Some(key) = key_iter.next() {
+                    if let Some(min) = min {
+                        if key.as_str() <= min { return Err(TreeErr::KeyOOB(id))?; }
+                    }
+                    if let Some(max) = max {
+                        if key.as_str() > max { return Err(TreeErr::KeyOOB(id))?; }
+                    }
+                    if let Some(next) = key_iter.peek() {
+                        if key >= *next {
+                            return Err(TreeErr::NodeKeySeqErr(id))?;
+                        }
+                    }
+
+                }
+
+                // TODO: refactor this for leaf
+                for (i, &child) in branch.children.iter().enumerate() {
+                    let new_min = if i > 0 {
+                        Some(branch.keys[i-1].as_str())
+                    } else { min };
+                    let new_max = if i < branch.keys.len() {
+                        Some(branch.keys[i].as_str())
+                    } else { max };
+                    return self.validate_page(child, depth+1, leaf_depth, new_min, new_max, pager);
+                }
+            },
+            _ => { return Err(StoreErr::UnexpectedPagetype {
+                found: current.to_pagetype(),
+                expected: PageType::Branch })?;
+            },
+        }
 
         Ok(())
     }
