@@ -20,7 +20,7 @@ pub struct LeafPage {
 impl LeafPage {
     pub fn new(id: PageId, keys: Vec<String>, rids: Vec<Rid>, next_leaf: Option<PageId>) -> Self {
         let slots = (keys.len() + 1) as u16;
-        let lower = slots * SLOT_POINTER_SIZE as u16; 
+        let lower = PAGEHEADER_SIZE as u16 + slots * SLOT_POINTER_SIZE as u16; 
         let upper = (PAGE_SIZE - keys
             .iter()
             .map(|k| k.len() + RID_SIZE)
@@ -54,7 +54,7 @@ impl LeafPage {
 
         self.next_leaf = Some(new_id);
         self.header.slots = (self.keys.len() + 1) as u16;
-        self.header.lower = self.header.slots * SLOT_POINTER_SIZE as u16;
+        self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
         self.header.upper = (PAGE_SIZE - self.keys
             .iter()
             .map(|k| k.len() + RID_SIZE)
@@ -129,8 +129,8 @@ impl LeafPage {
         self.next_leaf = other.next_leaf;
 
         self.header.slots = self.keys.len() as u16 + 1;
-        self.header.lower = self.header.slots * SLOT_POINTER_SIZE as u16;
-        self.header.upper = (PAGEID_SIZE - self.keys.iter()
+        self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
+        self.header.upper = (PAGE_SIZE - self.keys.iter()
             .map(|k| RID_SIZE + k.len())
             .sum::<usize>() - PAGEID_SIZE) as u16;
     }

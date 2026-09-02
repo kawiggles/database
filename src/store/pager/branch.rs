@@ -16,7 +16,7 @@ pub struct BranchPage {
 impl BranchPage {
     pub fn new(id: PageId, keys: Vec<String>, children: Vec<PageId>) -> Self {
         let slots = children.len() as u16;
-        let lower = (children.len() * SLOT_POINTER_SIZE) as u16;
+        let lower = (PAGEHEADER_SIZE + children.len() * SLOT_POINTER_SIZE) as u16;
         let upper = (PAGE_SIZE - keys
             .iter()
             .map(|k| k.len() + PAGEID_SIZE)
@@ -49,7 +49,7 @@ impl BranchPage {
         let promoted = self.keys.pop().expect("Branch with no keys found!");
 
         self.header.slots = self.children.len() as u16;
-        self.header.lower = (self.children.len() * SLOT_POINTER_SIZE) as u16;
+        self.header.lower = (PAGEHEADER_SIZE + self.children.len() * SLOT_POINTER_SIZE) as u16;
         self.header.upper = (PAGE_SIZE - self.keys
             .iter()
             .map(|k| k.len() + PAGEID_SIZE)
@@ -90,8 +90,8 @@ impl BranchPage {
         self.children.extend(other.children);
         
         self.header.slots = self.children.len() as u16 + 1;
-        self.header.lower = self.header.slots * SLOT_POINTER_SIZE as u16;
-        self.header.upper = (PAGEID_SIZE - self.keys.iter()
+        self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
+        self.header.upper = (PAGE_SIZE - self.keys.iter()
             .map(|k| PAGEID_SIZE + k.len())
             .sum::<usize>() - PAGEID_SIZE) as u16;
     }
