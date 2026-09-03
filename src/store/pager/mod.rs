@@ -243,7 +243,6 @@ impl Pager {
 
         self.write::<FreePage>(FreePage::new(id))?;
         self.free_list.push(id);
-        self.dirty_cache.remove(&id);
         Ok(())
     }
 
@@ -265,7 +264,6 @@ impl Pager {
     }
 }
 
-const DBHEADER_SIZE: usize = 3000;
 pub struct DbHeader {
     pub magic: [u8; 8],
     pub version: u32,

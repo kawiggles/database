@@ -60,6 +60,7 @@ impl LeafPage {
             .map(|k| k.len() + RID_SIZE)
             .sum::<usize>() - PAGEID_SIZE) as u16;
 
+        debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
         new_page
     }
 
@@ -77,6 +78,8 @@ impl LeafPage {
 
                 self.rids.insert(i, rid);
                 self.keys.insert(i, key.to_string());
+
+                debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
                 None
             },
         }
@@ -90,6 +93,8 @@ impl LeafPage {
                 self.header.upper += (RID_SIZE + key.len()) as u16;
 
                 self.keys.remove(i);
+
+                debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
                 Ok(self.rids.remove(i))
             },
             Err(_) => Err(UserErr::NoRID(key.into())),
@@ -120,6 +125,7 @@ impl LeafPage {
         sibling.header.lower -= SLOT_POINTER_SIZE as u16;
         sibling.header.upper += (RID_SIZE + key.len()) as u16;
 
+        debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
         key
     }
 
@@ -133,6 +139,18 @@ impl LeafPage {
         self.header.upper = (PAGE_SIZE - self.keys.iter()
             .map(|k| RID_SIZE + k.len())
             .sum::<usize>() - PAGEID_SIZE) as u16;
+
+        debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
+    }
+
+    pub fn refresh_header(&mut self) {
+        self.header.slots = self.keys.len() as u16 + 1;
+        self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
+        self.header.upper = (PAGE_SIZE - self.keys.iter()
+            .map(|k| RID_SIZE + k.len())
+            .sum::<usize>() - PAGEID_SIZE) as u16;
+
+        debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
     }
 }
 

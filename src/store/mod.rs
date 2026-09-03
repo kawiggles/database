@@ -34,11 +34,13 @@ pub struct Store {
     pub pager: Pager,
 }
 
+// Next major work happens here, plan is volcano iterator, cause splosions
 impl Store {
     pub fn start(filepath: &str) -> DbResult<Self> {
         todo!()
     }
 
+    // don't event know if this sort of function will still be used.
     pub fn get(&self, key: &str) -> DbResult<Value> {
         todo!()
     }
@@ -48,6 +50,7 @@ impl Store {
             return Err(UserErr::LongKey(key.into()))?
         }
 
+        // active_data feels suspicious to me
         let rid = match self.pager.active_data {
             Some(active_id) => {
                 let active = self.pager.read::<DataPage>(active_id)?;

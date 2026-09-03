@@ -48,17 +48,14 @@ impl BranchPage {
         let new_page = BranchPage::new(new_id, new_keys, new_children);
         let promoted = self.keys.pop().expect("Branch with no keys found!");
 
-        self.header.slots = self.children.len() as u16;
-        self.header.lower = (PAGEHEADER_SIZE + self.children.len() * SLOT_POINTER_SIZE) as u16;
-        self.header.upper = (PAGE_SIZE - self.keys
-            .iter()
-            .map(|k| k.len() + PAGEID_SIZE)
-            .sum::<usize>() - 8) as u16;
+        self.refresh_header();
 
+        debug_assert_eq!(self.header.slots as usize, self.children.len());
+        debug_assert_eq!(new_page.header.slots as usize, new_page.children.len());
         (promoted, new_page)
     }
 
-    pub fn borrow_from(&mut self, sibling: &mut Self, from_left: bool) -> String {
+    pub fn borrow_from(&mut self, sibling: &mut Self, from_left: bool, old_sep: String) -> String {
         let (key, child) = if from_left {
             (sibling.keys.pop().expect("Branch with no keys found!"),
             sibling.children.pop().expect("Branch with no children found!"))
@@ -67,7 +64,7 @@ impl BranchPage {
         };
 
         if from_left {
-            self.keys.insert(0, key.clone());
+            self.keys.insert(0, old_sep);
             self.children.insert(0, child);
         } else {
             self.keys.push(key.clone());
@@ -82,6 +79,7 @@ impl BranchPage {
         sibling.header.lower -= SLOT_POINTER_SIZE as u16;
         sibling.header.upper += (PAGEID_SIZE + key.len()) as u16;
 
+        debug_assert_eq!(self.header.slots as usize, self.children.len());
         key
     }
 
@@ -89,11 +87,19 @@ impl BranchPage {
         self.keys.extend(other.keys);
         self.children.extend(other.children);
         
-        self.header.slots = self.children.len() as u16 + 1;
+        self.refresh_header();
+
+        debug_assert_eq!(self.header.slots as usize, self.children.len());
+    }
+
+    pub fn refresh_header(&mut self) {
+        self.header.slots = self.children.len() as u16;
         self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
         self.header.upper = (PAGE_SIZE - self.keys.iter()
             .map(|k| PAGEID_SIZE + k.len())
             .sum::<usize>() - PAGEID_SIZE) as u16;
+
+        debug_assert_eq!(self.header.slots as usize, self.children.len());
     }
 }
 

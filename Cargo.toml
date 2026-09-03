@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 ctrlc = "3.5.2"
+fastrand = "2.5.0"
 fmt = "0.1.0"
 fs = "0.0.5"
 io = "0.0.2"

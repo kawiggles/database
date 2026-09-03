@@ -11,11 +11,13 @@ pub struct BpTree {
 }
 
 impl BpTree {
-    // Easiest method on the tree
+    // will eventually need to come up with a method for creating a new bp tree from a list of keys
+    // or merging two trees (join operation). That'll be an implementation of merge sort, yay.
     pub fn new(root: Option<PageId>) -> Self {
         BpTree { root }
     }
 
+    // really want to make this a property of the b+ tree for O(1) time
     pub fn len(&self, pager: &mut Pager) -> DbResult<usize> {
         let Some(root) = self.root else {
             return Ok(0);
@@ -78,6 +80,26 @@ impl BpTree {
         }
     }
 
+    fn first_leaf(&self, pager: &mut Pager) -> Option<PageId> {
+        let Some(root) = self.root else { return None; };
+
+        let mut current = root;
+        todo!();
+        loop {
+            // I'm trying to figure out how much I need this not in tests
+            let pagetype = pager.read_header(current).unwrap_or_else(|_| { return None; }).pagetype;
+        }
+    }
+
+    // I figured this would be necessary because of the sql * operator: bptrees represent tables
+    pub fn get_all(&self, pager: &mut Pager) -> DbResult<Vec<Rid>> {
+        let mut current = match self. root {
+            Some(x) => x,
+            None => return Err(UserErr::NoRoot)?,
+        };
+        todo!()
+    }
+
     // Returns Some(Rid) if the associated RID needs to be deleted
     pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<Option<Rid>> {
         // If the tree is empty, create a new root
@@ -138,6 +160,7 @@ impl BpTree {
                 parent.keys.insert(i, promoted);
                 debug_assert!(parent.children[i] == current);
                 parent.children.insert(i + 1, new_id);
+                parent.refresh_header();
                 pager.write(parent)?;
             } else {
                 // If there's no parent, we make a new root
@@ -169,6 +192,7 @@ impl BpTree {
                     parent.keys.insert(i, promoted);
                     debug_assert!(parent.children[i] == *id);
                     parent.children.insert(i + 1, new_id);
+                    parent.refresh_header();
                     pager.write(parent)?;
                 } else {
                     let root_id = pager.alloc();
@@ -198,6 +222,7 @@ impl BpTree {
             let page = pager.read_any(current)?;
             match page {
                 AnyPage::Branch(branch) => {
+                    eprintln!("found branch");
                     path.push(current);
                     let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         Ok(i) => i + 1,
@@ -205,7 +230,10 @@ impl BpTree {
                     };
                     current = branch.children[i];
                 }
-                AnyPage::Leaf(_) => break,
+                AnyPage::Leaf(_) => {
+                    eprintln!("found leaf");
+                    break;
+                },
                 _ => {
                     return Err(StoreErr::UnexpectedPagetype{
                         found: page.to_pagetype(),
@@ -224,6 +252,7 @@ impl BpTree {
         if leaf.free_space().unwrap() >= PAGE_CAPACITY / 2 {
             if let Some(&&parent_id) = path.peek() {
                 let mut parent = pager.read::<BranchPage>(parent_id)?;
+                eprintln!("read parent");
 
                 // Collect siblings from the parent
                 let pos = parent.children.iter().position(|&c| c == leaf.header().id)
@@ -244,6 +273,7 @@ impl BpTree {
                         } else {
                             parent.keys[pos] = borrowed_key;
                         }
+                        parent.refresh_header();
 
                         pager.write(sibling)?;
                         borrowed = true;
@@ -253,6 +283,7 @@ impl BpTree {
 
                 // If we did borrow, we can write and flush, if not, we gotta do a merge/loop
                 if borrowed {
+                    pager.write(parent)?;
                     pager.write(leaf)?;
                     pager.flush()?;
                     return Ok(removed);
@@ -265,6 +296,7 @@ impl BpTree {
 
                         parent.keys.remove(pos);
                         parent.children.remove(pos + 1);
+                        parent.refresh_header();
                         pager.write(parent)?;
 
                         pager.write(leaf)?;
@@ -276,6 +308,7 @@ impl BpTree {
 
                         parent.keys.remove(pos - 1);
                         parent.children.remove(pos);
+                        parent.refresh_header();
                         pager.write(parent)?;
 
                         pager.write(sibling)?;
@@ -316,12 +349,16 @@ impl BpTree {
                     for (sib_id, is_left) in siblings.into_iter().flatten() {
                         let mut sibling = pager.read::<BranchPage>(sib_id)?;
                         if sibling.free_space().unwrap() < PAGE_CAPACITY / 2 {
-                            let borrowed_key = page.borrow_from(&mut sibling, is_left);
                             if is_left {
+                                let old_sep = parent.keys[pos-1].clone();
+                                let borrowed_key = page.borrow_from(&mut sibling, is_left, old_sep);
                                 parent.keys[pos-1] = borrowed_key;
                             } else {
+                                let old_sep = parent.keys[pos].clone();
+                                let borrowed_key = page.borrow_from(&mut sibling, is_left, old_sep);
                                 parent.keys[pos] = borrowed_key;
                             }
+                            parent.refresh_header();
 
                             pager.write(sibling)?;
                             borrowed = true;
@@ -331,6 +368,7 @@ impl BpTree {
 
                     // If we did borrow, we can write and flush, if not, we gotta do a merge/loop
                     if borrowed {
+                        pager.write(parent)?;
                         pager.write(page)?;
                         pager.flush()?;
                         break;
@@ -344,22 +382,28 @@ impl BpTree {
 
                             let sep_key = parent.keys.remove(pos);
                             parent.children.remove(pos + 1);
+                            parent.refresh_header();
                             pager.write(parent)?;
 
                             page.keys.insert(boundary, sep_key);
+                            page.refresh_header();
+
                             pager.write(page)?;
                         } else if pos > 0 { // left sibling
                             let sib_id = parent.children[pos-1];
                             let mut sibling = pager.read::<BranchPage>(sib_id)?;
                             let boundary = sibling.keys.len();
                             sibling.merge(page);
-                            pager.free(current)?;
+                            pager.free(*id)?;
 
                             let sep_key = parent.keys.remove(pos - 1);
                             parent.children.remove(pos);
+                            parent.refresh_header();
                             pager.write(parent)?;
 
                             sibling.keys.insert(boundary, sep_key);
+                            sibling.refresh_header();
+
                             pager.write(sibling)?;
                         } else {
                             unreachable!("How tf did you get a branch with no siblings and a parent???");
@@ -375,6 +419,7 @@ impl BpTree {
                 let root_page = pager.read::<BranchPage>(root_id)?;
                 if root_page.keys.is_empty() {
                     self.root = Some(root_page.children[0]);
+                    pager.free(root_id)?;
                 }
             }
         }
@@ -560,11 +605,21 @@ mod tests {
         let (mut pager, _) = Pager::new(file.path().to_str().unwrap()).unwrap();
         let mut tree = BpTree::new(None);
         for i in 1..n + 1 {
-            let key = format!("longerkey{}", i);
+            let key = format!("key{:04}", i);
             tree.insert(&key, Rid { page: PageId::new(i).unwrap(), slot: i as u16 }, &mut pager)
                 .unwrap();
         }
         (tree, pager)
+    }
+
+    fn assert_tree_ok(tree: &BpTree, pager: &mut Pager, expected: &[String]) {
+        tree.validate(pager).expect("tree failed to validate");
+
+        for key in expected {
+            tree.get(key, pager).expect(&format!("failed at key: {}", key));
+        }
+        assert_eq!(tree.len(pager).unwrap(), expected.len());
+        // TODO: Actual scan_leaves implementation (meaning in public impl)
     }
 
     #[test]
@@ -575,24 +630,38 @@ mod tests {
     }
 
     #[test]
-    fn delete_root() {
-        let (mut tree, mut pager) = setup(161);
-        print!("{}", tree.len(&mut pager).unwrap());
-        for i in 0..tree.len(&mut pager).unwrap() {
-            tree.remove(&format!("longerkey{}", i + 1), &mut pager).unwrap();
-        }
-        tree.print(&mut pager);
-    }
-
-    #[test]
     fn delete_leaf_root() {
-        let (mut tree, mut pager) = setup(2);
-        tree.remove("longerkey1", &mut pager).unwrap();
+        let (mut tree, mut pager) = setup(1);
+        tree.remove("key0001", &mut pager).unwrap();
         assert!(tree.root.is_none());
     }
 
     #[test]
+    fn delete_root() {
+        let (mut tree, mut pager) = setup(161);
+        println!("{} keys in the tree", tree.len(&mut pager).unwrap());
+        for i in 0..tree.len(&mut pager).unwrap() {
+            if let Some(root) = tree.root {
+                let header = pager.read_header(root).unwrap();
+                if header.pagetype == PageType::Leaf {
+                    println!("A merge happened");
+                }
+            }
+            tree.remove(&format!("key{:04}", i + 1), &mut pager).unwrap();
+            println!("Deleted PageId: {}", i);
+            println!("{} keys in the tree", tree.len(&mut pager).unwrap());
+        }
+        tree.print(&mut pager);
+        assert!(tree.root.is_none());
+    }
+
+    // I will get to these
+    #[test]
     fn stress_test() {
+        let rand = fastrand::usize(1..10000);
+
+        let (mut tree, mut pager) = setup(10000);
+        todo!()
     }
 
     #[test]
@@ -601,6 +670,10 @@ mod tests {
 
     #[test]
     fn delete_until_merge() {
+        let (mut tree, mut pager) = setup(200);
+        let mut expected: Vec<String> = (1..=200).map(|i| format!("key{i:04}")).collect();
+
+        todo!()
     }
 
     #[test]
