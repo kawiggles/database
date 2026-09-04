@@ -62,11 +62,8 @@ pub enum StoreErr {
     PoisonError,
     #[error("Unexpected EOF encountered while attempting to read {0}")]
     Eof(&'static str),
-    #[error("Unexpected pagetype {:?} encountered, expected {:?}", found, expected)]
-    UnexpectedPagetype {
-        found: PageType,
-        expected: PageType,
-    },
+    #[error("Unexpected pagetype {:?} encountered", 0)]
+    UnexpectedPagetype(PageType),
     #[error("Unknown PageType {0} encountered")]
     UnknownPagetype(u8),
     #[error("An error was encounted with the b+ tree")]

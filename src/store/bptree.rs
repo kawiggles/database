@@ -2,7 +2,8 @@ use crate::{
     errors::{DbResult, StoreErr, StoreResult, TreeErr, UserErr},
     store::{
         Rid,
-        pager::{AnyPage, BranchPage, LeafPage, Page, PageId, PageType, Pager, page::PAGE_CAPACITY},
+        pager::{AnyPage, BranchPage, LeafPage, Page, PageId, PageType, Pager, 
+            page::{PAGE_CAPACITY, PAGEID_SIZE}},
     }
 };
 
@@ -18,35 +19,6 @@ impl BpTree {
     }
 
     // really want to make this a property of the b+ tree for O(1) time
-    pub fn len(&self, pager: &mut Pager) -> DbResult<usize> {
-        let Some(root) = self.root else {
-            return Ok(0);
-        };
-
-        let mut current = root;
-        loop {
-            match pager.read_any(current)? {
-                AnyPage::Leaf(_) => break,
-                AnyPage::Branch(branch) => current = branch.children[0],
-                _ => return Err(StoreErr::UnexpectedPagetype {
-                    found: pager.read_header(current)?.pagetype,
-                    expected: PageType::Branch,
-                })?,
-            }
-        }
-
-        let mut count = 0;
-        loop {
-            let page = pager.read::<LeafPage>(current)?;
-            count += page.keys.len();
-            match page.next_leaf {
-                Some(next) => current = next,
-                None => break,
-            }
-        }
-        Ok(count)
-    }
-
     pub fn get(&self, key: &str, pager: &mut Pager) -> DbResult<Rid> {
         let mut current = match self.root {
             Some(x) => x,
@@ -70,34 +42,42 @@ impl BpTree {
 
                     return Ok(leaf.rids[index]);
                 },
-                _ => { 
-                    return Err(StoreErr::UnexpectedPagetype{
-                        found: page.to_pagetype(),
-                        expected: PageType::Branch,
-                    })?;
-                }
+                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype()))?,
             }
         }
     }
 
-    fn first_leaf(&self, pager: &mut Pager) -> Option<PageId> {
-        let Some(root) = self.root else { return None; };
+    fn first_leaf(&self, pager: &mut Pager) -> StoreResult<PageId> {
+        let Some(root) = self.root else { return Err(TreeErr::Empty)?; };
 
         let mut current = root;
-        todo!();
         loop {
-            // I'm trying to figure out how much I need this not in tests
-            let pagetype = pager.read_header(current).unwrap_or_else(|_| { return None; }).pagetype;
+            let page = pager.read_any(current)?;
+            match page {
+                AnyPage::Leaf(_) => return Ok(current),
+                AnyPage::Branch(branch) => current = branch.children[0],
+                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype())),
+            }
         }
     }
 
-    // I figured this would be necessary because of the sql * operator: bptrees represent tables
-    pub fn get_all(&self, pager: &mut Pager) -> DbResult<Vec<Rid>> {
-        let mut current = match self. root {
-            Some(x) => x,
-            None => return Err(UserErr::NoRoot)?,
-        };
-        todo!()
+    pub fn scan_rids(&self, pager: &mut Pager) -> DbResult<Vec<Rid>> {
+        let mut rids: Vec<Rid> = Vec::new();
+        let mut current_leaf = self.first_leaf(pager)?;
+
+        loop {
+            let leaf = pager.read::<LeafPage>(current_leaf)?;
+            for rid in leaf.rids {
+                rids.push(rid.clone());
+            }
+
+            match leaf.next_leaf {
+                Some(new) => current_leaf = new,
+                None => break,
+            }
+        }
+
+        Ok(rids)
     }
 
     // Returns Some(Rid) if the associated RID needs to be deleted
@@ -128,12 +108,7 @@ impl BpTree {
                     current = branch.children[i];
                 },
                 AnyPage::Leaf(_) => break,
-                _ => { 
-                    return Err(StoreErr::UnexpectedPagetype{
-                        found: page.to_pagetype(),
-                        expected: PageType::Branch,
-                    })?;
-                }
+                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype()))?,
             }
         }
         let mut path = path.iter().rev().peekable();
@@ -143,7 +118,7 @@ impl BpTree {
         let replaced = page.insert(key, rid);
 
         // Third: split the leaf if needed
-        if page.free_space() == None {
+        if page.free_space() == None { // shouldn't there be no underflow cause checked sub?
             let new_page = page.split(pager);
             let new_id = new_page.header().id;
 
@@ -222,7 +197,6 @@ impl BpTree {
             let page = pager.read_any(current)?;
             match page {
                 AnyPage::Branch(branch) => {
-                    eprintln!("found branch");
                     path.push(current);
                     let i = match branch.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
                         Ok(i) => i + 1,
@@ -231,15 +205,9 @@ impl BpTree {
                     current = branch.children[i];
                 }
                 AnyPage::Leaf(_) => {
-                    eprintln!("found leaf");
                     break;
                 },
-                _ => {
-                    return Err(StoreErr::UnexpectedPagetype{
-                        found: page.to_pagetype(),
-                        expected: PageType::Branch,
-                    })?;
-                },
+                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype()))?,
             }
         }
         let mut path = path.iter().rev().peekable();
@@ -249,10 +217,9 @@ impl BpTree {
         let removed = leaf.delete(key)?;
 
         // Third: handle leaf underflow if needed
-        if leaf.free_space().unwrap() >= PAGE_CAPACITY / 2 {
+        if leaf.free_space().unwrap() as usize > (PAGE_CAPACITY as usize / 2) + PAGEID_SIZE {
             if let Some(&&parent_id) = path.peek() {
                 let mut parent = pager.read::<BranchPage>(parent_id)?;
-                eprintln!("read parent");
 
                 // Collect siblings from the parent
                 let pos = parent.children.iter().position(|&c| c == leaf.header().id)
@@ -333,7 +300,7 @@ impl BpTree {
         // Fourth: loop through the path doing this until we stop merging or we get to the root
         while let Some(id) = path.next() {
             let mut page = pager.read::<BranchPage>(*id)?;
-            if page.free_space().unwrap() >= PAGE_CAPACITY / 2 {
+            if page.free_space().unwrap() as usize > (PAGE_CAPACITY as usize / 2) + PAGEID_SIZE {
                 if let Some(&&parent_idx) = path.peek() {
                     let mut parent = pager.read::<BranchPage>(parent_idx)?;
 
@@ -451,12 +418,7 @@ impl BpTree {
                     leaf_depth += 1;
                     current = branch.children[0];
                 },
-                _ => {
-                    return Err(StoreErr::UnexpectedPagetype { 
-                        found: page.to_pagetype(), 
-                        expected: PageType::Branch
-                    });
-                },
+                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype())),
             }
         }
 
@@ -541,10 +503,7 @@ impl BpTree {
                 }
 
             },
-            _ => { return Err(StoreErr::UnexpectedPagetype {
-                found: current.to_pagetype(),
-                expected: PageType::Branch })?;
-            },
+            _ => return Err(StoreErr::UnexpectedPagetype(current.to_pagetype())),
         }
 
         Ok(())
@@ -599,6 +558,9 @@ impl BpTree {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+    use std::{
+        sync::{Arc, Mutex},
+    };
 
     fn setup(n: usize) -> (BpTree, Pager) {
         let file = NamedTempFile::new().unwrap();
@@ -612,14 +574,46 @@ mod tests {
         (tree, pager)
     }
 
-    fn assert_tree_ok(tree: &BpTree, pager: &mut Pager, expected: &[String]) {
-        tree.validate(pager).expect("tree failed to validate");
+    fn scan_keys(tree: &BpTree, pager: &mut Pager) -> StoreResult<(usize, Vec<String>)> {
+        let mut keys: Vec<String> = Vec::new();
+        let mut len = 0;
 
-        for key in expected {
-            tree.get(key, pager).expect(&format!("failed at key: {}", key));
+        let Some(root) = tree.root else {
+            return Ok((len, keys));
+        };
+        let mut current = root;
+        loop {
+            match pager.read_any(current)? {
+                AnyPage::Leaf(_) => break,
+                AnyPage::Branch(branch) => current = branch.children[0],
+                other => return Err(StoreErr::UnexpectedPagetype(other.to_pagetype())),
+            }
         }
-        assert_eq!(tree.len(pager).unwrap(), expected.len());
-        // TODO: Actual scan_leaves implementation (meaning in public impl)
+
+        loop {
+            let page = pager.read::<LeafPage>(current)?;
+            len += page.keys.len();
+
+            for key in page.keys {
+                keys.push(key);
+            }
+
+            match page.next_leaf {
+                Some(next) => current = next,
+                None => break
+            }
+        }
+
+        Ok((len, keys))
+    }
+
+    fn assert_tree_ok(tree: &BpTree, pager: &mut Pager, expected: &[String]) -> StoreResult<()> {
+        tree.validate(pager)?;
+
+        let (len, keys) = scan_keys(tree, pager)?;
+        assert_eq!(len, expected.len());
+        assert_eq!(keys, expected);
+        Ok(())
     }
 
     #[test]
@@ -637,30 +631,27 @@ mod tests {
     }
 
     #[test]
-    fn delete_root() {
-        let (mut tree, mut pager) = setup(161);
-        println!("{} keys in the tree", tree.len(&mut pager).unwrap());
-        for i in 0..tree.len(&mut pager).unwrap() {
-            if let Some(root) = tree.root {
-                let header = pager.read_header(root).unwrap();
-                if header.pagetype == PageType::Leaf {
-                    println!("A merge happened");
-                }
-            }
-            tree.remove(&format!("key{:04}", i + 1), &mut pager).unwrap();
-            println!("Deleted PageId: {}", i);
-            println!("{} keys in the tree", tree.len(&mut pager).unwrap());
+    fn delete_root() -> StoreResult<()> {
+        let keycounter = Arc::new(Mutex::new(0 as usize));
+        let (mut tree, mut pager) = setup(3000);
+        
+        let mut expected: Vec<String> = Vec::new();
+        for i in 1..=3000 {
+            expected.push(format!("key{:04}", i));
+        }
+
+        for i in 1..=3000 {
+            tree.remove(&format!("key{:04}", i), &mut pager).unwrap();
+            assert_tree_ok(&tree, &mut pager, &expected[i..])?;
         }
         tree.print(&mut pager);
         assert!(tree.root.is_none());
+        Ok(())
     }
 
     // I will get to these
     #[test]
     fn stress_test() {
-        let rand = fastrand::usize(1..10000);
-
-        let (mut tree, mut pager) = setup(10000);
         todo!()
     }
 
@@ -670,9 +661,6 @@ mod tests {
 
     #[test]
     fn delete_until_merge() {
-        let (mut tree, mut pager) = setup(200);
-        let mut expected: Vec<String> = (1..=200).map(|i| format!("key{i:04}")).collect();
-
         todo!()
     }
 

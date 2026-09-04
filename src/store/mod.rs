@@ -18,9 +18,7 @@ use crate::{
     }
 };
 
-pub const PAGE_SIZE: usize = 4096;
-pub const DEFAULT_ORDER: usize = 150; // Back of the napkin math got me here
-
+// TODO: move this to somewhere more convenient
 pub const RID_SIZE: usize = 10; // usize + u16 when serialized
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rid {

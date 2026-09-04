@@ -106,7 +106,8 @@ impl LeafPage {
             (sibling.keys.pop().expect("Leaf with no keys found!"),
             sibling.rids.pop().expect("Leaf with no RIDs found!"))
         } else {
-            (sibling.keys.remove(0), sibling.rids.remove(0))
+            sibling.keys.remove(0);
+            (sibling.keys[0].clone(), sibling.rids.remove(0))
         };
 
         if from_left {
@@ -117,13 +118,8 @@ impl LeafPage {
             self.rids.push(rid);
         }
 
-        self.header.slots += 1;
-        self.header.lower += SLOT_POINTER_SIZE as u16;
-        self.header.upper -= (RID_SIZE + key.len()) as u16;
-
-        sibling.header.slots -= 1;
-        sibling.header.lower -= SLOT_POINTER_SIZE as u16;
-        sibling.header.upper += (RID_SIZE + key.len()) as u16;
+        self.refresh_header();
+        sibling.refresh_header();
 
         debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
         key
@@ -164,6 +160,8 @@ impl Page for LeafPage {
     }
 
     fn serialize(&self) -> StoreResult<Vec<u8>> {
+        debug_assert_eq!(self.header.slots as usize, self.keys.len() + 1);
+
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.header.serialize());
 

@@ -20,10 +20,7 @@ use crate::{
 };
 
 use std::{
-    fs::{File, OpenOptions},
-    io::{Read, Write, Seek, SeekFrom},
-    collections::HashMap,
-    str::from_utf8,
+    collections::HashMap, fs::{File, OpenOptions}, io::{Read, Seek, SeekFrom::{self, Start}, Write}, str::from_utf8,
 };
 use log::{info};
 
@@ -158,10 +155,7 @@ impl Pager {
         let header = PageHeader::deserialize(&mut &bytes[..])?;
 
         if header.pagetype != T::pagetype() {
-            return Err(StoreErr::UnexpectedPagetype { 
-                found: header.pagetype,
-                expected: T::pagetype()
-            });
+            return Err(StoreErr::UnexpectedPagetype(header.pagetype));
         }
 
         T::deserialize(header, &mut cursor)
@@ -316,6 +310,7 @@ impl DbHeader {
             buf.extend_from_slice(&(0 as usize).to_le_bytes());
         }
 
+        file.seek(SeekFrom::Start(0))?;
         file.write_all(&buf)?;
         Ok(())
     }

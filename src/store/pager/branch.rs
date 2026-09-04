@@ -67,17 +67,12 @@ impl BranchPage {
             self.keys.insert(0, old_sep);
             self.children.insert(0, child);
         } else {
-            self.keys.push(key.clone());
+            self.keys.push(old_sep);
             self.children.push(child);
         }
 
-        self.header.slots += 1;
-        self.header.lower += SLOT_POINTER_SIZE as u16;
-        self.header.upper -= (PAGEID_SIZE + key.len()) as u16;
-
-        sibling.header.slots -= 1;
-        sibling.header.lower -= SLOT_POINTER_SIZE as u16;
-        sibling.header.upper += (PAGEID_SIZE + key.len()) as u16;
+        self.refresh_header();
+        sibling.refresh_header();
 
         debug_assert_eq!(self.header.slots as usize, self.children.len());
         key
@@ -113,6 +108,8 @@ impl Page for BranchPage {
     }
 
     fn serialize(&self) -> StoreResult<Vec<u8>> {
+        debug_assert_eq!(self.header.slots as usize, self.children.len());
+
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.header.serialize());
 
