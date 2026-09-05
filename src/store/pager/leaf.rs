@@ -32,7 +32,7 @@ impl LeafPage {
         }
     }
 
-    pub fn split(&mut self, pager: &mut Pager) -> Self {
+    pub fn split(&mut self, pager: &mut Pager) -> (String, Self) {
         let slot_mid = (PAGE_SIZE - self.header.upper as usize - PAGEID_SIZE) / 2;
 
         let mut num_bytes = 0;
@@ -51,17 +51,11 @@ impl LeafPage {
 
         let new_id = pager.alloc();
         let new_page = LeafPage::new(new_id, new_keys, new_rids, old_next);
-
         self.next_leaf = Some(new_id);
-        self.header.slots = (self.keys.len() + 1) as u16;
-        self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
-        self.header.upper = (PAGE_SIZE - self.keys
-            .iter()
-            .map(|k| k.len() + RID_SIZE)
-            .sum::<usize>() - PAGEID_SIZE) as u16;
-
+        self.refresh_header();
         debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
-        new_page
+
+        (new_page.keys[0].clone(), new_page)
     }
 
     pub fn insert(&mut self, key: &str, rid: Rid) -> Option<Rid> {
@@ -72,12 +66,9 @@ impl LeafPage {
                 Some(old_rid)
             },
             Err(i) => {
-                self.header.slots += 1;
-                self.header.lower += SLOT_POINTER_SIZE as u16;
-                self.header.upper -= (RID_SIZE + key.len()) as u16;
-
                 self.rids.insert(i, rid);
                 self.keys.insert(i, key.to_string());
+                self.refresh_header();
 
                 debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
                 None
@@ -88,14 +79,13 @@ impl LeafPage {
     pub fn delete(&mut self, key: &str) -> UserResult<Rid> {
         match self.keys.binary_search_by(|probe| probe.as_str().cmp(key)) {
             Ok(i) => {
-                self.header.slots -= 1;
-                self.header.lower -= SLOT_POINTER_SIZE as u16;
-                self.header.upper += (RID_SIZE + key.len()) as u16;
-
                 self.keys.remove(i);
+                let return_rid = self.rids.remove(i);
+
+                self.refresh_header();
 
                 debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
-                Ok(self.rids.remove(i))
+                Ok(return_rid)
             },
             Err(_) => Err(UserErr::NoRID(key.into())),
         }
@@ -106,8 +96,7 @@ impl LeafPage {
             (sibling.keys.pop().expect("Leaf with no keys found!"),
             sibling.rids.pop().expect("Leaf with no RIDs found!"))
         } else {
-            sibling.keys.remove(0);
-            (sibling.keys[0].clone(), sibling.rids.remove(0))
+            (sibling.keys.remove(0), sibling.rids.remove(0))
         };
 
         if from_left {
@@ -122,7 +111,7 @@ impl LeafPage {
         sibling.refresh_header();
 
         debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
-        key
+        if from_left { key } else { sibling.keys[0].clone() }
     }
 
     pub fn merge(&mut self, other: Self) {
@@ -130,11 +119,7 @@ impl LeafPage {
         self.rids.extend(other.rids);
         self.next_leaf = other.next_leaf;
 
-        self.header.slots = self.keys.len() as u16 + 1;
-        self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
-        self.header.upper = (PAGE_SIZE - self.keys.iter()
-            .map(|k| RID_SIZE + k.len())
-            .sum::<usize>() - PAGEID_SIZE) as u16;
+        self.refresh_header();
 
         debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
     }
@@ -142,9 +127,12 @@ impl LeafPage {
     pub fn refresh_header(&mut self) {
         self.header.slots = self.keys.len() as u16 + 1;
         self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
-        self.header.upper = (PAGE_SIZE - self.keys.iter()
-            .map(|k| RID_SIZE + k.len())
-            .sum::<usize>() - PAGEID_SIZE) as u16;
+
+        let sum = self.keys.iter().map(|k| RID_SIZE + k.len()).sum::<usize>();
+        self.header.upper = PAGE_SIZE
+            .checked_sub(sum)
+            .and_then(|v| v.checked_sub(PAGEID_SIZE))
+            .unwrap_or(0) as u16;
 
         debug_assert_eq!(self.keys.len() + 1, self.header.slots as usize);
     }
@@ -220,6 +208,10 @@ impl Page for LeafPage {
         let mut keys: Vec<String> = Vec::new();
         let mut rids: Vec<Rid> = Vec::new();
         
+        if header.slots == 0 {
+            return Err(StoreErr::EmptyPage { page: header.id, pagetype: header.pagetype });
+        }
+
         for _ in 0..header.slots - 1 {
             let mut slot_bytes = cursor.next()?;
             let page = PageId::new(read_usize(&mut slot_bytes)?)

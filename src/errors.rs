@@ -62,7 +62,7 @@ pub enum StoreErr {
     PoisonError,
     #[error("Unexpected EOF encountered while attempting to read {0}")]
     Eof(&'static str),
-    #[error("Unexpected pagetype {:?} encountered", 0)]
+    #[error("Unexpected pagetype {0:?} encountered")]
     UnexpectedPagetype(PageType),
     #[error("Unknown PageType {0} encountered")]
     UnknownPagetype(u8),
@@ -81,6 +81,11 @@ pub enum StoreErr {
         len: usize,
         pagetype: PageType,
     },
+    #[error("Attempted to deserialize pagetype {:?} at pageid {} with 0 slots", pagetype, page)]
+    EmptyPage {
+        page: PageId,
+        pagetype: PageType,
+    }
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
@@ -107,6 +112,8 @@ pub enum TreeErr {
     LeafBadDepth(PageId),
     #[error("Page {0} has an out-of-bounds key")]
     KeyOOB(PageId),
+    #[error("Page {0} is underflowing")]
+    PageUnderflow(PageId),
 }
 
 pub type TreeResult<T> = std::result::Result<T, TreeErr>;

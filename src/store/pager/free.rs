@@ -19,6 +19,12 @@ impl FreePage {
     }
 }
 
+impl FreePage {
+    pub fn sever(&mut self) {
+        self.0.next = None;
+    }
+}
+
 impl Page for FreePage {
     fn header(&self) -> &PageHeader {
         &self.0

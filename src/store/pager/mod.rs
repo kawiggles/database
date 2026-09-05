@@ -16,7 +16,6 @@ use crate::{
     VERSION,
     errors::{StoreErr, StoreResult},
     tcp::DEFAULT_FILE,
-    store::{ Rid, Value },
 };
 
 use std::{
@@ -176,28 +175,6 @@ impl Pager {
         Ok(())
     }
 
-    // TODO: get rid of this nonsense and put it in datapage
-    // Checks the current active data page's free space
-    // If free space, return the active data page and next slot 
-    // If not, alloc a new page id and return 1st slot
-    // ALERT: YOU NEED TO ACTUALLY CREATE THIS DATA PAGE LATER
-    pub fn check_active_data_space(&mut self, val: Value) -> StoreResult<Rid> {
-        if let Some(pageid) = self.active_data {
-            let page = self.read::<DataPage>(pageid)?;
-            let free_space = page.header().upper - page.header().lower;
-            if free_space > val.to_bytes().len() as u16 {
-                let new_data_id = self.alloc();
-                self.active_data = Some(new_data_id);
-                Ok(Rid { page: new_data_id, slot: 1})
-            } else {
-                Ok(Rid { page: page.header().id, slot: page.header().slots + 1 })
-            }
-        } else {
-            todo!();
-            // TODO: create a new data page
-        } 
-    }
-
     // Clear out the cache and write it to disk
     pub fn flush(&mut self) -> StoreResult<()> {
         let cache = std::mem::take(&mut self.dirty_cache);
@@ -217,7 +194,16 @@ impl Pager {
             self.num_pages += 1;
             id
         } else {
-            self.free_list.pop().unwrap()
+            let return_id = self.free_list.pop().unwrap();
+
+            if let Some(new_tail_id) = self.free_list.last() {
+                let mut tail = self.read::<FreePage>(*new_tail_id)
+                    .expect("Non-FreePage found in free list");
+                tail.sever();
+                self.write::<FreePage>(tail).expect("Failed to write free_list tail");
+            }
+
+            return_id
         }
     }
 

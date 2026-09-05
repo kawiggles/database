@@ -1,3 +1,5 @@
+use std::iter::Rev;
+
 use super::{
     Page, PageId, PageType, PageHeader, Pager,
     page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE, PAGEID_SIZE},
@@ -5,6 +7,7 @@ use super::{
 };
 
 use crate::errors::{StoreResult, StoreErr, TreeErr};
+use crate::store::BpTree;
 
 #[derive(Debug, PartialEq)]
 pub struct BranchPage {
@@ -27,8 +30,19 @@ impl BranchPage {
             keys, children
         }
     }
+    
+    pub fn insert(&mut self, key: String, id: PageId) {
+        let i = self.keys
+            .binary_search_by(|probe| probe.as_str().cmp(&key))
+            .unwrap_or_else(|i| i);
 
-    pub fn split(&mut self, pager: &mut Pager) -> (String, Self) {
+        self.keys.insert(i, key);
+        self.children.insert(i + 1, id);
+        self.refresh_header();
+    }
+
+    pub fn split<'a, I>(&mut self, pager: &mut Pager, path: &mut Rev<I>, tree: &mut BpTree)
+        -> StoreResult<()> where I: Iterator<Item = &'a PageId> + DoubleEndedIterator {
         let slot_mid = (PAGE_SIZE - self.header.upper as usize - PAGEID_SIZE) / 2;
 
         let mut num_bytes = 0;
@@ -49,10 +63,26 @@ impl BranchPage {
         let promoted = self.keys.pop().expect("Branch with no keys found!");
 
         self.refresh_header();
-
         debug_assert_eq!(self.header.slots as usize, self.children.len());
         debug_assert_eq!(new_page.header.slots as usize, new_page.children.len());
-        (promoted, new_page)
+
+        pager.write(new_page)?;
+
+        if let Some(&parent_id) = path.next() {
+            let mut parent = pager.read::<BranchPage>(parent_id)?;
+            parent.insert(promoted, new_id);
+            if parent.free_space() == None {
+                parent.split(pager, path, tree)?;
+            }
+            pager.write(parent)?;
+        } else {
+            let root_id = pager.alloc();
+            let parent = BranchPage::new(root_id, vec![promoted], vec![self.header.id, new_id]);
+            tree.root = Some(root_id);
+            pager.write(parent)?;
+        }
+
+        Ok(())
     }
 
     pub fn borrow_from(&mut self, sibling: &mut Self, from_left: bool, old_sep: String) -> String {
@@ -90,9 +120,12 @@ impl BranchPage {
     pub fn refresh_header(&mut self) {
         self.header.slots = self.children.len() as u16;
         self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
-        self.header.upper = (PAGE_SIZE - self.keys.iter()
-            .map(|k| PAGEID_SIZE + k.len())
-            .sum::<usize>() - PAGEID_SIZE) as u16;
+
+        let sum = self.keys.iter().map(|k| PAGEID_SIZE + k.len()).sum::<usize>();
+        self.header.upper = PAGE_SIZE
+            .checked_sub(sum)
+            .and_then(|v| v.checked_sub(PAGEID_SIZE))
+            .unwrap_or(0) as u16;
 
         debug_assert_eq!(self.header.slots as usize, self.children.len());
     }
@@ -166,6 +199,10 @@ impl Page for BranchPage {
     fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self> {
         let mut keys: Vec<String> = Vec::new();
         let mut children: Vec<PageId> = Vec::new();
+
+        if header.slots == 0 {
+            return Err(StoreErr::EmptyPage { page: header.id, pagetype: header.pagetype });
+        }
 
         for _ in 0..header.slots - 1 {
             let mut slot_bytes = cursor.next()?;
