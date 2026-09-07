@@ -9,7 +9,9 @@ use crate::store::{
 };
 use crate::errors::{DbResult};
 
-use std::sync::{Arc, RwLock};
+use std::{
+    sync::{Arc, RwLock},
+};
 use log::{info};
 
 pub fn translate_startup(message: StartupMessage, _db: &mut Arc<RwLock<Store>>) -> Vec<Response> {

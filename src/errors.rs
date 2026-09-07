@@ -3,13 +3,13 @@ use std::{
     io,
     fs::File,
 };
-use bincode_next;
 use log::LevelFilter;
 use simplelog::{WriteLogger, Config};
 
 use crate::{
     tcp::response::Response,
     query::lexer::Token,
+    store::pager::{PageType, PageId},
 };
 
 pub fn init_logs() {
@@ -54,27 +54,77 @@ pub type TcpResult<T> = std::result::Result<T, TcpErr>;
 pub enum StoreErr {
     #[error("Filetype does not match kawikadb filetype")]
     BadFile,
-    #[error("Bincode encoding error occured: {0}")]
-    EncodeErr(#[from] bincode_next::error::EncodeError),
-    #[error("Bincode decoding error occured: {0}")]
-    DecodeErr(#[from] bincode_next::error::DecodeError),
     #[error("Page read overflow")]
     ReadOverflow,
     #[error("I/O error occurred: {0}")]
     IOErr(#[from] io::Error),
     #[error("The Store RwLock was poisoned")]
     PoisonError,
+    #[error("Unexpected EOF encountered while attempting to read {0}")]
+    Eof(&'static str),
+    #[error("Unexpected pagetype {0:?} encountered")]
+    UnexpectedPagetype(PageType),
+    #[error("Unknown PageType {0} encountered")]
+    UnknownPagetype(u8),
+    #[error("An error was encounted with the b+ tree")]
+    TreeErr(#[from] TreeErr),
+    #[error("Non-utf-8 char found in query")]
+    NonUtf8(#[from] std::str::Utf8Error),
+    #[error("Slot read went out of bounds of page bytes, offset was {}, len was {}", offset, len)]
+    SlotOOB {
+        offset: usize,
+        len: usize,
+    },
+    #[error("Attempted slot write resulted in overflow, page was {}, len was {}, pagetype was {:?}", page, len, pagetype)]
+    SlotOverwrite {
+        page: PageId,
+        len: usize,
+        pagetype: PageType,
+    },
+    #[error("Attempted to deserialize pagetype {:?} at pageid {} with 0 slots", pagetype, page)]
+    EmptyPage {
+        page: PageId,
+        pagetype: PageType,
+    }
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
 
 #[derive(Error, Debug)]
+pub enum TreeErr {
+    #[error("Tree is empty")]
+    Empty,
+    #[error("Less than 2 children in root node")]
+    RootTooFewChildren,
+    #[error("Leaf node keys not sorted")]
+    LeafKeysBadSeq,
+    #[error("Branch node found in Leaf node sequence")]
+    BranchInLeafSeq,
+    #[error("Page {0} has unsorted keys")]
+    NodeKeySeqErr(PageId),
+    #[error("Node {0} has an incorrect number of keys or children")]
+    KeyChildDesync(PageId),
+    #[error("Node {0} has an incorrect number of keys given the tree order")]
+    KeyCountErr(PageId),
+    #[error("Leaf {0} has an incorrect number of keys and values")]
+    KeyValueDesync(PageId),
+    #[error("Leaf {0} found at incorrect tree depth")]
+    LeafBadDepth(PageId),
+    #[error("Page {0} has an out-of-bounds key")]
+    KeyOOB(PageId),
+    #[error("Page {0} is underflowing")]
+    PageUnderflow(PageId),
+}
+
+pub type TreeResult<T> = std::result::Result<T, TreeErr>;
+
+#[derive(Error, Debug)]
 pub enum UserErr {
-    #[error("No value found at requested key")]
-    NoValue,
+    #[error("No RID found for key {0}")]
+    NoRID(String),
     #[error("Value input is invalid")]
     BadVal,
-    #[error("API call is malformed")]
+    #[error("SQL query is malformed")]
     BadQuery(#[from] QueryErr),
     #[error("Put call was unsuccessful")]
     BadPut,
@@ -82,10 +132,8 @@ pub enum UserErr {
     BadDel,
     #[error("There is no content in the database")]
     NoRoot,
-    #[error("Key exceeds maximum length of 8 characters (sorry)")]
-    LongKey,
-    #[error("Value exceeds maximum length of ")]
-    LongVal,
+    #[error("Key {0} is too long (sorry)")]
+    LongKey(String),
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
