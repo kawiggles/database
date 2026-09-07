@@ -49,7 +49,7 @@ impl BranchPage {
         let mut slot_idx = 0;
         for (index, key) in self.keys.iter().enumerate() {
             num_bytes += key.len() + PAGEID_SIZE;
-            if num_bytes >= slot_mid {
+            if num_bytes > slot_mid {
                 slot_idx = index;
                 break;
             }
