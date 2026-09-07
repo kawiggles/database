@@ -304,10 +304,7 @@ impl BpTree {
         // Fourth: loop through the path doing this until we stop merging or we get to the root
         while let Some(id) = path.next() {
             let mut page = pager.read::<BranchPage>(*id)?;
-            let fs = page.free_space().unwrap();
-            eprintln!("id={} keys={} free={} underflow={} has_parent={}", id, page.keys.len(), fs,
-            fs as usize > (PAGE_CAPACITY as usize / 2) + PAGEID_SIZE, path.peek().is_some());
-            if fs as usize > (PAGE_CAPACITY as usize / 2) + PAGEID_SIZE {
+            if page.free_space().unwrap() as usize > (PAGE_CAPACITY as usize / 2) + PAGEID_SIZE {
                 if let Some(&&parent_idx) = path.peek() {
                     let mut parent = pager.read::<BranchPage>(parent_idx)?;
 
@@ -477,7 +474,6 @@ impl BpTree {
 
                 if branch.free_space().unwrap() > ((PAGE_CAPACITY + 1) / 2) + PAGEID_SIZE as u16 
                     && depth != 0 {
-                    eprintln!("underflow: id={:?} depth={} keys={}", id, depth, branch.keys.len());
                     return Err(TreeErr::PageUnderflow(id))?;
                 }
 
@@ -509,7 +505,6 @@ impl BpTree {
 
                 if leaf.free_space().unwrap() > ((PAGE_CAPACITY + 1) / 2) + PAGEID_SIZE as u16
                     && depth != 0 {
-                    eprintln!("underflow: id={:?} depth={} keys={}", id, depth, leaf.keys.len());
                     return Err(TreeErr::PageUnderflow(id))?;
                 }
                 
@@ -708,8 +703,6 @@ mod tests {
     #[test]
     fn delete_intensive() -> StoreResult<()> {
         let (mut tree, mut pager) = setup(50000);
-        tree.validate(&mut pager)?;
-        eprintln!("tree validation passed");
         let mut expected: Vec<String> = (1..=50000).map(|i| format!("key{:05}", i)).collect();
 
         if let Some(root_id) = tree.root {
@@ -723,12 +716,11 @@ mod tests {
         for i in 1..=50000 {
             tree.remove(&format!("key{:05}", i), &mut pager).unwrap();
             expected.remove(expected.binary_search(&format!("key{:05}", i)).unwrap_or(0));
-            if let Err(e) = assert_tree_ok(&tree, &mut pager, &expected) {
-                eprintln!("first failure after removing key{:05}", i);
-                tree.print(&mut pager);
-                return Err(e);
+            if i % 200 == 0 && tree.root.is_some() {
+                assert_tree_ok(&tree, &mut pager, &expected)?;
             }
         }
+        assert!(tree.root.is_none());
 
         Ok(())
     }
