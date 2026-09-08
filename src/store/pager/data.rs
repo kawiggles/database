@@ -1,12 +1,11 @@
 use super::{
     Page, PageId, PageType, PageHeader,
-    page::{PageCursor, PAGEHEADER_SIZE, PAGE_SIZE, SLOT_POINTER_SIZE},
+    page::{PageCursor, PAGEID_SIZE, PAGEHEADER_SIZE, PAGE_SIZE, SLOT_POINTER_SIZE},
     read_usize
 };
 
 use crate::{
     errors::{StoreErr, StoreResult},
-    store::{ Rid, Value, pager::page::PAGEID_SIZE },
 };
 
 pub struct DataPage {
@@ -20,29 +19,15 @@ impl DataPage {
         todo!()
     }
     
-    pub fn get(&self, slot: u16) -> StoreResult<Value> {
+    pub fn get(&self, slot: u16) -> StoreResult<Vec<u8>> {
         todo!()
     }
 
-    pub fn insert(&mut self, slot: u16, val: Value) -> StoreResult<()> {
+    pub fn insert(&mut self, slot: u16, bytes: &[u8]) -> StoreResult<()> {
         todo!()
     }
     
-    pub fn insert_new(&mut self, val: Value) -> StoreResult<Rid> {
-        let page = self.header.id;
-        let slot = self.header.slots + 1;
-
-        let bytes = val.to_bytes();
-
-        self.header.upper -= bytes.len() as u16;
-        self.header.lower += SLOT_POINTER_SIZE as u16;
-        self.header.slots += 1;
-        self.data.push(bytes);
-
-        Ok(Rid { page, slot })
-    }
-
-    pub fn delete(&mut self, slot: u16) -> StoreResult<Value> {
+    pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {
         todo!()
     }
 }
@@ -56,6 +41,7 @@ impl Page for DataPage {
         PageType::Data
     }
 
+    // TODO: clean this up by adding in the consts, most importantly SLOT_POINTER_SIZE
     fn serialize(&self) -> StoreResult<Vec<u8>> {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].copy_from_slice(&self.header.serialize());

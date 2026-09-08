@@ -1,20 +1,19 @@
 pub mod value;
 pub mod bptree;
 pub mod pager;
-
-use std::{
-    fs, collections::HashMap,
-};
-use log::{info, warn};
+pub mod schema;
+pub mod catalog;
 
 use crate::{
-    errors::{ DbResult, UserErr}, store::{
+    errors::{ DbResult, UserErr},
+    store::{
         bptree::BpTree, 
         pager::{
             DataPage, Page, PageId, Pager,
             page::{PAGE_CAPACITY, SLOT_POINTER_SIZE}
         },
         value::Value,
+        catalog::Catalog,
     }
 };
 
@@ -28,7 +27,7 @@ pub struct Rid {
 
 // Buffer pool for database, holds cache?
 pub struct Store {
-    pub tables: HashMap<String, BpTree>,
+    pub catalog: Catalog,
     pub pager: Pager,
 }
 

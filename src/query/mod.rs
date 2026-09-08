@@ -1,5 +1,6 @@
 pub mod lexer;
 pub mod ast;
+pub mod iterator;
 
 use crate::{
     store::{Store, value::Value},

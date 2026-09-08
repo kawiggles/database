@@ -111,6 +111,8 @@ impl BpTree {
         Ok(rids)
     }
 
+    // TODO: range scan
+
     // Returns Some(Rid) if the associated RID needs to be deleted
     pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<Option<Rid>> {
         // Deny inputs that can't fit into a page
