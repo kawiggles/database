@@ -34,7 +34,7 @@ impl Schema {
 
     // TODO: bitmap for null values (for each schema col, there will be a bit in front that is
     // either 1 for read the value, or 0 for null). We'll return an optional for that
-    pub fn to_vals(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Value>> {
+    pub fn bytes_to_vals(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Value>> {
         let mut vals: Vec<Value> = Vec::new();
 
         for col in &self.0 {
@@ -87,8 +87,24 @@ impl Schema {
         Ok(vals)
     }
 
-    // this will probably replace the whole value to_le_bytes thing, but maybe not
-    pub fn to_bytes(&self, vals: Vec<Value>) -> StoreResult<()> {
-        todo!()
+    pub fn vals_to_bytes(&self, vals: Vec<Value>) -> StoreResult<()> {
+        let mut bytes: Vec<u8> = Vec::new();
+
+        for val in vals {
+            match val {
+                Value::Bool(x) => {
+                },
+                Value::Int(x) => {
+                },
+                Value::Uint(x) => {
+                },
+                Value::Float(x) => {
+                },
+                Value::Text(x) => {
+                },
+                Value::Blob(x) => {
+                },
+            }
+        }
     }
 }

@@ -7,7 +7,10 @@ use crate::{
 };
 
 // Hardcoded class schema
-const CLASS_COLS: &[(&str, Type)] = &[("root_page", Type::Uint)];
+const CLASS_COLS: &[(&str, Type)] = &[
+    ("root_page", Type::Uint),
+    ("active_data", Type::Uint),
+];
 
 // Hardcoded attributes schema
 const ATTR_COLS: &[(&str, Type)] = &[
@@ -17,6 +20,7 @@ const ATTR_COLS: &[(&str, Type)] = &[
     ("ty", Type::Uint), // C-style enum mapping types to numbers
     ("is_key", Type::Bool),
     ("not_null", Type::Bool),
+    ("is_dead", Type::Bool),
 ];
 
 // TODO: make tables a hash map from the table name to the TableMeta

@@ -135,16 +135,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Use if the next token is optional
     fn peek(&self) -> &Token {
         &self.tokens[self.pos]
     }
 
+    // Use to consume a peeked token
     fn advance(&mut self) -> Token {
         let t = self.tokens[self.pos].clone();
         self.pos += 1;
         t
     }
 
+    // Use if a statement has a required token
     fn expect(&mut self, expected: &Token) -> QueryResult<()> {
         if self.peek() == expected {
             self.pos += 1;
