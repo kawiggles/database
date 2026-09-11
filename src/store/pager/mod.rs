@@ -323,6 +323,12 @@ pub fn read_u16<R: Read>(bytes: &mut R) -> StoreResult<u16> {
     Ok(u16::from_le_bytes(buf))
 }
 
+pub fn read_byte<R: Read>(bytes: &mut R) -> StoreResult<u8> {
+    let mut buf = [0u8; 1];
+    bytes.read_exact(&mut buf)?;
+    Ok(u8::from_le_bytes(buf))
+}
+
 // IMPORTANT: this works by reading the rest of the bytes from the slot and turning into a string
 // It breaks immediately if the thing you're looking to read from has more than one string
 pub fn read_str<R: Read>(bytes: &mut R) -> StoreResult<String> {

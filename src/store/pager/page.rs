@@ -1,12 +1,11 @@
 use std::{
-    io::Read,
     num::NonZeroUsize,
     fmt::{Display, Formatter, Result},
 };
 
 use crate::errors::{StoreResult, StoreErr};
 
-use super::{ read_usize, read_u16 };
+use super::{ read_usize, read_u16, read_byte };
 
 pub const SLOT_POINTER_SIZE: usize = 4; // u16 + u16
 pub const PAGE_SIZE: usize = 4096;
@@ -57,7 +56,7 @@ impl PageHeader {
         let id = PageId::new(read_usize(bytes)?)
             .expect("read PageId of 0");
 
-        let pagetype = PageType::deserialize(bytes)?;
+        let pagetype = PageType::try_from(read_byte(bytes)?)?;
 
         let next = PageId::new(read_usize(bytes)?);
         let slots = read_u16(bytes)?;
@@ -71,7 +70,7 @@ impl PageHeader {
         let mut bytes: Vec<u8> = Vec::new();
 
         bytes.extend_from_slice(&self.id.get().to_le_bytes());
-        bytes.push(self.pagetype.serialize());
+        bytes.push(self.pagetype as u8);
         bytes.extend_from_slice(&self.next
             .map(|id| id.get())
             .unwrap_or(0)
@@ -83,31 +82,21 @@ impl PageHeader {
     }
 }
 
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PageType {
-    Free,
-    Branch,
-    Leaf,
-    Data,
-    Overflow,
+    Free = 0,
+    Branch = 1,
+    Leaf = 2,
+    Data = 3,
+    Overflow = 4,
 }
 
-impl PageType {
-    fn serialize(&self) -> u8 {
-        match self {
-            Self::Free => 0,
-            Self::Branch => 1,
-            Self::Leaf => 2,
-            Self::Data => 3,
-            Self::Overflow => 4,
-        }
-    }
+impl TryFrom<u8> for PageType {
+    type Error = StoreErr;
 
-    fn deserialize<R: Read>(bytes: &mut R) -> StoreResult<Self> {
-        let mut buf = [0u8; 1];
-        bytes.read_exact(&mut buf)?;
-        
-        match u8::from_le_bytes(buf) {
+    fn try_from(value: u8) -> std::prelude::v1::Result<Self, Self::Error> {
+        match value {
             0 => Ok(Self::Free),
             1 => Ok(Self::Branch),
             2 => Ok(Self::Leaf),
