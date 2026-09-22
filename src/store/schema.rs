@@ -27,18 +27,24 @@ pub struct Column {
 
 pub struct Schema(Vec<Column>);
 
+// TODO: for future optimization: use split on the bytestream instead of reading to reduce copying
 impl Schema {
     pub fn from_static(cols: &[(&str, Type)]) -> Self {
         Self(cols.iter().map(|&(name, ty)| Column { name: name.into(), ty }).collect())
     }
 
-    // TODO: bitmap for null values (for each schema col, there will be a bit in front that is
-    // either 1 for read the value, or 0 for null). We'll return an optional for that
-    pub fn deserialize(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {
+    pub fn deserialize_row(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {
         let mut vals: Vec<Option<Value>> = Vec::new();
 
-        for (i, col) in &self.0.iter().enumerate() {
-            // TODO: bitmap stuff, if associated entry is 0
+        let mut bitmap = vec![0u8; self.0.len().div_ceil(8)];
+        row_bytes.read_exact(&mut bitmap)?;
+
+        for (i, col) in self.0.iter().enumerate() {
+            if bm_is_null(&bitmap, i) {
+                vals.push(None);
+                continue;
+            }
+
             match col.ty {
                 Type::Bool => {
                     let mut buf = [0u8; 1];
@@ -88,20 +94,14 @@ impl Schema {
         Ok(vals)
     }
 
-    pub fn serialize(&self, entries: Vec<Option<Value>>) -> StoreResult<Vec<u8>> {
+    pub fn serialize_row(&self, entries: Vec<Option<Value>>) -> StoreResult<Vec<u8>> {
         let mut bytes: Vec<u8> = Vec::new();
+        let mut bitmap = vec![0u8; self.0.len().div_ceil(8)];
 
         for (i, entry) in entries.iter().enumerate() {
             if let Some(val) = entry {
-                // TODO: bitmask stuff, add a 1 at position
                 match val {
-                    Value::Bool(x) => {
-                        if *x { 
-                            bytes.append(1.to_le_bytes());
-                        } else {
-                            bytes.append(1.to_le_bytes());
-                        }
-                    },
+                    Value::Bool(x) => bytes.push(*x as u8),
                     Value::Int(x) => bytes.extend_from_slice(&x.to_le_bytes()),
                     Value::Uint(x) => bytes.extend_from_slice(&x.to_le_bytes()),
                     Value::Float(x) => bytes.extend_from_slice(&x.to_le_bytes()),
@@ -115,10 +115,19 @@ impl Schema {
                     },
                 }
             } else {
-                // TODO: bitmask stuff, add a 0 at position
+                bm_set_null(&mut bitmap, i);
             }
         }
 
+        // TODO: write the bitmap bytes
         Ok(bytes)
     }
+}
+
+fn bm_is_null(map: &[u8], col: usize) -> bool {
+    map[col / 8] & (1 << (col % 8)) != 0
+}
+
+fn bm_set_null(map: &mut [u8], col: usize) {
+    map[col / 8] |= 1 << (col % 8);
 }
