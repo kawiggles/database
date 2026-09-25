@@ -63,6 +63,7 @@ impl BpTree {
                     };
                     current = branch.children[i];
                 },
+                AnyPage::Leaf(leaf) => {
                      return Ok(leaf.keys
                         .binary_search_by(|probe| { probe.as_str().cmp(key) })
                         .map(|_| { return true; })

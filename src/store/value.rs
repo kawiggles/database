@@ -29,4 +29,8 @@ impl Value {
                 .join(",")),
         }
     }
+    
+    pub fn to_bytes(&self) -> Vec<u8> {
+        todo!()
+    }
 }

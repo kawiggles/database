@@ -23,7 +23,6 @@ use crate::tcp::{
 use crate::cli::run_cli;
 
 pub const DEFAULT_FILE: &str = "kawika.db";
-pub const DEFAULT_ORDER: usize = 150;
 pub const DEFAULT_PORT: &str = "127.0.0.1:5432";
 
 pub struct Server {

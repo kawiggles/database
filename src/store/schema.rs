@@ -33,8 +33,8 @@ impl Schema {
         Self(cols.iter().map(|&(name, ty)| Column { name: name.into(), ty }).collect())
     }
 
-    pub fn deserialize_row(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {
-        let mut vals: Vec<Option<Value>> = Vec::new();
+    pub fn decode(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {
+        let mut vals: Vec<Option<Value>> = Vec::with_capacity(self.0.len());
 
         let mut bitmap = vec![0u8; self.0.len().div_ceil(8)];
         row_bytes.read_exact(&mut bitmap)?;
@@ -94,7 +94,7 @@ impl Schema {
         Ok(vals)
     }
 
-    pub fn serialize_row(&self, entries: Vec<Option<Value>>) -> StoreResult<Vec<u8>> {
+    pub fn encode(&self, entries: Vec<Option<Value>>) -> StoreResult<Vec<u8>> {
         let mut bytes: Vec<u8> = Vec::new();
         let mut bitmap = vec![0u8; self.0.len().div_ceil(8)];
 
@@ -119,8 +119,7 @@ impl Schema {
             }
         }
 
-        // TODO: write the bitmap bytes
-        Ok(bytes)
+        Ok(bitmap.into_iter().chain(bytes).collect())
     }
 }
 
@@ -130,4 +129,35 @@ fn bm_is_null(map: &[u8], col: usize) -> bool {
 
 fn bm_set_null(map: &mut [u8], col: usize) {
     map[col / 8] |= 1 << (col % 8);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_decode_schema_roundtrip() {
+        let schema = Schema::from_static(&[
+            ("bool", Type::Bool),
+            ("int", Type::Int),
+            ("uint", Type::Uint),
+            ("float", Type::Float),
+            ("text", Type::Text),
+            ("blob", Type::Blob),
+            ("null", Type::Text),
+        ]);
+
+        let vals: Vec<Option<Value>> = vec![
+            Some(Value::Bool(true)),
+            Some(Value::Int(-4)),
+            Some(Value::Uint(4)),
+            Some(Value::Float(5.5)),
+            Some(Value::Text("this is text".into())),
+            Some(Value::Blob(vec![b'h', b'i'])),
+            None
+        ];
+
+        let encoded = schema.encode(vals.clone()).unwrap();
+        assert_eq!(vals, schema.decode(&encoded).unwrap());
+    }
 }

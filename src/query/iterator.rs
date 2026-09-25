@@ -7,8 +7,8 @@ trait Executor {
     fn next(&mut self, ctx: &mut ExecCtx) -> DbResult<Option<Tuple>>;
 }
 
-struct ExecCtx {
-    pager: &mut Pager,
+struct ExecCtx<'a> {
+    pager: &'a mut Pager,
 }
 
 struct Tuple;
