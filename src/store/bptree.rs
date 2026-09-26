@@ -42,7 +42,7 @@ impl BpTree {
 
                     return Ok(leaf.rids[index]);
                 },
-                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype()))?,
+                _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype()))?,
             }
         }
     }
@@ -69,7 +69,7 @@ impl BpTree {
                         .map(|_| { return true; })
                         .unwrap_or(false));
                 },
-                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype()))?,
+                _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype()))?,
             }
         }
     }
@@ -83,7 +83,7 @@ impl BpTree {
             match page {
                 AnyPage::Leaf(_) => return Ok(current),
                 AnyPage::Branch(branch) => current = branch.children[0],
-                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype())),
+                _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype())),
             }
         }
     }
@@ -146,7 +146,7 @@ impl BpTree {
                     current = branch.children[i];
                 },
                 AnyPage::Leaf(_) => break,
-                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype()))?,
+                _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype()))?,
             }
         }
         let mut path = path.iter().rev();
@@ -213,7 +213,7 @@ impl BpTree {
                 AnyPage::Leaf(_) => {
                     break;
                 },
-                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype()))?,
+                _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype()))?,
             }
         }
         let mut path = path.iter().rev().peekable();
@@ -424,7 +424,7 @@ impl BpTree {
                     leaf_depth += 1;
                     current = branch.children[0];
                 },
-                _ => return Err(StoreErr::UnexpectedPagetype(page.to_pagetype())),
+                _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype())),
             }
         }
 
@@ -519,7 +519,7 @@ impl BpTree {
                 }
 
             },
-            _ => return Err(StoreErr::UnexpectedPagetype(current.to_pagetype())),
+            _ => return Err(StoreErr::UnexpectedPagetype(current.pagetype())),
         }
 
         Ok(())
@@ -578,7 +578,7 @@ mod tests {
 
     fn setup(n: usize) -> (BpTree, Pager) {
         let file = NamedTempFile::new().unwrap();
-        let (mut pager, _) = Pager::new(file.path().to_str().unwrap()).unwrap();
+        let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap();
         let mut tree = BpTree::new(None);
         for i in 1..n + 1 {
             let key = format!("key{:05}", i);
@@ -600,7 +600,7 @@ mod tests {
             match pager.read_any(current)? {
                 AnyPage::Leaf(_) => break,
                 AnyPage::Branch(branch) => current = branch.children[0],
-                other => return Err(StoreErr::UnexpectedPagetype(other.to_pagetype())),
+                other => return Err(StoreErr::UnexpectedPagetype(other.pagetype())),
             }
         }
 

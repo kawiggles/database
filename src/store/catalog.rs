@@ -1,20 +1,26 @@
 use crate::{
-    errors::{DbResult},
+    errors::StoreResult,
     store::{
-        pager::{Pager, page::PageId},
-        schema::{Type, Column, Schema},
+        bptree::BpTree,
+        pager::{Pager, DataPage, page::PageId},
+        schema::{Schema, Type},
     },
+};
+
+use std::{
+    collections::HashMap,
 };
 
 // Hardcoded class schema
 const CLASS_COLS: &[(&str, Type)] = &[
+    ("tid", Type::Uint),
     ("root_page", Type::Uint),
     ("active_data", Type::Uint),
 ];
 
 // Hardcoded attributes schema
 const ATTR_COLS: &[(&str, Type)] = &[
-    ("table_name", Type::Text),
+    ("tid", Type::Uint),
     ("attnum", Type::Uint),
     ("name", Type::Text),
     ("ty", Type::Uint), // C-style enum mapping types to numbers
@@ -23,26 +29,42 @@ const ATTR_COLS: &[(&str, Type)] = &[
     ("is_dead", Type::Bool),
 ];
 
-// TODO: make tables a hash map from the table name to the TableMeta
-pub struct Catalog;
+const CLASS_ROOT: usize = 1;
+const CLASS_TID: usize = 1;
+const ATTRIBUTE_ROOT: usize = 2;
+const ATTRIBUTE_TID: usize = 2;
+const FIRST_TID: usize = 3;
+
+pub struct Catalog {
+    tables: HashMap<usize, BpTree>,
+    next_oid: usize,
+}
 
 impl Catalog {
-    pub fn get_table(pager: &mut Pager, name: &str) -> DbResult<TableMeta> {
-        todo!()
-    }
+    fn new(pager: &mut Pager) -> StoreResult<Self> {
+        let mut class_tree = BpTree::new(PageId::new(CLASS_ROOT));
+        let class = Schema::from_static(CLASS_COLS);
+        let mut class_page = DataPage::new(pager.alloc());
+        
+        let rid = class_page.insert();
+        class_tree.insert();
 
-    pub fn create_table(pager: &mut Pager, name: &str, cols: &[Column]) -> DbResult<()> {
-        todo!()
-    }
+        let mut attribute_tree = BpTree::new(PageId::new(ATTRIBUTE_ROOT));
+        let attribute = Schema::from_static(ATTR_COLS);
 
-    pub fn drop_table(pager: &mut Pager, name: &str) -> DbResult<()> {
-        todo!()
+        let mut tables = HashMap::new();
+        tables.insert(CLASS_TID, class_tree);
+        tables.insert(ATTRIBUTE_TID, attribute_tree);
+
+        
+        Ok(Self { tables: HashMap::new(), next_oid: FIRST_TID }) 
     }
 }
 
 struct TableMeta {
+    pub tid: usize,
     pub name: String,
-    pub root: PageId,
+    pub tree: BpTree,
     pub schema: Schema,
 }
 
