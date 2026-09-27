@@ -1,9 +1,10 @@
 use crate::{
-    errors::StoreResult,
+    errors::DbResult,
     store::{
         bptree::BpTree,
-        pager::{Pager, DataPage, page::PageId},
+        pager::{DataPage, Page, Pager, page::PageId},
         schema::{Schema, Type},
+        value::Value,
     },
 };
 
@@ -14,51 +15,29 @@ use std::{
 // Hardcoded class schema
 const CLASS_COLS: &[(&str, Type)] = &[
     ("tid", Type::Uint),
+    ("name", Type::Text),
     ("root_page", Type::Uint),
     ("active_data", Type::Uint),
 ];
+const CLASS_TID: usize = 1;
 
 // Hardcoded attributes schema
 const ATTR_COLS: &[(&str, Type)] = &[
-    ("tid", Type::Uint),
     ("attnum", Type::Uint),
+    ("tid", Type::Uint),
     ("name", Type::Text),
     ("ty", Type::Uint), // C-style enum mapping types to numbers
     ("is_key", Type::Bool),
     ("not_null", Type::Bool),
     ("is_dead", Type::Bool),
 ];
+const ATTR_TID: usize = 2;
 
-const CLASS_ROOT: usize = 1;
-const CLASS_TID: usize = 1;
-const ATTRIBUTE_ROOT: usize = 2;
-const ATTRIBUTE_TID: usize = 2;
-const FIRST_TID: usize = 3;
+const FIRST_TID: usize = 3; // equal to number of catalog tables + 1
 
 pub struct Catalog {
-    tables: HashMap<usize, BpTree>,
-    next_oid: usize,
-}
-
-impl Catalog {
-    fn new(pager: &mut Pager) -> StoreResult<Self> {
-        let mut class_tree = BpTree::new(PageId::new(CLASS_ROOT));
-        let class = Schema::from_static(CLASS_COLS);
-        let mut class_page = DataPage::new(pager.alloc());
-        
-        let rid = class_page.insert();
-        class_tree.insert();
-
-        let mut attribute_tree = BpTree::new(PageId::new(ATTRIBUTE_ROOT));
-        let attribute = Schema::from_static(ATTR_COLS);
-
-        let mut tables = HashMap::new();
-        tables.insert(CLASS_TID, class_tree);
-        tables.insert(ATTRIBUTE_TID, attribute_tree);
-
-        
-        Ok(Self { tables: HashMap::new(), next_oid: FIRST_TID }) 
-    }
+    tables: HashMap<usize, TableMeta>,
+    next_tid: usize,
 }
 
 struct TableMeta {
@@ -68,10 +47,109 @@ struct TableMeta {
     pub schema: Schema,
 }
 
-/* 
-** TODO: bootstrap the class and catalog tables using the scheme defined above
-** There are two cases: one for each way the pager can be opened, which is new() and open()
-**
-** For new(), we need to allocate a new page, set that as the root page for a new B+ tree. We
-** immediately add a new entry in the form of the attributes table, which 
-*/
+impl Catalog {
+    fn init(pager: &mut Pager) -> DbResult<Self> {
+        let class = Schema::from_static(CLASS_COLS);
+        let attr = Schema::from_static(ATTR_COLS);
+
+        let mut class_tree = BpTree::create(pager)?;
+        let class_root = class_tree.root.unwrap();
+        let mut attr_tree = BpTree::create(pager)?;
+        let attr_root = class_tree.root.unwrap();
+        let mut class_page = DataPage::new(pager.alloc());
+        let mut attr_page = DataPage::new(pager.alloc());
+        
+        let catalog_tables = [
+            (CLASS_TID, "class_catalog", class_root, class_page.header().id.get(), CLASS_COLS),
+            (ATTR_TID, "attr_catalog", attr_root, attr_page.header().id.get(), ATTR_COLS),
+        ];
+
+        for (tid, name, root, active, cols) in catalog_tables {
+            let row = class_row(tid, name, root.get(), active);
+            insert_row(&mut class_tree, &mut class_page, &class, &class_key(tid), row, pager)?;
+
+            for (i, col) in cols.iter().enumerate() {
+                let attnum = i + 1;
+                let row = attr_row(col, attnum, tid);
+                insert_row(&mut attr_tree, &mut attr_page, &attr, &attr_key(tid, attnum), row, pager)?;
+            }
+        }
+
+        pager.write(class_page)?;
+        pager.write(attr_page)?;
+        pager.flush()?;
+
+        let mut tables = HashMap::new();
+        tables.insert(CLASS_TID, TableMeta {
+            tid: CLASS_TID,
+            name: "class_catalog".into(),
+            tree: class_tree,
+            schema: class,
+        });
+        tables.insert(ATTR_TID, TableMeta {
+            tid: ATTR_TID,
+            name: "attr_catalog".into(),
+            tree: attr_tree,
+            schema: attr,
+        });
+        
+        Ok(Self { tables, next_tid: FIRST_TID }) 
+    }
+
+    fn open(pager: &mut Pager) -> DbResult<Self> {
+        todo!()
+    }
+}
+
+fn class_key(tid: usize) -> String {
+    format!("{:020}", tid)
+}
+
+fn attr_key(tid: usize, attnum: usize) -> String {
+    format!("{:020}{:020}", tid, attnum)
+}
+
+fn insert_row(
+    tree: &mut BpTree,
+    page: &mut DataPage,
+    schema: &Schema,
+    key: &str,
+    row: Vec<Option<Value>>,
+    pager: &mut Pager,
+) -> DbResult<()> {
+    let bytes = schema.encode(row)?;
+    let rid = page.insert(&bytes)?; // TODO: bounds check insertion
+    tree.insert(key, rid, pager)?;
+
+    Ok(())
+}
+
+fn class_row(tid: usize, name: &str, root: usize, active: usize) -> Vec<Option<Value>> {
+    vec![
+        Some(Value::Uint(tid)),
+        Some(Value::Text(name.into())),
+        Some(Value::Uint(root)),
+        Some(Value::Uint(active)),
+    ]
+}
+
+fn attr_row(hardcode: &(&str, Type), attnum: usize, tid: usize) -> Vec<Option<Value>> {
+    let mut row: Vec<Option<Value>> = Vec::with_capacity(7); // Number of columns is Attr
+    row.push(Some(Value::Uint(attnum)));
+    row.push(Some(Value::Uint(tid)));
+    row.push(Some(Value::Text(hardcode.0.into())));
+    row.push(Some(Value::Uint(hardcode.1 as usize)));
+
+    // clumsy solution that will need to get replaced later
+    if attnum == 1 {
+        row.push(Some(Value::Bool(true)));
+    } else { 
+        row.push(Some(Value::Bool(false)));
+    }
+
+    row.push(Some(Value::Bool(true)));
+    row.push(Some(Value::Bool(false)));
+
+    row
+}
+

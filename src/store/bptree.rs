@@ -14,8 +14,15 @@ pub struct BpTree {
 impl BpTree {
     // will eventually need to come up with a method for creating a new bp tree from a list of keys
     // or merging two trees (join operation). That'll be an implementation of merge sort, yay.
-    pub fn new(root: Option<PageId>) -> Self {
+    pub fn open(root: Option<PageId>) -> Self {
         BpTree { root }
+    }
+
+    pub fn create(pager: &mut Pager) -> DbResult<Self> {
+        let root = pager.alloc();
+        let leaf = LeafPage::new_empty(root);
+        pager.write(leaf)?;
+        Ok(BpTree { root: Some(root) })
     }
 
     // really want to make this a property of the b+ tree for O(1) time
@@ -579,7 +586,7 @@ mod tests {
     fn setup(n: usize) -> (BpTree, Pager) {
         let file = NamedTempFile::new().unwrap();
         let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap();
-        let mut tree = BpTree::new(None);
+        let mut tree = BpTree::create(&mut pager).unwrap();
         for i in 1..n + 1 {
             let key = format!("key{:05}", i);
             tree.insert(&key, Rid { page: PageId::new(i).unwrap(), slot: i as u16 }, &mut pager)

@@ -33,6 +33,11 @@ impl DataPage {
     }
 
     pub fn insert(&mut self, bytes: &[u8]) -> StoreResult<Rid> {
+        self.data.extend_from_slice(&[bytes.to_vec()]);
+
+        self.refresh_header();
+        // TODO: overflow logic
+        Ok(Rid { page: self.header.id, slot: self.header.slots })
     }
     
     pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {

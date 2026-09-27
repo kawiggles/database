@@ -43,23 +43,6 @@ impl Store {
     }
 
     pub fn put(&mut self, key: &str, val: Value) -> DbResult<Value> {
-        if key.len() + val.to_bytes().len() > PAGE_CAPACITY as usize - SLOT_POINTER_SIZE {
-            return Err(UserErr::LongKey(key.into()))?
-        }
-
-        // active_data feels suspicious to me
-        let rid = match self.pager.active_data {
-            Some(active_id) => {
-                let active = self.pager.read::<DataPage>(active_id)?;
-                if (active.free_space().unwrap() as usize) < val.to_bytes().len() {
-                    // TODO: Overflow logic
-                }
-            },
-            None => {
-                let new_active = DataPage::new();
-            }
-        };
-
         todo!()
     }
 
