@@ -16,6 +16,48 @@ impl Value {
     pub fn text(s: &str) -> Self { Value::Text(s.to_owned()) }
     pub fn blob(b: Vec<u8>) -> Self { Value::Blob(b) }
 
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    pub fn as_uint(&self) -> Option<usize> {
+        match self {
+            Value::Uint(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    pub fn as_int(&self) -> Option<isize> {
+        match self {
+            Value::Int(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    pub fn as_float(&self) -> Option<f64> {
+        match self {
+            Value::Float(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    pub fn as_text(&self) -> Option<String> {
+        match self {
+            Value::Text(x) => Some(x.into()),
+            _ => None,
+        }
+    }
+
+    pub fn as_blob(&self) -> Option<Vec<u8>> {
+        match self {
+            Value::Blob(x) => Some(x.to_owned()),
+            _ => None,
+        }
+    }
+
     pub fn print(&self) -> String {
         match self {
             Value::Bool(x) => if *x { "true".into() } else { "false".into() },
@@ -29,7 +71,7 @@ impl Value {
                 .join(",")),
         }
     }
-    
+
     pub fn to_bytes(&self) -> Vec<u8> {
         todo!()
     }

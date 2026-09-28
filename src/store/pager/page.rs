@@ -117,6 +117,11 @@ impl<'a> PageCursor<'a> {
         Self { page, pos: PAGEHEADER_SIZE }
     }
 
+    pub fn offset(&self) -> StoreResult<usize> {
+        let mut entry = &self.page[self.pos..self.pos + SLOT_POINTER_SIZE];
+        Ok(read_u16(&mut entry)? as usize)
+    }
+
     pub fn next(&mut self) -> StoreResult<&'a [u8]> {
         let mut entry = &self.page[self.pos..self.pos + SLOT_POINTER_SIZE];
         let offset = read_u16(&mut entry)? as usize;

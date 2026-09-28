@@ -19,6 +19,7 @@ const CLASS_COLS: &[(&str, Type)] = &[
     ("root_page", Type::Uint),
     ("active_data", Type::Uint),
 ];
+const CLASS_ROOT: usize = 1;
 const CLASS_TID: usize = 1;
 
 // Hardcoded attributes schema
@@ -31,12 +32,13 @@ const ATTR_COLS: &[(&str, Type)] = &[
     ("not_null", Type::Bool),
     ("is_dead", Type::Bool),
 ];
+const ATTR_ROOT: usize = 2;
 const ATTR_TID: usize = 2;
 
 const FIRST_TID: usize = 3; // equal to number of catalog tables + 1
 
 pub struct Catalog {
-    tables: HashMap<usize, TableMeta>,
+    pub tables: HashMap<usize, TableMeta>,
     next_tid: usize,
 }
 
@@ -53,19 +55,17 @@ impl Catalog {
         let attr = Schema::from_static(ATTR_COLS);
 
         let mut class_tree = BpTree::create(pager)?;
-        let class_root = class_tree.root.unwrap();
         let mut attr_tree = BpTree::create(pager)?;
-        let attr_root = class_tree.root.unwrap();
         let mut class_page = DataPage::new(pager.alloc());
         let mut attr_page = DataPage::new(pager.alloc());
         
         let catalog_tables = [
-            (CLASS_TID, "class_catalog", class_root, class_page.header().id.get(), CLASS_COLS),
-            (ATTR_TID, "attr_catalog", attr_root, attr_page.header().id.get(), ATTR_COLS),
+            (CLASS_TID, "class_catalog", CLASS_ROOT, class_page.header().id.get(), CLASS_COLS),
+            (ATTR_TID, "attr_catalog", ATTR_ROOT, attr_page.header().id.get(), ATTR_COLS),
         ];
 
         for (tid, name, root, active, cols) in catalog_tables {
-            let row = class_row(tid, name, root.get(), active);
+            let row = class_row(tid, name, root, active);
             insert_row(&mut class_tree, &mut class_page, &class, &class_key(tid), row, pager)?;
 
             for (i, col) in cols.iter().enumerate() {
@@ -153,3 +153,80 @@ fn attr_row(hardcode: &(&str, Type), attnum: usize, tid: usize) -> Vec<Option<Va
     row
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::store::schema::Column;
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    fn init_catalog() -> (Pager, Catalog) {
+        let file = NamedTempFile::new().unwrap();
+        let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap();
+        let catalog = Catalog::init(&mut pager).unwrap();
+
+        (pager, catalog)
+    }
+
+    #[test]
+    fn check_roots() {
+        let (_, catalog) = init_catalog();
+
+        let class_root = catalog.tables.get(&CLASS_TID).unwrap().tree.root.unwrap().get();
+        println!("{}", class_root);
+        assert_eq!(class_root, CLASS_ROOT);
+
+        let attr_root = catalog.tables.get(&ATTR_ROOT).unwrap().tree.root.unwrap().get();
+        println!("{}", attr_root);
+        assert_eq!(attr_root, ATTR_ROOT);
+    }
+
+    #[test]
+    fn check_class_rows() {
+        let (mut pager, catalog) = init_catalog();
+
+        let class_table = catalog.tables.get(&CLASS_TID).unwrap();
+        let class_rid = class_table.tree.get(&class_key(CLASS_TID), &mut pager).unwrap();
+        let class_page = pager.read::<DataPage>(class_rid.page).unwrap();
+        let class_bytes = class_page.get(class_rid.slot).unwrap();
+        let class_row = class_table.schema.decode(&class_bytes).unwrap();
+
+        assert_eq!(class_row[0], Some(Value::Uint(CLASS_TID))); 
+        assert_eq!(class_row[1], Some(Value::Text("class_catalog".into())));
+        assert_eq!(class_row[2], Some(Value::Uint(CLASS_ROOT)));
+        assert_eq!(class_row[3], Some(Value::Uint(class_page.header().id.get())));
+    }
+
+    #[test]
+    fn check_attr_ownership() {
+        let (mut pager, catalog) = init_catalog();
+
+        let attr_table = catalog.tables.get(&ATTR_TID).unwrap();
+        
+        for i in 1..=4 {
+            let _ = attr_table.tree.get(&attr_key(CLASS_TID, i), &mut pager).unwrap();
+        }
+
+        for i in 1..=7 {
+            let _ = attr_table.tree.get(&attr_key(ATTR_TID, i), &mut pager).unwrap();
+        }
+    }
+
+    #[test]
+    fn check_schema_encoding() {
+        let (mut pager, catalog) = init_catalog();
+
+        let attr_table = catalog.tables.get(&ATTR_TID).unwrap();
+        let rids = attr_table.tree.scan_rids(&mut pager).unwrap();
+
+        let mut cols = Vec::new();
+        for rid in rids {
+            let page = pager.read::<DataPage>(rid.page).unwrap();
+            let bytes = page.get(rid.slot).unwrap();
+            let row = attr_table.schema.decode(&bytes).unwrap();
+            if row[1].clone().unwrap().as_uint().unwrap() == CLASS_TID { cols.push(Column::from_row(row)); }
+        }
+
+        assert_eq!(Schema(cols), Schema::from_static(CLASS_COLS))
+    }
+
+}

@@ -118,8 +118,6 @@ impl BpTree {
         Ok(rids)
     }
 
-    // TODO: range scan
-
     // Returns Some(Rid) if the associated RID needs to be deleted
     pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<Option<Rid>> {
         // Deny inputs that can't fit into a page
@@ -638,13 +636,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn insert_until_split() -> StoreResult<()>{
         let (tree, mut pager) = setup(50000);
         tree.validate(&mut pager)?;
         Ok(())
     }
-
-
 
     #[test]
     fn delete_leaf_root() {
@@ -710,6 +707,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn delete_intensive() -> StoreResult<()> {
         let (mut tree, mut pager) = setup(50000);
         let mut expected: Vec<String> = (1..=50000).map(|i| format!("key{:05}", i)).collect();

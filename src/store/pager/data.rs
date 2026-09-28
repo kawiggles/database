@@ -10,7 +10,7 @@ use crate::{
 
 pub struct DataPage {
     header: PageHeader,
-    data: Vec<Vec<u8>>,
+    data: Vec<Option<Vec<u8>>>,
     overflow: Option<PageId>,
 }
 
@@ -20,7 +20,7 @@ impl DataPage {
             id,
             pagetype: PageType::Data,
             next: None,
-            slots: 0 as u16,
+            slots: 1 as u16,
             lower: PAGEHEADER_SIZE as u16,
             upper: PAGE_SIZE as u16,
         };
@@ -29,15 +29,18 @@ impl DataPage {
     }
     
     pub fn get(&self, slot: u16) -> StoreResult<Vec<u8>> {
-        todo!()
+        match self.data.get(slot as usize).and_then(|o| o.as_deref()) {
+            Some(x) => Ok(x.to_vec()),
+            None => Err(StoreErr::DatapageNoSlotData { page: self.header.id, slot })
+        }
     }
 
     pub fn insert(&mut self, bytes: &[u8]) -> StoreResult<Rid> {
-        self.data.extend_from_slice(&[bytes.to_vec()]);
+        self.data.push(Some(bytes.to_vec()));
 
         self.refresh_header();
         // TODO: overflow logic
-        Ok(Rid { page: self.header.id, slot: self.header.slots })
+        Ok(Rid { page: self.header.id, slot: self.data.len() as u16 - 1 })
     }
     
     pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {
@@ -48,13 +51,18 @@ impl DataPage {
         self.header.slots = self.data.len() as u16 + 1;
         self.header.lower = PAGEHEADER_SIZE as u16 + self.header.slots * SLOT_POINTER_SIZE as u16;
 
-        let sum = self.data.iter().map(|b| b.len()).sum::<usize>();
+        let sum = self.data
+            .iter()
+            .flatten()
+            .map(|b| b.len())
+            .sum::<usize>();
+
         self.header.upper = PAGE_SIZE
             .checked_sub(sum)
             .and_then(|v| v.checked_sub(PAGEID_SIZE))
             .unwrap_or(0) as u16;
 
-        debug_assert_eq!(self.data.len(), self.header.slots as usize);
+        debug_assert_eq!(self.data.len() + 1, self.header.slots as usize);
     }
 }
 
@@ -74,7 +82,20 @@ impl Page for DataPage {
         let mut dir = PAGEHEADER_SIZE;
         let mut end = PAGE_SIZE;
 
-        for data in &self.data {
+        for data_o in &self.data {
+            let Some(data) = data_o else { 
+                if end < dir + SLOT_POINTER_SIZE {
+                    return Err(StoreErr::SlotOverwrite {
+                        page: self.header.id,
+                        len: 0,
+                        pagetype: PageType::Data,
+                    });
+                }
+
+                bytes[dir..dir+4].clone_from_slice(&[0u8; 4]);
+                dir += SLOT_POINTER_SIZE;
+                continue;
+            };
             let offset = end - data.len();
 
             if offset < dir + SLOT_POINTER_SIZE {
@@ -114,10 +135,14 @@ impl Page for DataPage {
     }
 
     fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self> {
-        let mut data: Vec<Vec<u8>> = Vec::new();
+        let mut data: Vec<Option<Vec<u8>>> = Vec::new();
 
-        // this might be off by one
-        for _ in 1..header.slots { data.push(cursor.next()?.to_vec()); }
+        // check here for off-by-one errors
+        for _ in 1..header.slots { 
+            let dead = cursor.offset()? == 0;
+            let bytes = cursor.next()?;
+            data.push((!dead).then(|| bytes.to_vec()));
+        }
 
         let overflow = PageId::new(read_usize(&mut cursor.next()?)?);
         
@@ -133,7 +158,7 @@ mod tests {
     fn serialize_and_deserialize() {
         let mut data = DataPage::new(PageId::new(1).unwrap());
         let bytes = vec![b'h', b'i'];
-        data.insert(&bytes);
+        data.insert(&bytes).unwrap();
     }
 
     #[test]

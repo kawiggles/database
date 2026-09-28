@@ -85,6 +85,11 @@ pub enum StoreErr {
     EmptyPage {
         page: PageId,
         pagetype: PageType,
+    },
+    #[error("Attempted to read slot {} of datapage {}, but no slot was found.", slot, page)]
+    DatapageNoSlotData {
+        page: PageId,
+        slot: u16,
     }
 }
 

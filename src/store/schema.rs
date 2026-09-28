@@ -11,22 +11,50 @@ use crate::{
 };
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Type {
-    Bool,
-    Int,
-    Uint,
-    Float,
-    Text,
-    Blob
+    Bool = 0,
+    Int = 1,
+    Uint = 2,
+    Float = 3,
+    Text = 4,
+    Blob = 5,
 }
 
+impl TryFrom<u8> for Type {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Type::Bool),
+            1 => Ok(Type::Int),
+            2 => Ok(Type::Uint),
+            3 => Ok(Type::Float),
+            4 => Ok(Type::Text),
+            5 => Ok(Type::Blob),
+            _ => Err("unexpected value type u8 representation found")
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Column {
     pub name: String,
     pub ty: Type,
 }
 
-pub struct Schema(Vec<Column>);
+impl Column {
+    pub fn from_row(row: Vec<Option<Value>>) -> Self {
+        // TODO: holy shit this is ugly, you've gotta fix it at some point
+        let name = row.get(2).unwrap().clone().unwrap().as_text().unwrap().clone();
+        let ty = Type::try_from(row.get(3).unwrap().clone().unwrap().as_uint().unwrap() as u8).unwrap();
+
+        Self { name, ty }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Schema(pub Vec<Column>);
 
 // TODO: for future optimization: use split on the bytestream instead of reading to reduce copying
 impl Schema {
