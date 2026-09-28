@@ -90,7 +90,18 @@ pub enum StoreErr {
     DatapageNoSlotData {
         page: PageId,
         slot: u16,
-    }
+    },
+    #[error("Unexpected value type indicator")]
+    UnexpectedType,
+    #[error("Failed to decode AttrRow at field {0}")]
+    NullField(usize),
+    #[error("Row column count of {} does not match schema column count of {}", expected, found)]
+    BadColCount {
+        expected: usize,
+        found: usize
+    },
+    #[error("PageId of zero detected, that's illegal")]
+    PageIdZero,
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;

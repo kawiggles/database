@@ -42,9 +42,10 @@ impl Server {
         init_logs();
         info!("Starting server...");
 
-        // TODO: add way to configure file and order selection
+        // TODO: add way to configure file
+        // TODO: handle catalog and pager startup errors
         let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE)
-                .expect("Failed to start database")));
+            .expect("Failed to start database")));
         info!(" - Database initialized");
 
         // TODO: add way to select where the server is being hosted

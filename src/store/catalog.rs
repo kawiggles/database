@@ -1,5 +1,5 @@
 use crate::{
-    errors::DbResult,
+    errors::{DbResult, StoreResult, StoreErr},
     store::{
         bptree::BpTree,
         pager::{DataPage, Page, Pager, page::PageId},
@@ -46,30 +46,41 @@ struct TableMeta {
     pub tid: usize,
     pub name: String,
     pub tree: BpTree,
+    pub active_data: PageId,
     pub schema: Schema,
 }
 
 impl Catalog {
-    fn init(pager: &mut Pager) -> DbResult<Self> {
+    pub fn init(pager: &mut Pager) -> DbResult<Self> {
         let class = Schema::from_static(CLASS_COLS);
         let attr = Schema::from_static(ATTR_COLS);
 
         let mut class_tree = BpTree::create(pager)?;
         let mut attr_tree = BpTree::create(pager)?;
-        let mut class_page = DataPage::new(pager.alloc());
-        let mut attr_page = DataPage::new(pager.alloc());
+        let class_page_id = pager.alloc();
+        let attr_page_id = pager.alloc();
+        let mut class_page = DataPage::new(class_page_id);
+        let mut attr_page = DataPage::new(attr_page_id);
         
         let catalog_tables = [
-            (CLASS_TID, "class_catalog", CLASS_ROOT, class_page.header().id.get(), CLASS_COLS),
-            (ATTR_TID, "attr_catalog", ATTR_ROOT, attr_page.header().id.get(), ATTR_COLS),
+            (CLASS_TID, "class_catalog", PageId::new(CLASS_ROOT).unwrap(),
+                class_page.header().id, CLASS_COLS),
+            (ATTR_TID, "attr_catalog", PageId::new(ATTR_ROOT).unwrap(),
+                attr_page.header().id, ATTR_COLS),
         ];
 
         for (tid, name, root, active, cols) in catalog_tables {
-            let row = class_row(tid, name, root, active);
-            insert_row(&mut class_tree, &mut class_page, &class, &class_key(tid), row, pager)?;
+            let row = ClassRow { tid, name: name.into(), root, active };
+            insert_row(&mut class_tree,
+                &mut class_page,
+                &class,
+                &class_key(tid),
+                Vec::<Option<Value>>::from(row),
+                pager)?;
 
             for (i, col) in cols.iter().enumerate() {
                 let attnum = i + 1;
+                let row = AttrRow { attnum, tid, name: , ty: , is_key:  };
                 let row = attr_row(col, attnum, tid);
                 insert_row(&mut attr_tree, &mut attr_page, &attr, &attr_key(tid, attnum), row, pager)?;
             }
@@ -84,20 +95,121 @@ impl Catalog {
             tid: CLASS_TID,
             name: "class_catalog".into(),
             tree: class_tree,
+            active_data: class_page_id,
             schema: class,
         });
         tables.insert(ATTR_TID, TableMeta {
             tid: ATTR_TID,
             name: "attr_catalog".into(),
             tree: attr_tree,
+            active_data: attr_page_id,
             schema: attr,
         });
         
         Ok(Self { tables, next_tid: FIRST_TID }) 
     }
 
-    fn open(pager: &mut Pager) -> DbResult<Self> {
+    pub fn open(pager: &mut Pager) -> DbResult<Self> {
         todo!()
+    }
+}
+
+pub struct ClassRow {
+    pub tid: usize,
+    pub name: String,
+    pub root: PageId,
+    pub active: PageId,
+}
+ 
+impl TryFrom<Vec<Option<Value>>> for ClassRow {
+    type Error = StoreErr;
+
+    fn try_from(row: Vec<Option<Value>>) -> Result<Self, Self::Error> {
+        let [tid, name, root, active]: [Option<Value>; 4] =
+            row.try_into()
+            .map_err(|r: Vec<_>| StoreErr::BadColCount{ expected: 4, found: r.len() })?;
+
+        Ok(Self {
+            tid: tid.and_then(|v| v.as_uint()).ok_or(StoreErr::AttrFieldDecodeErr(0))?,
+            name: name.and_then(|v| v.as_text()).ok_or(StoreErr::AttrFieldDecodeErr(1))?,
+            root: PageId::new(root
+                .and_then(|v| v.as_uint())
+                .ok_or(StoreErr::AttrFieldDecodeErr(2))?)
+                .ok_or(StoreErr::PageIdZero)?,
+            active: PageId::new(active
+                .and_then(|v| v.as_uint())
+                .ok_or(StoreErr::AttrFieldDecodeErr(3))?)
+                .ok_or(StoreErr::PageIdZero)?,
+        })
+    }
+}
+
+impl From<ClassRow> for Vec<Option<Value>> {
+    fn from(row: ClassRow) -> Self {
+        vec![
+            Some(Value::Uint(row.tid)),
+            Some(Value::Text(row.name.into())),
+            Some(Value::Uint(row.root.get())),
+            Some(Value::Uint(row.active.get())),
+        ]
+    }
+}
+
+pub struct AttrRow {
+    pub attnum: usize,
+    pub tid: usize,
+    pub name: String,
+    pub ty: Type,
+    pub is_key: bool,
+    pub not_null: bool,
+    pub is_dead: bool,
+}
+
+// TODO: try using this instead
+fn field<T>(val: Option<Value>, col: usize) -> StoreResult<T>
+where T: TryFrom<Value, Error = StoreErr> {
+    val.ok_or(StoreErr::NullField(col))?.try_into()
+}
+
+impl TryFrom<Vec<Option<Value>>> for AttrRow {
+    type Error = StoreErr;
+
+    fn try_from(row: Vec<Option<Value>>) -> Result<Self, Self::Error> {
+        let [attnum, tid, name, ty, is_key, not_null, is_dead]: [Option<Value>; 7] =
+            row.try_into()
+            .map_err(|r: Vec<_>| StoreErr::BadColCount { expected: 7, found: r.len() })?;
+        
+        Ok(Self {
+            // TODO: instead of as_T(), do TryFrom on Value
+            attnum: attnum.and_then(|v| v.as_uint()).ok_or(StoreErr::AttrFieldDecodeErr(0))?,
+            tid: tid.and_then(|v| v.as_uint()).ok_or(StoreErr::AttrFieldDecodeErr(1))?,
+            name: name.and_then(|v| v.as_text()).ok_or(StoreErr::AttrFieldDecodeErr(2))?,
+            ty: Type::try_from(ty.and_then(|v| v.as_uint()).ok_or(StoreErr::AttrFieldDecodeErr(3))?)?,
+            is_key: is_key.and_then(|v| v.as_bool()).ok_or(StoreErr::AttrFieldDecodeErr(4))?,
+            not_null: not_null.and_then(|v| v.as_bool()).ok_or(StoreErr::AttrFieldDecodeErr(5))?,
+            is_dead: is_dead.and_then(|v| v.as_bool()).ok_or(StoreErr::AttrFieldDecodeErr(6))?,
+        })
+    }
+}
+
+impl From<AttrRow> for Vec<Option<Value>> {
+    // TODO: change this to actually be dependent on input values
+    fn from(attr: AttrRow) -> Self {
+        let mut row: Vec<Option<Value>> = Vec::with_capacity(7); // Number of columns is Attr
+        row.push(Some(Value::Uint(attr.attnum)));
+        row.push(Some(Value::Uint(attr.tid)));
+        row.push(Some(Value::Text(attr.name.into())));
+        row.push(Some(Value::Uint(attr.ty as usize)));
+
+        if attr.attnum == 1 {
+            row.push(Some(Value::Bool(true)));
+        } else { 
+            row.push(Some(Value::Bool(false)));
+        }
+        row.push(Some(Value::Bool(true)));
+        row.push(Some(Value::Bool(false)));
+
+        row
     }
 }
 
@@ -122,35 +234,6 @@ fn insert_row(
     tree.insert(key, rid, pager)?;
 
     Ok(())
-}
-
-fn class_row(tid: usize, name: &str, root: usize, active: usize) -> Vec<Option<Value>> {
-    vec![
-        Some(Value::Uint(tid)),
-        Some(Value::Text(name.into())),
-        Some(Value::Uint(root)),
-        Some(Value::Uint(active)),
-    ]
-}
-
-fn attr_row(hardcode: &(&str, Type), attnum: usize, tid: usize) -> Vec<Option<Value>> {
-    let mut row: Vec<Option<Value>> = Vec::with_capacity(7); // Number of columns is Attr
-    row.push(Some(Value::Uint(attnum)));
-    row.push(Some(Value::Uint(tid)));
-    row.push(Some(Value::Text(hardcode.0.into())));
-    row.push(Some(Value::Uint(hardcode.1 as usize)));
-
-    // clumsy solution that will need to get replaced later
-    if attnum == 1 {
-        row.push(Some(Value::Bool(true)));
-    } else { 
-        row.push(Some(Value::Bool(false)));
-    }
-
-    row.push(Some(Value::Bool(true)));
-    row.push(Some(Value::Bool(false)));
-
-    row
 }
 
 #[cfg(test)]
@@ -223,7 +306,7 @@ mod tests {
             let page = pager.read::<DataPage>(rid.page).unwrap();
             let bytes = page.get(rid.slot).unwrap();
             let row = attr_table.schema.decode(&bytes).unwrap();
-            if row[1].clone().unwrap().as_uint().unwrap() == CLASS_TID { cols.push(Column::from_row(row)); }
+            if row[1].clone().unwrap().as_uint().unwrap() == CLASS_TID { cols.push(Column::from_row(row).unwrap()); }
         }
 
         assert_eq!(Schema(cols), Schema::from_static(CLASS_COLS))

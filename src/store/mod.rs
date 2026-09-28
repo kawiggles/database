@@ -4,6 +4,10 @@ pub mod pager;
 pub mod schema;
 pub mod catalog;
 
+use std::{
+    path::Path,
+};
+
 use crate::{
     errors::{ DbResult, UserErr},
     store::{
@@ -34,10 +38,22 @@ pub struct Store {
 // Next major work happens here, plan is volcano iterator, cause splosions
 impl Store {
     pub fn start(filepath: &str) -> DbResult<Self> {
-        todo!()
+        let path = Path::new(filepath);
+
+        if path.exists() {
+            let mut pager = Pager::open(filepath)?;
+            let mut catalog = Catalog::open(&mut pager)?;
+            
+            Ok(Self { catalog, pager })
+        } else {
+            let mut pager = Pager::new(filepath)?;
+            let mut catalog = Catalog::init(&mut pager)?;
+
+            Ok(Self { catalog, pager })
+        }
     }
 
-    // don't event know if this sort of function will still be used.
+    // don't even know if this sort of function will still be used.
     pub fn get(&self, key: &str) -> DbResult<Value> {
         todo!()
     }

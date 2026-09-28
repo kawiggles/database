@@ -16,6 +16,8 @@ impl Value {
     pub fn text(s: &str) -> Self { Value::Text(s.to_owned()) }
     pub fn blob(b: Vec<u8>) -> Self { Value::Blob(b) }
 
+    // TODO: these should all be TryFrom
+    // TODO: also do the Froms
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(x) => Some(*x),

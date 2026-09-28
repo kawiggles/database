@@ -4,8 +4,9 @@ use std::{
 };
 
 use crate::{
-    errors::{StoreResult},
+    errors::{StoreResult, StoreErr},
     store::{
+        catalog::AttrRow,
         value::Value,
     },
 };
@@ -21,10 +22,10 @@ pub enum Type {
     Blob = 5,
 }
 
-impl TryFrom<u8> for Type {
-    type Error = &'static str;
+impl TryFrom<usize> for Type {
+    type Error = StoreErr;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Type::Bool),
             1 => Ok(Type::Int),
@@ -32,7 +33,7 @@ impl TryFrom<u8> for Type {
             3 => Ok(Type::Float),
             4 => Ok(Type::Text),
             5 => Ok(Type::Blob),
-            _ => Err("unexpected value type u8 representation found")
+            _ => Err(StoreErr::UnexpectedType)
         }
     }
 }
@@ -44,12 +45,12 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn from_row(row: Vec<Option<Value>>) -> Self {
+    pub fn from_row(row: AttrRow) -> StoreResult<Self> {
         // TODO: holy shit this is ugly, you've gotta fix it at some point
         let name = row.get(2).unwrap().clone().unwrap().as_text().unwrap().clone();
-        let ty = Type::try_from(row.get(3).unwrap().clone().unwrap().as_uint().unwrap() as u8).unwrap();
+        let ty = Type::try_from(row.get(3).unwrap().clone().unwrap().as_uint().unwrap() as u8)?;
 
-        Self { name, ty }
+        Ok(Self { name, ty })
     }
 }
 
