@@ -5,10 +5,7 @@ use std::{
 
 use crate::{
     errors::{StoreResult, StoreErr},
-    store::{
-        catalog::AttrRow,
-        value::Value,
-    },
+    store::value::Value,
 };
 
 #[repr(u8)]
@@ -42,16 +39,9 @@ impl TryFrom<usize> for Type {
 pub struct Column {
     pub name: String,
     pub ty: Type,
-}
-
-impl Column {
-    pub fn from_row(row: AttrRow) -> StoreResult<Self> {
-        // TODO: holy shit this is ugly, you've gotta fix it at some point
-        let name = row.get(2).unwrap().clone().unwrap().as_text().unwrap().clone();
-        let ty = Type::try_from(row.get(3).unwrap().clone().unwrap().as_uint().unwrap() as u8)?;
-
-        Ok(Self { name, ty })
-    }
+    pub is_key: bool,
+    pub nullable: bool,
+    pub is_dead: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -60,7 +50,13 @@ pub struct Schema(pub Vec<Column>);
 // TODO: for future optimization: use split on the bytestream instead of reading to reduce copying
 impl Schema {
     pub fn from_static(cols: &[(&str, Type)]) -> Self {
-        Self(cols.iter().map(|&(name, ty)| Column { name: name.into(), ty }).collect())
+        Self(cols.iter().enumerate().map(|(i, &(name, ty))| Column {
+            name: name.into(),
+            ty,
+            is_key: if i == 0 { true } else { false },
+            nullable: false,
+            is_dead: false,
+        }).collect())
     }
 
     pub fn decode(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {
@@ -70,7 +66,7 @@ impl Schema {
         row_bytes.read_exact(&mut bitmap)?;
 
         for (i, col) in self.0.iter().enumerate() {
-            if bm_is_null(&bitmap, i) {
+            if bm_nullable(&bitmap, i) {
                 vals.push(None);
                 continue;
             }
@@ -124,6 +120,7 @@ impl Schema {
         Ok(vals)
     }
 
+    // TODO: check values here instead of outside of function
     pub fn encode(&self, entries: Vec<Option<Value>>) -> StoreResult<Vec<u8>> {
         let mut bytes: Vec<u8> = Vec::new();
         let mut bitmap = vec![0u8; self.0.len().div_ceil(8)];
@@ -153,7 +150,7 @@ impl Schema {
     }
 }
 
-fn bm_is_null(map: &[u8], col: usize) -> bool {
+fn bm_nullable(map: &[u8], col: usize) -> bool {
     map[col / 8] & (1 << (col % 8)) != 0
 }
 

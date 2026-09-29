@@ -98,14 +98,11 @@ pub enum StoreErr {
     UnexpectedType,
     #[error("Failed to decode AttrRow at field {0}")]
     NullField(usize),
-    #[error("Row column count of {} does not match schema column count of {}", expected, found)]
-    BadColCount {
-        expected: usize,
-        found: usize
-    },
+    #[error("Attempted to index out of bounds column {0}")]
+    BadColIndex(usize),
     #[error("PageId of zero detected, that's illegal")]
     PageIdZero,
-    #[error("Error encountered attempting to convert a Value type, expected {0}")]
+    #[error("Error encountered attempting to convert a Value type, expected {0:?}")]
     TypeErr(Type),
 }
 
