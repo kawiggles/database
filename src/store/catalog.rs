@@ -1,5 +1,5 @@
 use crate::{
-    errors::{DbResult, StoreErr, StoreResult},
+    errors::{DbResult, UserErr, UserResult, StoreErr, StoreResult},
     store::{
         bptree::BpTree,
         pager::{DataPage, Pager, page::PageId},
@@ -38,6 +38,7 @@ const FIRST_TID: usize = 3; // equal to number of catalog tables + 1
 // TODO: store catalog roots in the database header
 pub struct Catalog {
     pub tables: HashMap<usize, TableMeta>,
+    pub names: HashMap<String, usize>,
     next_tid: usize,
 }
 
@@ -62,7 +63,6 @@ impl Catalog {
         let attr_page_id = pager.alloc();
         let mut class_page = DataPage::new(class_page_id);
         let mut attr_page = DataPage::new(attr_page_id);
-        let mut tables = HashMap::new();
         
         let catalog_tables = [
             (CLASS_TID, "class_catalog", class_tree.root.unwrap(), class_page_id, CLASS_COLS),
@@ -92,6 +92,9 @@ impl Catalog {
         pager.write(attr_page)?;
         pager.flush()?;
 
+        let mut tables = HashMap::new();
+        let mut names = HashMap::new();
+
         tables.insert(CLASS_TID, TableMeta {
             tid: CLASS_TID,
             name: "class_catalog".into(),
@@ -99,6 +102,7 @@ impl Catalog {
             active_data: class_page_id,
             schema: Schema::from_static(CLASS_COLS),
         });
+        names.insert("class_catalog".into(), CLASS_TID);
 
         tables.insert(ATTR_TID, TableMeta {
             tid: ATTR_TID,
@@ -107,20 +111,22 @@ impl Catalog {
             active_data: attr_page_id,
             schema: Schema::from_static(ATTR_COLS),
         });
+        names.insert("attr_catalog".into(), ATTR_TID);
 
-        Ok(Self { tables, next_tid: FIRST_TID }) 
+        Ok(Self { tables, names, next_tid: FIRST_TID }) 
     }
 
     pub fn open(pager: &mut Pager) -> DbResult<Self> {
         todo!()
     }
 
-    pub fn lookup_by_tid(&self) -> DbResult<TableMeta> {
-        todo!()
+    pub fn lookup_by_tid(&self, tid: usize) -> UserResult<&TableMeta> {
+        self.tables.get(&tid).ok_or(UserErr::NoTable)
     }
 
-    pub fn lookup_by_name(&self) -> DbResult<TableMeta> {
-        todo!()
+    pub fn lookup_by_name(&self, name: &str) -> UserResult<&TableMeta> {
+        let tid = self.names.get(name).ok_or(UserErr::NoTable)?;
+        self.tables.get(&tid).ok_or(UserErr::NoTable)
     }
 
     pub fn create_table(&mut self, name: &str, cols: Schema) -> DbResult<()> {

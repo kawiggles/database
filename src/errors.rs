@@ -155,6 +155,8 @@ pub enum UserErr {
     NoRoot,
     #[error("Key {0} is too long (sorry)")]
     LongKey(String),
+    #[error("Table not found")]
+    NoTable,
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
