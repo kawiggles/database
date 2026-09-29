@@ -9,7 +9,10 @@ use simplelog::{WriteLogger, Config};
 use crate::{
     tcp::response::Response,
     query::lexer::Token,
-    store::pager::{PageType, PageId},
+    store::{
+        pager::{PageType, PageId},
+        schema::Type,
+    },
 };
 
 pub fn init_logs() {
@@ -102,6 +105,8 @@ pub enum StoreErr {
     },
     #[error("PageId of zero detected, that's illegal")]
     PageIdZero,
+    #[error("Error encountered attempting to convert a Value type, expected {0}")]
+    TypeErr(Type),
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
@@ -131,8 +136,11 @@ pub enum TreeErr {
     #[error("Page {0} is underflowing")]
     PageUnderflow(PageId),
 }
-
 pub type TreeResult<T> = std::result::Result<T, TreeErr>;
+
+#[derive(Error, Debug)]
+pub enum TypeErr {
+}
 
 #[derive(Error, Debug)]
 pub enum UserErr {
