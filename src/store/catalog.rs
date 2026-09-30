@@ -65,8 +65,8 @@ impl Catalog {
         let mut attr_page = DataPage::new(attr_page_id);
         
         let catalog_tables = [
-            (CLASS_TID, "class_catalog", class_tree.root.unwrap(), class_page_id, CLASS_COLS),
-            (ATTR_TID, "attr_catalog", attr_tree.root.unwrap(), attr_page_id, ATTR_COLS),
+            (CLASS_TID, "class_catalog", class_tree.root, class_page_id, CLASS_COLS),
+            (ATTR_TID, "attr_catalog", attr_tree.root, attr_page_id, ATTR_COLS),
         ];
 
         // bootstrapping happens here
@@ -257,11 +257,11 @@ mod tests {
     fn check_roots() {
         let (_, catalog) = init_catalog();
 
-        let class_root = catalog.tables.get(&CLASS_TID).unwrap().tree.root.unwrap().get();
+        let class_root = catalog.tables.get(&CLASS_TID).unwrap().tree.root.get();
         println!("{}", class_root);
         assert_eq!(class_root, CLASS_ROOT);
 
-        let attr_root = catalog.tables.get(&ATTR_ROOT).unwrap().tree.root.unwrap().get();
+        let attr_root = catalog.tables.get(&ATTR_ROOT).unwrap().tree.root.get();
         println!("{}", attr_root);
         assert_eq!(attr_root, ATTR_ROOT);
     }

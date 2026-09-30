@@ -7,14 +7,18 @@ use crate::{
     }
 };
 
+// TODO: efficiency thing: way too many reads and writes 
+// we might be able to isolate this into a crate and have all b+ tree operations take place in
+// memory
+
 pub struct BpTree {
-    pub root: Option<PageId>,
+    pub root: PageId,
 }
 
 impl BpTree {
     // will eventually need to come up with a method for creating a new bp tree from a list of keys
     // or merging two trees (join operation). That'll be an implementation of merge sort, yay.
-    pub fn open(root: Option<PageId>) -> Self {
+    pub fn open(root: PageId) -> Self {
         BpTree { root }
     }
 
@@ -22,16 +26,12 @@ impl BpTree {
         let root = pager.alloc();
         let leaf = LeafPage::new_empty(root);
         pager.write(leaf)?;
-        Ok(BpTree { root: Some(root) })
+        Ok(BpTree { root: root })
     }
 
     // really want to make this a property of the b+ tree for O(1) time
     pub fn get(&self, key: &str, pager: &mut Pager) -> DbResult<Rid> {
-        let mut current = match self.root {
-            Some(x) => x,
-            None => return Err(UserErr::NoRoot)?,
-        };
-
+        let mut current = self.root;
         loop {
             let page = pager.read_any(current)?;
             match page {
@@ -55,11 +55,7 @@ impl BpTree {
     }
 
     pub fn contains(&self, key: &str, pager: &mut Pager) -> DbResult<bool> {
-        let mut current = match self.root {
-            Some(x) => x,
-            None => return Err(UserErr::NoRoot)?,
-        };
-
+        let mut current = self.root;
         loop {
             let page = pager.read_any(current)?;
             match page {
@@ -82,9 +78,7 @@ impl BpTree {
     }
 
     fn first_leaf(&self, pager: &mut Pager) -> StoreResult<PageId> {
-        let Some(root) = self.root else { return Err(TreeErr::Empty)?; };
-
-        let mut current = root;
+        let mut current = self.root;
         loop {
             let page = pager.read_any(current)?;
             match page {
@@ -118,27 +112,16 @@ impl BpTree {
         Ok(rids)
     }
 
-    // Returns Some(Rid) if the associated RID needs to be deleted
+    // Returns Some(Rid) if the associated RID needs to be overwritten
     pub fn insert(&mut self, key: &str, rid: Rid, pager: &mut Pager) -> DbResult<Option<Rid>> {
         // Deny inputs that can't fit into a page
         if key.len() + RID_SIZE + SLOT_POINTER_SIZE > PAGE_CAPACITY as usize {
             return Err(UserErr::LongKey(key.into()))?;
         }
 
-        // If the tree is empty, create a new root
-        let Some(root) = self.root else {
-            let new_id = pager.alloc();
-            let page = LeafPage::new(new_id, vec![key.to_string()], vec![rid], None);
-            pager.write(page)?;
-            pager.flush()?;
-
-            self.root = Some(new_id);
-            return Ok(None);
-        };
-
         // First: find the leaf page while tracking path
         let mut path: Vec<PageId> = Vec::new();
-        let mut current = root;
+        let mut current = self.root;
         loop {
             let page = pager.read_any(current)?;
             match page {
@@ -180,9 +163,10 @@ impl BpTree {
                 pager.write(parent)?;
             } else {
                 // If there's no parent, we make a new root
+                // TODO: alter this to do keep the root page static
                 let root_id = pager.alloc();
                 let parent = BranchPage::new(root_id, vec![promoted], vec![current, new_id]);
-                self.root = Some(root_id);
+                self.root = root_id;
                 pager.write(parent)?;
             }
         } else {
@@ -196,14 +180,9 @@ impl BpTree {
     // Holy fucking shit (Tool reference)
     // No fucking kidding, past me. WTF is this???
     pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<Rid> {
-        // Handle empty tree case
-        let Some(root) = self.root else {
-            return Err(UserErr::NoRoot)?;
-        };
-
         // First: search for the leaf node with the key to delete
         let mut path: Vec<PageId> = Vec::new();
-        let mut current = root;
+        let mut current = self.root;
         loop {
             let page = pager.read_any(current)?;
             match page {
@@ -295,12 +274,7 @@ impl BpTree {
                     }
                 }
             } else { // Means that the leaf is the root
-                if leaf.keys.is_empty() { // So if the delete emptied it, free it 
-                    self.root = None;
-                    pager.free(current)?;
-                } else {
-                    pager.write(leaf)?;
-                }
+                pager.write(leaf)?;
             }
         } else {
             pager.write(leaf)?;
@@ -391,14 +365,22 @@ impl BpTree {
             } else { break; }
         }
 
-        if let Some(root_id) = self.root {
-            let header = pager.read_header(root_id)?;
-            if header.pagetype == PageType::Branch {
-                let root_page = pager.read::<BranchPage>(root_id)?;
-                if root_page.keys.is_empty() {
-                    self.root = Some(root_page.children[0]);
-                    pager.free(root_id)?;
+        // TODO: rewrite so that root page id is maintained
+        let header = pager.read_header(self.root)?;
+        if header.pagetype == PageType::Branch {
+            let root_page = pager.read::<BranchPage>(self.root)?;
+            if root_page.keys.is_empty() {
+                let child_id = root_page.children[0];
+                let child = pager.read_any(child_id)?;
+
+                match child {
+                    AnyPage::Leaf(leaf) => {
+                    },
+                    AnyPage::Branch(branch) => {
+                    },
+                    x => return Err(StoreErr::UnexpectedPagetype(x.pagetype()))?,
                 }
+                pager.free(child_id)?;
             }
         }
 
@@ -407,20 +389,16 @@ impl BpTree {
     }
 
     pub fn validate(&self, pager: &mut Pager) -> StoreResult<()> {
-        let Some(root) = self.root else {
-            return Err(TreeErr::Empty)?;
-        };
-
-        let header = pager.read_header(root)?;
+        let header = pager.read_header(self.root)?;
         if header.pagetype == PageType::Branch {
-            let page = pager.read::<BranchPage>(root)?;
+            let page = pager.read::<BranchPage>(self.root)?;
             if page.children.len() < 2 {
                 return Err(TreeErr::RootTooFewChildren)?;
             }
         }
 
         let mut leaf_depth = 0;
-        let mut current = root;
+        let mut current = self.root;
         loop {
             let page = pager.read_any(current)?;
             match page {
@@ -451,7 +429,7 @@ impl BpTree {
             }
         }
 
-        return self.validate_page(root, 0, leaf_depth, None, None, pager);
+        return self.validate_page(self.root, 0, leaf_depth, None, None, pager);
     }
 
     fn validate_page(&self, id: PageId, depth: usize, leaf_depth: usize,
@@ -563,14 +541,9 @@ impl BpTree {
 
     pub fn print(&self, pager: &mut Pager) {
         println!();
-        let Some(root) = self.root else {
-            println!("Tree is empty");
-            println!();
-            return;
-        };
 
-        println!("Root (id: {:?})", root);
-        self.print_page(root, "", true, pager);
+        println!("Root (id: {:?})", self.root);
+        self.print_page(self.root, "", true, pager);
         println!();
     }
 }
@@ -597,10 +570,7 @@ mod tests {
         let mut keys: Vec<String> = Vec::new();
         let mut len = 0;
 
-        let Some(root) = tree.root else {
-            return Ok((len, keys));
-        };
-        let mut current = root;
+        let mut current = tree.root;
         loop {
             match pager.read_any(current)? {
                 AnyPage::Leaf(_) => break,
@@ -647,7 +617,7 @@ mod tests {
     fn delete_leaf_root() {
         let (mut tree, mut pager) = setup(1);
         tree.remove("key00001", &mut pager).unwrap();
-        assert!(tree.root.is_none());
+        assert_eq!(pager.read::<LeafPage>(tree.root).unwrap().keys.len(), 0);
     }
 
     #[test]
@@ -658,11 +628,11 @@ mod tests {
 
         for i in 1..=3000 {
             tree.remove(&format!("key{:05}", i), &mut pager).unwrap();
-            if i % 50 == 0 && tree.root.is_some() {
+            if i % 50 == 0 {
                 assert_tree_ok(&tree, &mut pager, &expected[i..])?;
             }
         }
-        assert!(tree.root.is_none());
+        assert_eq!(pager.read::<LeafPage>(tree.root).unwrap().keys.len(), 0);
         Ok(())
     }
 
@@ -712,23 +682,20 @@ mod tests {
         let (mut tree, mut pager) = setup(50000);
         let mut expected: Vec<String> = (1..=50000).map(|i| format!("key{:05}", i)).collect();
 
-        if let Some(root_id) = tree.root {
-            let root = pager.read::<BranchPage>(root_id)?;
-            let child = root.children[0];
-            let child_header = pager.read_header(child)?;
-
-            assert_eq!(child_header.pagetype, PageType::Branch);
-        }
+        let root = pager.read::<BranchPage>(tree.root)?;
+        let child = root.children[0];
+        let child_header = pager.read_header(child)?;
+        assert_eq!(child_header.pagetype, PageType::Branch);
 
         for i in 1..=50000 {
             tree.remove(&format!("key{:05}", i), &mut pager).unwrap();
             expected.remove(expected.binary_search(&format!("key{:05}", i)).unwrap_or(0));
-            if i % 200 == 0 && tree.root.is_some() {
+            if i % 200 == 0 {
                 assert_tree_ok(&tree, &mut pager, &expected)?;
             }
         }
-        assert!(tree.root.is_none());
 
+        assert_eq!(pager.read::<LeafPage>(tree.root).unwrap().keys.len(), 0);
         Ok(())
     }
 }
