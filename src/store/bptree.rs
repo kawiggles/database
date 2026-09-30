@@ -149,7 +149,7 @@ impl BpTree {
             let new_id = new_page.header().id;
 
             pager.write(new_page)?;
-            pager.write(page)?;
+            pager.write(page)?; // This might be a problem for the no root id replacement thing
 
             // Then we promote the key to the parent branch
             if let Some(&parent_id) = path.next() {
@@ -162,12 +162,12 @@ impl BpTree {
 
                 pager.write(parent)?;
             } else {
-                // If there's no parent, we make a new root
+                // If there's no parent, perform the split, 
                 // TODO: alter this to do keep the root page static
-                let root_id = pager.alloc();
-                let parent = BranchPage::new(root_id, vec![promoted], vec![current, new_id]);
-                self.root = root_id;
-                pager.write(parent)?;
+                let child_id = pager.alloc();
+                // now need to figure out how to copy old root contents into a new child page
+                let new_root = BranchPage::new(self.root, vec![promoted], vec![child_id, new_id]);
+                pager.write(new_root)?;
             }
         } else {
             pager.write(page)?;
