@@ -30,6 +30,10 @@ impl Page for FreePage {
         &self.0
     }
 
+    fn header_mut(&mut self) -> &mut PageHeader {
+        &mut self.0
+    }
+
     fn pagetype() -> PageType {
         PageType::Free
     }

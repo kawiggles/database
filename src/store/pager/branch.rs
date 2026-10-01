@@ -1,5 +1,3 @@
-use std::iter::Rev;
-
 use super::{
     Page, PageId, PageType, PageHeader, Pager,
     page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE, PAGEID_SIZE},
@@ -7,7 +5,6 @@ use super::{
 };
 
 use crate::errors::{StoreResult, StoreErr, TreeErr};
-use crate::store::BpTree;
 
 #[derive(Debug, PartialEq)]
 pub struct BranchPage {
@@ -41,8 +38,7 @@ impl BranchPage {
         self.refresh_header();
     }
 
-    pub fn split<'a, I>(&mut self, pager: &mut Pager, path: &mut Rev<I>, tree: &mut BpTree)
-        -> StoreResult<()> where I: Iterator<Item = &'a PageId> + DoubleEndedIterator {
+    pub fn split(&mut self, pager: &mut Pager) -> (String, Self) {
         let slot_mid = (PAGE_SIZE - self.header.upper as usize - PAGEID_SIZE) / 2;
 
         let mut num_bytes = 0;
@@ -66,23 +62,7 @@ impl BranchPage {
         debug_assert_eq!(self.header.slots as usize, self.children.len());
         debug_assert_eq!(new_page.header.slots as usize, new_page.children.len());
 
-        pager.write(new_page)?;
-
-        if let Some(&parent_id) = path.next() {
-            let mut parent = pager.read::<BranchPage>(parent_id)?;
-            parent.insert(promoted, new_id);
-            if parent.free_space() == None {
-                parent.split(pager, path, tree)?;
-            }
-            pager.write(parent)?;
-        } else {
-            let root_id = pager.alloc();
-            let parent = BranchPage::new(root_id, vec![promoted], vec![self.header.id, new_id]);
-            tree.root = Some(root_id);
-            pager.write(parent)?;
-        }
-
-        Ok(())
+        (promoted, new_page)
     }
 
     pub fn borrow_from(&mut self, sibling: &mut Self, from_left: bool, old_sep: String) -> String {
@@ -134,6 +114,10 @@ impl BranchPage {
 impl Page for BranchPage {
     fn header(&self) -> &PageHeader {
         &self.header
+    }
+
+    fn header_mut(&mut self) -> &mut PageHeader {
+        &mut self.header
     }
 
     fn pagetype() -> PageType {

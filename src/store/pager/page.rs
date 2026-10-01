@@ -11,6 +11,7 @@ pub const SLOT_POINTER_SIZE: usize = 4; // u16 + u16
 pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
+    fn header_mut(&mut self) -> &mut PageHeader;
     fn free_space(&self) -> Option<u16> {
         (self.header().upper).checked_sub(self.header().lower)
     }

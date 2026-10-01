@@ -145,11 +145,10 @@ impl BpTree {
 
         // Third: split the leaf if needed
         if page.free_space() == None {
-            let (promoted, new_page) = page.split(pager);
-            let new_id = new_page.header().id;
-
-            pager.write(new_page)?;
-            pager.write(page)?; // This might be a problem for the no root id replacement thing
+            let (promoted, right) = page.split(pager);
+            let mut right_id = right.header().id;
+            pager.write(right)?;
+            let mut left_id = self.place(page, pager)?;
 
             // Then we promote the key to the parent branch
             if let Some(&parent_id) = path.next() {
@@ -157,7 +156,7 @@ impl BpTree {
                 parent.insert(promoted, new_id);
 
                 if parent.free_space() == None {
-                    parent.split(pager, &mut path, self)?;
+                    parent.split(pager);
                 }
 
                 pager.write(parent)?;

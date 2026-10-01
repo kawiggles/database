@@ -159,6 +159,10 @@ impl Page for LeafPage {
         &self.header
     }
 
+    fn header_mut(&mut self) -> &mut PageHeader {
+        &mut self.header
+    }
+
     fn pagetype() -> PageType {
         PageType::Leaf
     }
