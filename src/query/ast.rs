@@ -3,6 +3,11 @@ use crate::{
     errors::{QueryResult, QueryErr},
 };
 
+use std::{
+    iter::Peekable,
+    slice::Iter,
+};
+
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Select(SelectStmt),
@@ -129,20 +134,17 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(tokens: &'a [Token]) -> Self {
-        Parser {
-            tokens: tokens,
-            pos: 0,
-        }
+        Parser { tokens, pos: 0 }
     }
 
     // Use if the next token is optional
-    fn peek(&self) -> &Token {
-        &self.tokens[self.pos]
+    fn peek(&self) -> &'a Token {
+        &self.tokens.get(self.pos).expect("Advanced past eof parsing tokens")
     }
 
     // Use to consume a peeked token
     fn advance(&mut self) -> Token {
-        let t = self.tokens[self.pos].clone();
+        let t = self.tokens.get(self.pos).expect("Advanced past eof parsing tokens").clone();
         self.pos += 1;
         t
     }
@@ -435,6 +437,7 @@ impl<'a> Parser<'a> {
 
     fn parse_assignment(&mut self) -> QueryResult<Assignment> {
         // TODO: Update target column parsing
+        // wtf does this mean past me???
         let column = self.parse_column_ref()?;
         self.expect(&Token::Eq)?;
         let val = self.parse_expr()?;
@@ -545,7 +548,7 @@ impl<'a> Parser<'a> {
     }
     
     fn peek_binop(&self) -> Option<BOp> {
-        match &self.tokens[self.pos] {
+        match self.peek() {
             Token::Eq => Some(BOp::Eq),
             Token::NotEq => Some(BOp::NotEq),
             Token::Lt => Some(BOp::Lt),
