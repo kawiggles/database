@@ -11,7 +11,7 @@ pub const SLOT_POINTER_SIZE: usize = 4; // u16 + u16
 pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
-    fn header_mut(&mut self) -> &mut PageHeader;
+    fn set_id(&mut self, id: PageId);
     fn free_space(&self) -> Option<u16> {
         (self.header().upper).checked_sub(self.header().lower)
     }
@@ -119,12 +119,14 @@ impl<'a> PageCursor<'a> {
     }
 
     pub fn offset(&self) -> StoreResult<usize> {
-        let mut entry = &self.page[self.pos..self.pos + SLOT_POINTER_SIZE];
+        let mut entry = self.page.get(self.pos..self.pos + SLOT_POINTER_SIZE)
+            .expect("Attempted to index outside page buffer");
         Ok(read_u16(&mut entry)? as usize)
     }
 
     pub fn next(&mut self) -> StoreResult<&'a [u8]> {
-        let mut entry = &self.page[self.pos..self.pos + SLOT_POINTER_SIZE];
+        let mut entry = self.page.get(self.pos..self.pos + SLOT_POINTER_SIZE)
+            .expect("Attempted to index outside page buffer");
         let offset = read_u16(&mut entry)? as usize;
         let len = read_u16(&mut entry)? as usize;
         self.pos += SLOT_POINTER_SIZE;

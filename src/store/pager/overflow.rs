@@ -22,8 +22,8 @@ impl Page for OverflowPage {
         &self.header
     }
 
-    fn header_mut(&mut self) -> &mut PageHeader {
-        &mut self.header
+    fn set_id(&mut self, id: PageId) {
+        self.header.id = id;
     }
 
     fn pagetype() -> PageType {

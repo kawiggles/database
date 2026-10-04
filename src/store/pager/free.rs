@@ -30,8 +30,8 @@ impl Page for FreePage {
         &self.0
     }
 
-    fn header_mut(&mut self) -> &mut PageHeader {
-        &mut self.0
+    fn set_id(&mut self, id: PageId) {
+        self.0.id = id;
     }
 
     fn pagetype() -> PageType {
