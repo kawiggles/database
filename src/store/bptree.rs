@@ -1,3 +1,5 @@
+use std::intrinsics::breakpoint;
+
 use crate::{
     errors::{DbResult, StoreErr, StoreResult, TreeErr, UserErr},
     store::{
@@ -133,43 +135,58 @@ impl BpTree {
                     };
                     current = branch.children[i];
                 },
-                AnyPage::Leaf(_) => break,
+                AnyPage::Leaf(_) => {
+                    path.push(current);
+                    break
+                },
                 _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype()))?,
             }
         }
-        let mut path = path.iter().rev();
+        let mut path = path.iter().rev().peekable();
 
         // Second: insert key and rid into leaf
         let mut page = pager.read::<LeafPage>(current)?;
         let replaced = page.insert(key, rid);
 
         // Third: split the leaf if needed
-        if page.free_space() == None {
+        if page.free_space() != None {
+            pager.write(page)?;
+            pager.flush()?;
+            return Ok(replaced);
+        }
+
+        while let Some(current) = path.next() {
+            let mut page = pager.read::<BranchPage>(*current)?;
+
+            if page.free_space() != None { break; }
+
             let (promoted, right) = page.split(pager);
-            let mut right_id = right.header().id;
+            let right_id = right.header().id;
             pager.write(right)?;
-            let mut left_id = self.place(page, pager)?;
 
             // Then we promote the key to the parent branch
             if let Some(&parent_id) = path.next() {
                 let mut parent = pager.read::<BranchPage>(parent_id)?;
-                parent.insert(promoted, new_id);
+                parent.insert(promoted, right_id);
 
                 if parent.free_space() == None {
                     parent.split(pager);
                 }
 
                 pager.write(parent)?;
+                pager.write(page)?;
             } else {
-                // If there's no parent, perform the split, 
-                // TODO: alter this to do keep the root page static
+                // If there is no parent, then the root is splitting
+                // The root id has to stay constant, so we basically set the current root (page) to
+                // a new PageId, it becomes the new child
                 let child_id = pager.alloc();
-                // now need to figure out how to copy old root contents into a new child page
-                let new_root = BranchPage::new(self.root, vec![promoted], vec![child_id, new_id]);
+                page.set_id(child_id);
+                pager.write(page)?;
+
+                // and the root page then gets overwritten by a new root with just two children
+                let new_root = BranchPage::new(self.root, vec![promoted], vec![child_id, right_id]);
                 pager.write(new_root)?;
             }
-        } else {
-            pager.write(page)?;
         }
 
         pager.flush()?;

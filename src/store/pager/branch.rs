@@ -28,6 +28,8 @@ impl BranchPage {
         }
     }
     
+    /// Inserts a (key, PageId) pair into a branch.
+    /// Warning! Panics if the key already exists!
     pub fn insert(&mut self, key: String, id: PageId) {
         let i = self.keys
             .binary_search_by(|probe| probe.as_str().cmp(&key))
