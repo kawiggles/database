@@ -3,11 +3,6 @@ use crate::{
     errors::{QueryResult, QueryErr},
 };
 
-use std::{
-    iter::Peekable,
-    slice::Iter,
-};
-
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Select(SelectStmt),
@@ -137,19 +132,19 @@ impl<'a> Parser<'a> {
         Parser { tokens, pos: 0 }
     }
 
-    // Use if the next token is optional
+    /// Use if the next token is optional
     fn peek(&self) -> &'a Token {
         &self.tokens.get(self.pos).expect("Advanced past eof parsing tokens")
     }
 
-    // Use to consume a peeked token
+    /// Use to consume a peeked token
     fn advance(&mut self) -> Token {
         let t = self.tokens.get(self.pos).expect("Advanced past eof parsing tokens").clone();
         self.pos += 1;
         t
     }
 
-    // Use if a statement has a required token
+    /// Use if a statement has a required token
     fn expect(&mut self, expected: &Token) -> QueryResult<()> {
         if self.peek() == expected {
             self.pos += 1;
@@ -336,7 +331,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // TODO: parse schema dots
+    // TODO: parse schema dots, as in <table>.<col>. We can't do that right now
     fn parse_table_ref(&mut self) -> QueryResult<TableRef> {
         match self.advance() {
             Token::Ident(ident) => {
@@ -436,7 +431,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment(&mut self) -> QueryResult<Assignment> {
-        // TODO: Update target column parsing
+        // TODO: UPDATE target column parsing
         // wtf does this mean past me???
         let column = self.parse_column_ref()?;
         self.expect(&Token::Eq)?;

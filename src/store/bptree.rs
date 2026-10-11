@@ -1,5 +1,3 @@
-use std::intrinsics::breakpoint;
-
 use crate::{
     errors::{DbResult, StoreErr, StoreResult, TreeErr, UserErr},
     store::{
@@ -135,62 +133,67 @@ impl BpTree {
                     };
                     current = branch.children[i];
                 },
-                AnyPage::Leaf(_) => {
-                    path.push(current);
-                    break
-                },
+                AnyPage::Leaf(_) => break,
                 _ => return Err(StoreErr::UnexpectedPagetype(page.pagetype()))?,
             }
         }
-        let mut path = path.iter().rev().peekable();
+        let mut path = path.iter().rev();
 
         // Second: insert key and rid into leaf
         let mut page = pager.read::<LeafPage>(current)?;
         let replaced = page.insert(key, rid);
 
-        // Third: split the leaf if needed
         if page.free_space() != None {
             pager.write(page)?;
             pager.flush()?;
             return Ok(replaced);
         }
 
-        while let Some(current) = path.next() {
-            let mut page = pager.read::<BranchPage>(*current)?;
+        // Third: split the leaf if needed
+        let (promoted, right) = page.split(pager);
+        let mut carry = (promoted, right.header().id);
+        pager.write(right)?;
 
-            if page.free_space() != None { break; }
+        if page.header().id == self.root {
+            self.assign_root(page, pager, &carry.0, carry.1)?;
+            pager.flush()?;
+            return Ok(replaced);
+        }
+        pager.write(page)?;
 
-            let (promoted, right) = page.split(pager);
-            let right_id = right.header().id;
-            pager.write(right)?;
+        while let Some(parent_id) = path.next() {
+            let mut parent = pager.read::<BranchPage>(*parent_id)?;
+            parent.insert(carry.0.as_ref(), carry.1);
 
-            // Then we promote the key to the parent branch
-            if let Some(&parent_id) = path.next() {
-                let mut parent = pager.read::<BranchPage>(parent_id)?;
-                parent.insert(promoted, right_id);
-
-                if parent.free_space() == None {
-                    parent.split(pager);
-                }
-
+            if parent.free_space() != None {
                 pager.write(parent)?;
-                pager.write(page)?;
-            } else {
-                // If there is no parent, then the root is splitting
-                // The root id has to stay constant, so we basically set the current root (page) to
-                // a new PageId, it becomes the new child
-                let child_id = pager.alloc();
-                page.set_id(child_id);
-                pager.write(page)?;
-
-                // and the root page then gets overwritten by a new root with just two children
-                let new_root = BranchPage::new(self.root, vec![promoted], vec![child_id, right_id]);
-                pager.write(new_root)?;
+                break;
             }
+
+            let (new_promoted, new_right) = parent.split(pager);
+            carry = (new_promoted, new_right.header().id);
+            pager.write(new_right)?;
+
+            if *parent_id == self.root {
+                self.assign_root(parent, pager, &carry.0, carry.1)?;
+            } else { pager.write(parent)?; }
         }
 
         pager.flush()?;
         Ok(replaced)
+    }
+
+    fn assign_root<T: Page>(
+        &self, mut page: T, pager: &mut Pager, promoted: &str, split_id: PageId
+    ) -> StoreResult<()> {
+        let child_id = pager.alloc();
+        page.set_id(child_id);
+        pager.write(page)?;
+
+        let new_root = BranchPage::new(self.root, vec![promoted.into()], vec![child_id, split_id]);
+        pager.write(new_root)?;
+
+        Ok(())
     }
 
     // Holy fucking shit (Tool reference)
@@ -381,7 +384,6 @@ impl BpTree {
             } else { break; }
         }
 
-        // TODO: rewrite so that root page id is maintained
         let header = pager.read_header(self.root)?;
         if header.pagetype == PageType::Branch {
             let root_page = pager.read::<BranchPage>(self.root)?;
@@ -390,9 +392,13 @@ impl BpTree {
                 let child = pager.read_any(child_id)?;
 
                 match child {
-                    AnyPage::Leaf(leaf) => {
+                    AnyPage::Leaf(mut leaf) => {
+                        leaf.set_id(self.root);
+                        pager.write(leaf)?;
                     },
-                    AnyPage::Branch(branch) => {
+                    AnyPage::Branch(mut branch) => {
+                        branch.set_id(self.root);
+                        pager.write(branch)?;
                     },
                     x => return Err(StoreErr::UnexpectedPagetype(x.pagetype()))?,
                 }
