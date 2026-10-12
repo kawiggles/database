@@ -20,6 +20,8 @@ const CLASS_COLS: &[(&str, Type)] = &[
     ("active_data", Type::Uint),
 ];
 const CLASS_TID: usize = 1;
+const CLASS_ROOT: usize = 1;
+
 
 // Hardcoded attributes schema
 const ATTR_COLS: &[(&str, Type)] = &[
@@ -32,6 +34,7 @@ const ATTR_COLS: &[(&str, Type)] = &[
     ("is_dead", Type::Bool),
 ];
 const ATTR_TID: usize = 2;
+const ATTR_ROOT: usize = 2;
 
 const FIRST_TID: usize = 3; // equal to number of catalog tables + 1
 
@@ -116,8 +119,53 @@ impl Catalog {
         Ok(Self { tables, names, next_tid: FIRST_TID }) 
     }
 
+    // TODO: write this, basically follow the encoding test
     pub fn open(pager: &mut Pager) -> DbResult<Self> {
-        todo!()
+        // get schemas from scanning class and attr trees
+        let class_tree = BpTree::open(PageId::new(CLASS_ROOT).unwrap());
+        let class_rids = class_tree.scan_rids(pager)?;
+        let class_schema = Schema::from_static(CLASS_COLS);
+
+        let attr_tree = BpTree::open(PageId::new(ATTR_ROOT).unwrap());
+        let attr_rids = attr_tree.scan_rids(pager)?;
+        let attr_schema = Schema::from_static(ATTR_COLS);
+
+        // Hashmap to store column schemas with their associated tables
+        let mut schemas: HashMap<usize, Vec<Column>> = HashMap::new();
+        for rid in attr_rids {
+            let page = pager.read::<DataPage>(rid.page)?;
+            let bytes = page.get(rid.slot)?;
+            let row = AttrRow::try_from(attr_schema.decode(&bytes)?)?;
+
+            schemas.entry(row.tid)
+                .or_default()
+                .push(row.col);
+        }
+
+        // setup our return values
+        let mut tables = HashMap::new();
+        let mut names = HashMap::new();
+        let mut next_tid = 0;
+
+        // create and insert tables into catalog for each rid
+        for rid in class_rids {
+            let page = pager.read::<DataPage>(rid.page)?;
+            let bytes = page.get(rid.slot)?;
+            let row = ClassRow::try_from(class_schema.decode(&bytes)?)?;
+
+            names.insert(row.name.clone(), row.tid);
+            tables.insert(row.tid, TableMeta {
+                tid: row.tid,
+                name: row.name,
+                tree: BpTree::open(row.root),
+                active_data: row.active,
+                schema: Schema(schemas.remove(&row.tid).ok_or(StoreErr::NoSchema(row.tid))?),
+            });
+
+            if row.tid > next_tid { next_tid = row.tid; }
+        }
+
+        Ok(Self { tables, names, next_tid })
     }
 
     pub fn lookup_by_tid(&self, tid: usize) -> UserResult<&TableMeta> {
@@ -242,9 +290,6 @@ mod tests {
     use crate::store::pager::Page;
     use tempfile::NamedTempFile;
 
-    const CLASS_ROOT: usize = 1;
-    const ATTR_ROOT: usize = 2;
-
     fn init_catalog() -> (Pager, Catalog) {
         let file = NamedTempFile::new().unwrap();
         let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap();
@@ -261,7 +306,7 @@ mod tests {
         println!("{}", class_root);
         assert_eq!(class_root, CLASS_ROOT);
 
-        let attr_root = catalog.tables.get(&ATTR_ROOT).unwrap().tree.root.get();
+        let attr_root = catalog.tables.get(&ATTR_TID).unwrap().tree.root.get();
         println!("{}", attr_root);
         assert_eq!(attr_root, ATTR_ROOT);
     }
@@ -318,4 +363,8 @@ mod tests {
         assert_eq!(Schema(cols), Schema::from_static(CLASS_COLS))
     }
 
+    // TODO: test the open function, init() first then close(), then open()
+    #[test]
+    fn open_and_close() {
+    }
 }

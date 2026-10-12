@@ -9,13 +9,9 @@ use std::{
 };
 
 use crate::{
-    errors::{ DbResult, UserErr},
+    errors::{DbResult},
     store::{
-        bptree::BpTree, 
-        pager::{
-            DataPage, Page, PageId, Pager,
-            page::{PAGE_CAPACITY, SLOT_POINTER_SIZE}
-        },
+        pager::{PageId, Pager},
         value::Value,
         catalog::Catalog,
     }
@@ -67,7 +63,8 @@ impl Store {
     }
 
     pub fn exit(&mut self) -> DbResult<()> {
-        todo!()
+        self.pager.close()?;
+        Ok(())
     }
 }
 

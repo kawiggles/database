@@ -104,6 +104,8 @@ pub enum StoreErr {
     PageIdZero,
     #[error("Error encountered attempting to convert a Value type, expected {0:?}")]
     TypeErr(Type),
+    #[error("No schema found for TID {0}")]
+    NoSchema(usize),
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
