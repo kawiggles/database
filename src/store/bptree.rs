@@ -11,6 +11,7 @@ use crate::{
 // we might be able to isolate this into a crate and have all b+ tree operations take place in
 // memory
 
+#[derive(Debug, PartialEq)]
 pub struct BpTree {
     pub root: PageId,
 }

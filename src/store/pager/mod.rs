@@ -231,7 +231,7 @@ impl Pager {
         Ok(())
     }
 
-    // Closes the Pager and the 
+    // Closes the Pager and the (...the what?)
     pub fn close(&mut self) -> StoreResult<()> {
         warn!("Closing Pager");
         self.flush()?;

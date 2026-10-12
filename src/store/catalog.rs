@@ -39,12 +39,14 @@ const ATTR_ROOT: usize = 2;
 const FIRST_TID: usize = 3; // equal to number of catalog tables + 1
 
 // TODO: store catalog roots in the database header
+#[derive(Debug, PartialEq)]
 pub struct Catalog {
     pub tables: HashMap<usize, TableMeta>,
     pub names: HashMap<String, usize>,
     next_tid: usize,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct TableMeta {
     pub tid: usize,
     pub name: String,
@@ -119,7 +121,6 @@ impl Catalog {
         Ok(Self { tables, names, next_tid: FIRST_TID }) 
     }
 
-    // TODO: write this, basically follow the encoding test
     pub fn open(pager: &mut Pager) -> DbResult<Self> {
         // get schemas from scanning class and attr trees
         let class_tree = BpTree::open(PageId::new(CLASS_ROOT).unwrap());
@@ -162,7 +163,7 @@ impl Catalog {
                 schema: Schema(schemas.remove(&row.tid).ok_or(StoreErr::NoSchema(row.tid))?),
             });
 
-            if row.tid > next_tid { next_tid = row.tid; }
+            if row.tid >= next_tid { next_tid = row.tid + 1; }
         }
 
         Ok(Self { tables, names, next_tid })
@@ -290,17 +291,24 @@ mod tests {
     use crate::store::pager::Page;
     use tempfile::NamedTempFile;
 
-    fn init_catalog() -> (Pager, Catalog) {
+    fn init_catalog() -> (Pager, Catalog, NamedTempFile) {
         let file = NamedTempFile::new().unwrap();
-        let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap();
+        let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap(); // trust me bro
         let catalog = Catalog::init(&mut pager).unwrap();
+
+        (pager, catalog, file)
+    }
+
+    fn open_catalog<>(file: NamedTempFile) -> (Pager, Catalog) {
+        let mut pager = Pager::open(file.path().to_str().unwrap()).unwrap();
+        let catalog = Catalog::open(&mut pager).unwrap();
 
         (pager, catalog)
     }
 
     #[test]
     fn check_roots() {
-        let (_, catalog) = init_catalog();
+        let (_, catalog, _) = init_catalog();
 
         let class_root = catalog.tables.get(&CLASS_TID).unwrap().tree.root.get();
         println!("{}", class_root);
@@ -313,7 +321,7 @@ mod tests {
 
     #[test]
     fn check_class_rows() {
-        let (mut pager, catalog) = init_catalog();
+        let (mut pager, catalog, _) = init_catalog();
 
         let class_table = catalog.tables.get(&CLASS_TID).unwrap();
         let class_rid = class_table.tree.get(&class_key(CLASS_TID), &mut pager).unwrap();
@@ -329,7 +337,7 @@ mod tests {
 
     #[test]
     fn check_attr_ownership() {
-        let (mut pager, catalog) = init_catalog();
+        let (mut pager, catalog, _) = init_catalog();
 
         let attr_table = catalog.tables.get(&ATTR_TID).unwrap();
         
@@ -344,7 +352,7 @@ mod tests {
 
     #[test]
     fn check_schema_encoding() {
-        let (mut pager, catalog) = init_catalog();
+        let (mut pager, catalog, _) = init_catalog();
 
         let attr_table = catalog.tables.get(&ATTR_TID).unwrap();
         let rids = attr_table.tree.scan_rids(&mut pager).unwrap();
@@ -363,8 +371,16 @@ mod tests {
         assert_eq!(Schema(cols), Schema::from_static(CLASS_COLS))
     }
 
-    // TODO: test the open function, init() first then close(), then open()
     #[test]
-    fn open_and_close() {
+    fn open_and_close() -> StoreResult<()>{
+        let (mut pager, i_catalog, file) = init_catalog();
+        pager.close()?;
+        let (_, e_catalog) = open_catalog(file);
+
+        assert_eq!(i_catalog, e_catalog);
+
+        Ok(())
     }
+
+    //TODO: test to read and write lots of tables, write after Tables.rs is done
 }
