@@ -5,7 +5,8 @@ use super::{
 };
 
 use crate::{
-    errors::{StoreErr, StoreResult}, store::Rid,
+    errors::{StoreErr, StoreResult},
+    store::table::Rid,
 };
 
 pub struct DataPage {

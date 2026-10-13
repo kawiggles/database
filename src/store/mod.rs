@@ -3,6 +3,7 @@ pub mod bptree;
 pub mod pager;
 pub mod schema;
 pub mod catalog;
+pub mod table;
 
 use std::{
     path::Path,
@@ -11,19 +12,11 @@ use std::{
 use crate::{
     errors::{DbResult},
     store::{
-        pager::{PageId, Pager},
+        pager::{Pager},
         value::Value,
         catalog::Catalog,
     }
 };
-
-// TODO: move this to somewhere more convenient
-pub const RID_SIZE: usize = 10; // usize + u16 when serialized
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Rid {
-    pub page: PageId,
-    pub slot: u16,
-}
 
 // Buffer pool for database, holds cache?
 pub struct Store {

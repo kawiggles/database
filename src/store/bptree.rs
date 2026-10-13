@@ -1,7 +1,7 @@
 use crate::{
     errors::{DbResult, StoreErr, StoreResult, TreeErr, UserErr},
     store::{
-        Rid, RID_SIZE,
+        table::{Rid, RID_SIZE},
         pager::{AnyPage, BranchPage, LeafPage, Page, PageId, PageType, Pager, 
             page::{PAGE_CAPACITY, PAGEID_SIZE, SLOT_POINTER_SIZE}},
     }

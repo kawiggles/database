@@ -5,6 +5,7 @@ use crate::{
         pager::{DataPage, Pager, page::PageId},
         schema::{Column, Schema, Type},
         value::Value,
+        table::Table,
     },
 };
 
@@ -41,18 +42,9 @@ const FIRST_TID: usize = 3; // equal to number of catalog tables + 1
 // TODO: store catalog roots in the database header
 #[derive(Debug, PartialEq)]
 pub struct Catalog {
-    pub tables: HashMap<usize, TableMeta>,
+    pub tables: HashMap<usize, Table>,
     pub names: HashMap<String, usize>,
     next_tid: usize,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct TableMeta {
-    pub tid: usize,
-    pub name: String,
-    pub tree: BpTree,
-    pub active_data: PageId,
-    pub schema: Schema,
 }
 
 impl Catalog {
@@ -100,7 +92,7 @@ impl Catalog {
         let mut tables = HashMap::new();
         let mut names = HashMap::new();
 
-        tables.insert(CLASS_TID, TableMeta {
+        tables.insert(CLASS_TID, Table {
             tid: CLASS_TID,
             name: "class_catalog".into(),
             tree: class_tree,
@@ -109,7 +101,7 @@ impl Catalog {
         });
         names.insert("class_catalog".into(), CLASS_TID);
 
-        tables.insert(ATTR_TID, TableMeta {
+        tables.insert(ATTR_TID, Table {
             tid: ATTR_TID,
             name: "attr_catalog".into(),
             tree: attr_tree,
@@ -155,7 +147,7 @@ impl Catalog {
             let row = ClassRow::try_from(class_schema.decode(&bytes)?)?;
 
             names.insert(row.name.clone(), row.tid);
-            tables.insert(row.tid, TableMeta {
+            tables.insert(row.tid, Table {
                 tid: row.tid,
                 name: row.name,
                 tree: BpTree::open(row.root),
@@ -169,17 +161,34 @@ impl Catalog {
         Ok(Self { tables, names, next_tid })
     }
 
-    pub fn lookup_by_tid(&self, tid: usize) -> UserResult<&TableMeta> {
+    pub fn lookup_by_tid(&self, tid: usize) -> UserResult<&Table> {
         self.tables.get(&tid).ok_or(UserErr::NoTable)
     }
 
-    pub fn lookup_by_name(&self, name: &str) -> UserResult<&TableMeta> {
+    pub fn lookup_by_name(&self, name: &str) -> UserResult<&Table> {
         let tid = self.names.get(name).ok_or(UserErr::NoTable)?;
         self.tables.get(&tid).ok_or(UserErr::NoTable)
     }
 
-    pub fn create_table(&mut self, name: &str, cols: Schema) -> DbResult<()> {
-        todo!()
+    pub fn create_table(&mut self, name: &str, schema: Schema, pager: &mut Pager) -> DbResult<()> {
+        let tid = self.next_tid + 1;
+        let mut tree = BpTree::create(pager)?;
+        let active_data = pager.alloc();
+        let active = DataPage::new(active_data);
+        pager.write(active)?;
+
+        let table = Table { tid, name: name.into(), tree, active_data, schema };
+
+        for col in table.schema.0 {
+            // TODO: Something here
+        }
+
+
+        self.tables.insert(tid, table);
+        self.names.insert(name.into(), tid);
+
+        self.next_tid += 1;
+        Ok(())
     }
 }
 
