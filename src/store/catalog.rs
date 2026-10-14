@@ -170,25 +170,24 @@ impl Catalog {
         self.tables.get(&tid).ok_or(UserErr::NoTable)
     }
 
-    pub fn create_table(&mut self, name: &str, schema: Schema, pager: &mut Pager) -> DbResult<()> {
+    pub fn create_table(&mut self, name: &str, schema: Schema, pager: &mut Pager) -> DbResult<usize> {
         let tid = self.next_tid + 1;
         let mut tree = BpTree::create(pager)?;
         let active_data = pager.alloc();
         let active = DataPage::new(active_data);
         pager.write(active)?;
 
-        let table = Table { tid, name: name.into(), tree, active_data, schema };
-
-        for col in table.schema.0 {
+        for col in schema.0 {
             // TODO: Something here
         }
 
+        let table = Table { tid, name: name.into(), tree, active_data, schema };
 
         self.tables.insert(tid, table);
         self.names.insert(name.into(), tid);
 
         self.next_tid += 1;
-        Ok(())
+        Ok(tid)
     }
 }
 
@@ -381,15 +380,18 @@ mod tests {
     }
 
     #[test]
-    fn open_and_close() -> StoreResult<()>{
-        let (mut pager, i_catalog, file) = init_catalog();
+    fn create_and_close() -> DbResult<()> {
+        let (mut pager, mut i_catalog, file) = init_catalog();
+
+        let schema = Schema(vec![
+        ]);
+        i_catalog.create_table("test", schema, &mut pager)?;
+
         pager.close()?;
         let (_, e_catalog) = open_catalog(file);
-
+        
         assert_eq!(i_catalog, e_catalog);
 
         Ok(())
     }
-
-    //TODO: test to read and write lots of tables, write after Tables.rs is done
 }
