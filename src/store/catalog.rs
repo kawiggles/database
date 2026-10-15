@@ -177,8 +177,14 @@ impl Catalog {
         let active = DataPage::new(active_data);
         pager.write(active)?;
 
+        let attr_schema = Schema::from_static(ATTR_COLS);
+
         for col in schema.0 {
-            // TODO: Something here
+            // For each column, we need to write to a new column def row and add it to attr
+
+            let row = AttrRow::try_from(col)?;
+            attr_schema.encode(row); // idk something like this
+                                     // Probably have to write the insert function for tables
         }
 
         let table = Table { tid, name: name.into(), tree, active_data, schema };
