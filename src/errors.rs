@@ -106,6 +106,8 @@ pub enum StoreErr {
     TypeErr(Type),
     #[error("No schema found for TID {0}")]
     NoSchema(usize),
+    #[error("Value cannot be converted into a b+ tree key")]
+    NotKeyable,
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;

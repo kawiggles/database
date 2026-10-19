@@ -1,5 +1,5 @@
 use crate::{
-    errors::StoreErr,
+    errors::{StoreErr, StoreResult},
     store::{
         schema::Type,
         pager::page::PageId,
@@ -28,6 +28,16 @@ impl Value {
                 .map(|byte| byte.to_string())
                 .collect::<Vec<String>>()
                 .join(",")),
+        }
+    }
+
+    pub fn as_key(&self) -> StoreResult<String> {
+        match self {
+            Value::Uint(x) => Ok(format!("{:20}", x)),
+            Value::Int(x) => Ok(format!("{:20}", (*x as usize) ^ ( 1 << (usize::BITS - 1)))),
+            Value::Bool(x) => Ok(if *x { "1" } else { "0" }.into()),
+            Value::Text(x) => Ok(x.clone()),
+            Value::Float(_) | Value::Blob(_) => Err(StoreErr::NotKeyable),
         }
     }
 

@@ -179,12 +179,8 @@ impl Catalog {
 
         let attr_schema = Schema::from_static(ATTR_COLS);
 
-        for col in schema.0 {
+        for col in schema.0.clone() {
             // For each column, we need to write to a new column def row and add it to attr
-
-            let row = AttrRow::try_from(col)?;
-            attr_schema.encode(row); // idk something like this
-                                     // Probably have to write the insert function for tables
         }
 
         let table = Table { tid, name: name.into(), tree, active_data, schema };
@@ -293,7 +289,7 @@ fn insert_row(
     pager: &mut Pager,
 ) -> DbResult<()> {
     let bytes = schema.encode(row)?;
-    let rid = page.insert(&bytes)?; // TODO: bounds check insertion
+    let rid = page.insert(&bytes, pager)?; // TODO: bounds check insertion
     tree.insert(key, rid, pager)?;
 
     Ok(())

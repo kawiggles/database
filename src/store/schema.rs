@@ -59,6 +59,14 @@ impl Schema {
         }).collect())
     }
 
+    pub fn gen_row_keys(&self, row: &[Option<Value>]) -> StoreResult<String> {
+        self.0.iter()
+            .zip(row)
+            .filter(|(col, _)| col.is_key)
+            .map(|(col, val)| )// TODO: function to generate key from that pair
+            .collect()
+    }
+
     pub fn decode(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {
         let mut vals: Vec<Option<Value>> = Vec::with_capacity(self.0.len());
 

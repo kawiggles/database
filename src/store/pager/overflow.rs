@@ -12,7 +12,21 @@ pub struct OverflowPage {
 }
 
 impl OverflowPage {
-    pub fn new() -> Self {
+    pub fn new(id: PageId) -> Self {
+        let header = PageHeader {
+            id,
+            pagetype: PageType::Overflow,
+            next: None,
+            slots: 0,
+            lower: 0,
+            upper: 0,
+        };
+
+        // TODO
+        Self { header, next: (), data: () }
+    }
+
+    pub fn fill(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<()> {
         todo!()
     }
 }
@@ -34,13 +48,13 @@ impl Page for OverflowPage {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].clone_from_slice(&self.header.serialize());
 
-        let len = PAGE_SIZE - 8 - self.data.len();
+        let len = PAGE_SIZE - (self.data.len() + 8);
         let dir = PAGEHEADER_SIZE;
         if len < dir + 8 {
             return Err(StoreErr::SlotOverwrite {
                 page: self.header.id,
                 len: 8 - self.data.len(),
-                pagetype: PageType::Data
+                pagetype: PageType::Overflow
             });
         }
 

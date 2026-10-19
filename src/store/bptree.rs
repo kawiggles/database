@@ -542,7 +542,8 @@ impl BpTree {
         let header = pager.read_header(page_id).unwrap();
         match header.pagetype {
             PageType::Leaf => {
-                let next_str = match header.next {
+                let page = pager.read::<LeafPage>(page_id).unwrap();
+                let next_str = match page.next_leaf {
                     Some(idx) => format!(" -> (id: {:?})", idx),
                     None => " -> []".to_string(),
                 };

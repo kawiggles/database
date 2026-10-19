@@ -1,5 +1,5 @@
 use super::{
-    Page, PageId, PageType, PageHeader,
+    Page, PageId, PageType, PageHeader, Pager,
     page::{PageCursor, PAGEID_SIZE, PAGEHEADER_SIZE, PAGE_SIZE, SLOT_POINTER_SIZE},
     read_usize
 };
@@ -14,6 +14,8 @@ pub struct DataPage {
     data: Vec<Option<Vec<u8>>>,
     overflow: Option<PageId>,
 }
+
+const MAX_FREE_SPACE: usize = PAGE_SIZE - (PAGEHEADER_SIZE + SLOT_POINTER_SIZE);
 
 impl DataPage {
     pub fn new(id: PageId) -> Self {
@@ -36,14 +38,15 @@ impl DataPage {
         }
     }
 
-    pub fn insert(&mut self, bytes: &[u8]) -> StoreResult<Rid> {
+    pub fn insert(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<Rid> {
         self.data.push(Some(bytes.to_vec()));
 
+        // TODO: overflow check, if fail, fill rest of page, then new overflow page
+
         self.refresh_header();
-        // TODO: overflow logic
         Ok(Rid { page: self.header.id, slot: self.data.len() as u16 - 1 })
     }
-    
+
     pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {
         todo!()
     }
