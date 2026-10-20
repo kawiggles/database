@@ -23,7 +23,6 @@ impl LeafPage {
             header: PageHeader {
                 id,
                 pagetype: PageType::Leaf,
-                next: None,
                 slots: 1,
                 lower: (PAGEHEADER_SIZE + SLOT_POINTER_SIZE) as u16,
                 upper: (PAGE_SIZE - PAGEID_SIZE) as u16,
@@ -43,7 +42,7 @@ impl LeafPage {
             .sum::<usize>() - PAGEID_SIZE) as u16;
 
         Self {
-            header: PageHeader{ id, pagetype: PageType::Leaf, next: None, slots, lower, upper },
+            header: PageHeader{ id, pagetype: PageType::Leaf, slots, lower, upper },
             keys, rids, next_leaf
         }
     }

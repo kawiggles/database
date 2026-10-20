@@ -171,7 +171,7 @@ impl Catalog {
     }
 
     pub fn create_table(&mut self, name: &str, schema: Schema, pager: &mut Pager) -> DbResult<usize> {
-        let tid = self.next_tid + 1;
+        let tid = self.next_tid;
         let mut tree = BpTree::create(pager)?;
         let active_data = pager.alloc();
         let active = DataPage::new(active_data);

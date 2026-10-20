@@ -35,7 +35,7 @@ impl TryFrom<usize> for Type {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Column {
     pub name: String,
     pub ty: Type,
@@ -60,11 +60,7 @@ impl Schema {
     }
 
     pub fn gen_row_keys(&self, row: &[Option<Value>]) -> StoreResult<String> {
-        self.0.iter()
-            .zip(row)
-            .filter(|(col, _)| col.is_key)
-            .map(|(col, val)| )// TODO: function to generate key from that pair
-            .collect()
+        todo!()
     }
 
     pub fn decode(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {

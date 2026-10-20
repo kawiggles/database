@@ -1,5 +1,5 @@
 use super::{
-    Page, PageId, PageType, PageHeader,
+    Page, PageId, PageType, PageHeader, Pager,
     page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE },
     read_usize,
 };
@@ -16,14 +16,12 @@ impl OverflowPage {
         let header = PageHeader {
             id,
             pagetype: PageType::Overflow,
-            next: None,
             slots: 0,
             lower: 0,
             upper: 0,
         };
 
-        // TODO
-        Self { header, next: (), data: () }
+        Self { header, next: None, data: Vec::new() }
     }
 
     pub fn fill(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<()> {

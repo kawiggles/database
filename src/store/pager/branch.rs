@@ -23,7 +23,7 @@ impl BranchPage {
             .sum::<usize>() - PAGEID_SIZE) as u16;
 
         Self {
-            header: PageHeader { id, pagetype: PageType::Branch, next: None, slots, lower, upper },
+            header: PageHeader { id, pagetype: PageType::Branch, slots, lower, upper },
             keys, children
         }
     }

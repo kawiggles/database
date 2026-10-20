@@ -113,7 +113,9 @@ impl Pager {
             free_list.push(id);
             let bytes = scan_page(id, &mut file)?;
             let header = PageHeader::deserialize(&mut &bytes[..])?;
-            current = header.next;
+            let mut cursor = PageCursor::new(&bytes[..]);
+            let free = FreePage::deserialize(header, &mut cursor)?;
+            current = free.next;
         }
 
         Ok(Pager {
@@ -158,7 +160,7 @@ impl Pager {
             return Err(StoreErr::UnexpectedPagetype(header.pagetype));
         }
 
-        T::deserialize(header, &mut cursor)
+        T::deserialize(header, &mut cursor) // Essentially why we use traits
     }
 
     /// Like read(), but only returns the PageHeader.
@@ -215,19 +217,16 @@ impl Pager {
     /// Delete a page by PageId, cache invalidation issues happen here.
     pub fn free(&mut self, id: PageId) -> StoreResult<()> {
         if let Some(prev_id) = self.free_list.last().copied() {
-            let new_header = PageHeader {
-                id: prev_id,
-                pagetype: PageType::Free,
-                next: Some(id),
-                slots: 0,
-                lower: 0,
-                upper: 0,
-            };
-            self.write::<FreePage>(FreePage(new_header))?;
+            let mut free_page = self.read::<FreePage>(prev_id)?;
+            free_page.next = Some(id);
+            self.write::<FreePage>(free_page)?;
         }
 
         self.write::<FreePage>(FreePage::new(id))?;
         self.free_list.push(id);
+
+        self.flush()?;
+
         Ok(())
     }
 
@@ -341,6 +340,7 @@ pub fn scan_page(id: PageId, file: &mut File) -> StoreResult<[u8; PAGE_SIZE]> {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+    use crate::errors::StoreResult;
 
     fn temp_path() -> NamedTempFile {
         NamedTempFile::new().unwrap()
@@ -362,6 +362,38 @@ mod tests {
 
         let pager = Pager::open(path).unwrap();
         assert_eq!(pager.num_pages, 1);
+    }
+
+    // TODO: This is failing, figure out why
+    #[test]
+    fn free() -> StoreResult<()> {
+        let tmp = temp_path();
+        let path = tmp.path().to_str().unwrap();
+        let mut pager = Pager::new(path).unwrap();
+
+        let id = pager.alloc();
+        let id2 = pager.alloc();
+        let page = DataPage::new(id);
+        let page2 = OverflowPage::new(id);
+        pager.write(page).unwrap();
+        pager.write(page2).unwrap();
+        pager.flush()?;
+
+        pager.free(id)?;
+        pager.free(id2)?;
+
+        let mut new_pager = Pager::open(path)?;
+
+        let free = pager.read::<FreePage>(id)?;
+        let free1 = new_pager.read::<FreePage>(new_pager.free_list[0])?;
+
+        assert_eq!(free, free1);
+
+        let free2 = pager.read::<FreePage>(id2)?;
+        let free3 = new_pager.read::<FreePage>(free1.next.unwrap())?;
+        assert_eq!(free2, free3);
+
+        Ok(())
     }
 
 }

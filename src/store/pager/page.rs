@@ -40,13 +40,12 @@ impl Display for PageId {
     }
 }
 
-pub const PAGEHEADER_SIZE: usize = 23;
+pub const PAGEHEADER_SIZE: usize = 15;
 pub const PAGE_CAPACITY: u16 = (PAGE_SIZE - PAGEHEADER_SIZE) as u16;
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct PageHeader {
     pub id: PageId,             // 8
     pub pagetype: PageType,     // 1
-    pub next: Option<PageId>,   // 8
     pub slots: u16,             // 2
     pub lower: u16,             // 2
     pub upper: u16,             // 2
@@ -59,12 +58,11 @@ impl PageHeader {
 
         let pagetype = PageType::try_from(read_byte(bytes)?)?;
 
-        let next = PageId::new(read_usize(bytes)?);
         let slots = read_u16(bytes)?;
         let lower = read_u16(bytes)?;
         let upper = read_u16(bytes)?;
         
-        Ok(PageHeader { id, pagetype, next, slots, lower, upper })
+        Ok(PageHeader { id, pagetype, slots, lower, upper })
     }
     
     pub fn serialize(&self) -> Vec<u8> {
@@ -72,10 +70,6 @@ impl PageHeader {
 
         bytes.extend_from_slice(&self.id.get().to_le_bytes());
         bytes.push(self.pagetype as u8);
-        bytes.extend_from_slice(&self.next
-            .map(|id| id.get())
-            .unwrap_or(0)
-            .to_le_bytes());
         bytes.extend_from_slice(&self.slots.to_le_bytes());
         bytes.extend_from_slice(&self.lower.to_le_bytes());
         bytes.extend_from_slice(&self.upper.to_le_bytes());
@@ -143,7 +137,6 @@ mod tests {
         let header = PageHeader { 
             id: PageId::new(4).unwrap(),
             pagetype: PageType::Free,
-            next: None,
             slots: 0, lower: 0, upper: 0,
         };
 

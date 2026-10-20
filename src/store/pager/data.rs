@@ -22,7 +22,6 @@ impl DataPage {
         let header = PageHeader {
             id,
             pagetype: PageType::Data,
-            next: None,
             slots: 1 as u16,
             lower: PAGEHEADER_SIZE as u16,
             upper: PAGE_SIZE as u16,
@@ -166,7 +165,10 @@ mod tests {
     fn serialize_and_deserialize() {
         let mut data = DataPage::new(PageId::new(1).unwrap());
         let bytes = vec![b'h', b'i'];
-        data.insert(&bytes).unwrap();
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut pager = Pager::new(tmp.path().to_str().unwrap()).unwrap();
+        data.insert(&bytes, &mut pager).unwrap();
     }
 
     #[test]

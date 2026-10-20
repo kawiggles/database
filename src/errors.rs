@@ -153,14 +153,6 @@ pub enum UserErr {
     BadQuery(#[from] QueryErr),
     #[error("Put call was unsuccessful")]
     BadPut,
-    #[error("No value to delete at requested key")]
-    BadDel,
-    #[error("There is no content in the database")]
-    NoRoot,
-    #[error("Key {0} is too long (sorry)")]
-    LongKey(String),
-    #[error("Table not found")]
-    NoTable,
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
