@@ -51,68 +51,37 @@ impl Catalog {
 
     /// Create a new, empty catalog, seralize it and write to memory
     pub fn init(pager: &mut Pager) -> DbResult<Self> {
-        let class = Schema::from_static(CLASS_COLS);
-        let attr = Schema::from_static(ATTR_COLS);
-
-        let mut class_tree = BpTree::create(pager)?;
-        let mut attr_tree = BpTree::create(pager)?;
-        let class_page_id = pager.alloc();
-        let attr_page_id = pager.alloc();
-        let mut class_page = DataPage::new(class_page_id);
-        let mut attr_page = DataPage::new(attr_page_id);
-        
-        let catalog_tables = [
-            (CLASS_TID, "class_catalog", class_tree.root, class_page_id, CLASS_COLS),
-            (ATTR_TID, "attr_catalog", attr_tree.root, attr_page_id, ATTR_COLS),
-        ];
-
-        // bootstrapping happens here
-        for (tid, name, root, active, cols) in catalog_tables {
-            let row = ClassRow { tid, name: name.into(), root: root, active };
-            insert_row(&mut class_tree,
-                &mut class_page,
-                &class,
-                &class_key(tid),
-                Vec::<Option<Value>>::from(row),
-                pager)?;
-
-            // The magic numbers here are "hard-coded", much like the schemas. Do not alter!
-            for (i, col) in Schema::from_static(cols).0.into_iter().enumerate() {
-                let row = AttrRow { attnum: i + 1, tid, col };
-                let key = attr_key(tid, i + 1);
-                insert_row(&mut attr_tree, &mut attr_page, &attr, &key, row.into(), pager)?;
-            }
-
-        }
-
-        pager.write(class_page)?;
-        pager.write(attr_page)?;
-        pager.flush()?;
-
         let mut tables = HashMap::new();
         let mut names = HashMap::new();
 
-        tables.insert(CLASS_TID, Table {
-            tid: CLASS_TID,
-            name: "class_catalog".into(),
-            tree: class_tree,
-            active_data: class_page_id,
-            schema: Schema::from_static(CLASS_COLS),
-        });
-        names.insert("class_catalog".into(), CLASS_TID);
+        let class_schema = Schema::from_static(CLASS_COLS, CLASS_TID);
+        let attr_schema = Schema::from_static(ATTR_COLS, ATTR_TID);
+        let schemas = vec![Schema::from_static(CLASS_COLS, CLASS_TID),
+            Schema::from_static(ATTR_COLS, ATTR_TID)];
 
-        tables.insert(ATTR_TID, Table {
-            tid: ATTR_TID,
-            name: "attr_catalog".into(),
-            tree: attr_tree,
-            active_data: attr_page_id,
-            schema: Schema::from_static(ATTR_COLS),
-        });
+        let mut class = Table::new(CLASS_TID, "class_catalog", class_schema, pager)?;
+        let mut attr = Table::new(ATTR_TID, "attr_catalog", attr_schema, pager)?;
+
+        class.insert((&class).into(), pager)?;
+        class.insert((&attr).into(), pager)?;
+
+        for (i, schema) in schemas.into_iter().enumerate() {
+            let tid = i + 1;
+            for (i, col) in schema.0.into_iter().enumerate() {
+                let row = AttrRow { attnum: i + 1, tid, col };
+                attr.insert(row.into(), pager)?;
+            }
+        }
+
+        tables.insert(CLASS_TID, class);
+        tables.insert(ATTR_TID, attr);
+        names.insert("class_catalog".into(), CLASS_TID);
         names.insert("attr_catalog".into(), ATTR_TID);
 
         Ok(Self { tables, names, next_tid: FIRST_TID }) 
     }
 
+    // TODO: redo this function matching the above
     pub fn open(pager: &mut Pager) -> DbResult<Self> {
         // get schemas from scanning class and attr trees
         let class_tree = BpTree::open(PageId::new(CLASS_ROOT).unwrap());
@@ -172,20 +141,16 @@ impl Catalog {
 
     pub fn create_table(&mut self, name: &str, schema: Schema, pager: &mut Pager) -> DbResult<usize> {
         let tid = self.next_tid;
-        let mut tree = BpTree::create(pager)?;
-        let active_data = pager.alloc();
-        let active = DataPage::new(active_data);
-        pager.write(active)?;
-
-        let attr_schema = Schema::from_static(ATTR_COLS);
+        let new_table = Table::new(tid, name, schema, pager)?;
+        
+        let class = self.tables.get_mut(&CLASS_TID).ok_or(StoreErr::NoClass)?;
+        class.insert((&new_table).into(), pager);
 
         for col in schema.0.clone() {
             // For each column, we need to write to a new column def row and add it to attr
         }
 
-        let table = Table { tid, name: name.into(), tree, active_data, schema };
-
-        self.tables.insert(tid, table);
+        self.tables.insert(tid, new_table);
         self.names.insert(name.into(), tid);
 
         self.next_tid += 1;
@@ -193,6 +158,7 @@ impl Catalog {
     }
 }
 
+// TODO: get rid of this
 pub struct ClassRow {
     pub tid: usize,
     pub name: String,
@@ -224,12 +190,14 @@ impl From<ClassRow> for Vec<Option<Value>> {
     }
 }
 
+// TODO: Also get rid of this
 pub struct AttrRow {
     pub attnum: usize,
     pub tid: usize,
     pub col: Column,
 }
 
+// TODO: This should probably go in table.rs
 /// Get a primative from a particular column of a row (Vec<Option<Value>>)
 fn field<T>(val: &mut [Option<Value>], col: usize) -> StoreResult<T>
 where T: TryFrom<Value, Error = StoreErr> {
@@ -270,29 +238,6 @@ impl From<AttrRow> for Vec<Option<Value>> {
             Some(attr.col.is_dead.into()),
         ]
     }
-}
-
-fn class_key(tid: usize) -> String {
-    format!("{:020}", tid)
-}
-
-fn attr_key(tid: usize, attnum: usize) -> String {
-    format!("{:020}{:020}", tid, attnum)
-}
-
-fn insert_row(
-    tree: &mut BpTree,
-    page: &mut DataPage,
-    schema: &Schema,
-    key: &str,
-    row: Vec<Option<Value>>,
-    pager: &mut Pager,
-) -> DbResult<()> {
-    let bytes = schema.encode(row)?;
-    let rid = page.insert(&bytes, pager)?; // TODO: bounds check insertion
-    tree.insert(key, rid, pager)?;
-
-    Ok(())
 }
 
 #[cfg(test)]

@@ -37,6 +37,8 @@ impl TryFrom<usize> for Type {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Column {
+    pub attnum: usize,
+    pub tid: usize,
     pub name: String,
     pub ty: Type,
     pub is_key: bool,
@@ -44,13 +46,21 @@ pub struct Column {
     pub is_dead: bool,
 }
 
+impl Column {
+    pub fn attr_key(&self) -> String {
+        format!("{:020}{:020}", self.tid, self.attnum)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Schema(pub Vec<Column>);
 
 // TODO: for future optimization: use split on the bytestream instead of reading to reduce copying
 impl Schema {
-    pub fn from_static(cols: &[(&str, Type)]) -> Self {
+    pub fn from_static(cols: &[(&str, Type)], tid: usize) -> Self {
         Self(cols.iter().enumerate().map(|(i, &(name, ty))| Column {
+            attnum: i,
+            tid,
             name: name.into(),
             ty,
             is_key: if i == 0 { true } else { false },
@@ -176,7 +186,7 @@ mod tests {
             ("text", Type::Text),
             ("blob", Type::Blob),
             ("null", Type::Text),
-        ]);
+        ], 5);
 
         let vals: Vec<Option<Value>> = vec![
             Some(Value::Bool(true)),

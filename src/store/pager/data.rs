@@ -29,7 +29,7 @@ impl DataPage {
 
         Self { header, data: Vec::new(), overflow: None }
     }
-    
+
     pub fn get(&self, slot: u16) -> StoreResult<Vec<u8>> {
         match self.data.get(slot as usize).and_then(|o| o.as_deref()) {
             Some(x) => Ok(x.to_vec()),
@@ -37,13 +37,15 @@ impl DataPage {
         }
     }
 
-    pub fn insert(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<Rid> {
+    pub fn insert(&mut self, bytes: &[u8]) -> StoreResult<Rid> {
         self.data.push(Some(bytes.to_vec()));
-
-        // TODO: overflow check, if fail, fill rest of page, then new overflow page
 
         self.refresh_header();
         Ok(Rid { page: self.header.id, slot: self.data.len() as u16 - 1 })
+    }
+
+    pub fn insert_overflow(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<Rid> {
+        todo!()
     }
 
     pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {

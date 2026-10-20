@@ -75,6 +75,10 @@ impl PageHeader {
         bytes.extend_from_slice(&self.upper.to_le_bytes());
         bytes
     }
+
+    pub fn free_space(&self) -> Option<u16> {
+        self.upper.checked_sub(self.lower)
+    }
 }
 
 #[repr(u8)]

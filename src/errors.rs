@@ -108,6 +108,10 @@ pub enum StoreErr {
     NoSchema(usize),
     #[error("Value cannot be converted into a b+ tree key")]
     NotKeyable,
+    #[error("Class catalog table missing!!!!")]
+    NoClass,
+    #[error("Attribute catalog table missing!!!!")]
+    NoAttr,
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
@@ -153,6 +157,8 @@ pub enum UserErr {
     BadQuery(#[from] QueryErr),
     #[error("Put call was unsuccessful")]
     BadPut,
+    #[error("No table found")]
+    NoTable,
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
