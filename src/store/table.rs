@@ -1,5 +1,5 @@
 use crate::{
-    errors::{DbResult, StoreErr},
+    errors::{DbResult, StoreErr, StoreResult},
     store::{
         bptree::BpTree,
         pager::{DataPage, PageId, Pager,
@@ -83,8 +83,10 @@ impl Table {
         todo!()
     }
 
-    pub fn get_row(&self) -> Vec<Option<Value>> {
-        todo!()
+    pub fn get_row(&self, rid: Rid, pager: &mut Pager) -> StoreResult<Vec<Option<Value>>> {
+        let page = pager.read::<DataPage>(rid.page)?;
+        let bytes = page.get(rid.slot)?;
+        self.schema.decode(&bytes)
     }
 
     pub fn class_key(&self) -> String {

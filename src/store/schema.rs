@@ -52,7 +52,21 @@ impl Column {
     }
 }
 
-#[derive(Debug, PartialEq)]
+impl From<&Column> for Vec<Option<Value>> {
+    fn from(col: &Column) -> Self {
+        vec![
+            Some(Value::Uint(col.attnum)),
+            Some(Value::Uint(col.tid)),
+            Some(Value::Text(col.name.clone())),
+            Some(Value::Uint(col.ty as usize)),
+            Some(Value::Bool(col.is_key)),
+            Some(Value::Bool(col.nullable)),
+            Some(Value::Bool(col.is_dead)),
+        ]
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct Schema(pub Vec<Column>);
 
 // TODO: for future optimization: use split on the bytestream instead of reading to reduce copying

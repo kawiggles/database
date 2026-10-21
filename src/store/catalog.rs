@@ -86,11 +86,11 @@ impl Catalog {
         // get schemas from scanning class and attr trees
         let class_tree = BpTree::open(PageId::new(CLASS_ROOT).unwrap());
         let class_rids = class_tree.scan_rids(pager)?;
-        let class_schema = Schema::from_static(CLASS_COLS);
+        let class_schema = Schema::from_static(CLASS_COLS, CLASS_TID);
 
         let attr_tree = BpTree::open(PageId::new(ATTR_ROOT).unwrap());
         let attr_rids = attr_tree.scan_rids(pager)?;
-        let attr_schema = Schema::from_static(ATTR_COLS);
+        let attr_schema = Schema::from_static(ATTR_COLS, ATTR_TID);
 
         // Hashmap to store column schemas with their associated tables
         let mut schemas: HashMap<usize, Vec<Column>> = HashMap::new();
@@ -141,13 +141,15 @@ impl Catalog {
 
     pub fn create_table(&mut self, name: &str, schema: Schema, pager: &mut Pager) -> DbResult<usize> {
         let tid = self.next_tid;
-        let new_table = Table::new(tid, name, schema, pager)?;
+        let new_table = Table::new(tid, name, schema.clone(), pager)?;
         
         let class = self.tables.get_mut(&CLASS_TID).ok_or(StoreErr::NoClass)?;
         class.insert((&new_table).into(), pager);
 
-        for col in schema.0.clone() {
-            // For each column, we need to write to a new column def row and add it to attr
+        let attr = self.tables.get_mut(&ATTR_TID).ok_or(StoreErr::NoAttr)?;
+
+        for col in schema.0 {
+            attr.insert((&col).into(), pager);
         }
 
         self.tables.insert(tid, new_table);
@@ -158,7 +160,15 @@ impl Catalog {
     }
 }
 
-// TODO: get rid of this
+fn field<T>(val: &mut [Option<Value>], col: usize) -> StoreResult<T>
+where T: TryFrom<Value, Error = StoreErr> {
+    val.get_mut(col)
+        .ok_or(StoreErr::BadColIndex(col))?
+        .take()
+        .ok_or(StoreErr::NullField(col))?
+        .try_into()
+}
+
 pub struct ClassRow {
     pub tid: usize,
     pub name: String,
@@ -190,22 +200,10 @@ impl From<ClassRow> for Vec<Option<Value>> {
     }
 }
 
-// TODO: Also get rid of this
 pub struct AttrRow {
     pub attnum: usize,
     pub tid: usize,
     pub col: Column,
-}
-
-// TODO: This should probably go in table.rs
-/// Get a primative from a particular column of a row (Vec<Option<Value>>)
-fn field<T>(val: &mut [Option<Value>], col: usize) -> StoreResult<T>
-where T: TryFrom<Value, Error = StoreErr> {
-    val.get_mut(col)
-        .ok_or(StoreErr::BadColIndex(col))?
-        .take()
-        .ok_or(StoreErr::NullField(col))?
-        .try_into()
 }
 
 impl TryFrom<Vec<Option<Value>>> for AttrRow {
@@ -279,7 +277,7 @@ mod tests {
         let (mut pager, catalog, _) = init_catalog();
 
         let class_table = catalog.tables.get(&CLASS_TID).unwrap();
-        let class_rid = class_table.tree.get(&class_key(CLASS_TID), &mut pager).unwrap();
+        let class_rid = class_table.tree.get(&class_table.class_key(), &mut pager).unwrap();
         let class_page = pager.read::<DataPage>(class_rid.page).unwrap();
         let class_bytes = class_page.get(class_rid.slot).unwrap();
         let class_row = class_table.schema.decode(&class_bytes).unwrap();
@@ -323,7 +321,7 @@ mod tests {
             }
         }
 
-        assert_eq!(Schema(cols), Schema::from_static(CLASS_COLS))
+        assert_eq!(Schema(cols), Schema::from_static(CLASS_COLS, CLASS_TID))
     }
 
     #[test]
