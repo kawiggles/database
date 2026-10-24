@@ -11,11 +11,11 @@ use crate::{
 
 pub struct DataPage {
     header: PageHeader,
-    data: Vec<Option<Vec<u8>>>,
+    pub data: Vec<Option<Vec<u8>>>,
     overflow: Option<PageId>,
 }
 
-const MAX_FREE_SPACE: usize = PAGE_SIZE - (PAGEHEADER_SIZE + SLOT_POINTER_SIZE);
+pub const MAX_FREE_SPACE: usize = PAGE_SIZE - (PAGEHEADER_SIZE + SLOT_POINTER_SIZE);
 
 impl DataPage {
     pub fn new(id: PageId) -> Self {
