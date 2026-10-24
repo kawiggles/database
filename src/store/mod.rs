@@ -1,9 +1,8 @@
 pub mod value;
 pub mod bptree;
 pub mod pager;
-pub mod schema;
 pub mod catalog;
-pub mod table;
+pub mod relation;
 
 use std::{
     path::Path,

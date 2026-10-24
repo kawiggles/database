@@ -11,7 +11,7 @@ use crate::{
     query::lexer::Token,
     store::{
         pager::{PageType, PageId},
-        schema::Type,
+        relation::schema::Type,
     },
 };
 
@@ -159,6 +159,8 @@ pub enum UserErr {
     BadPut,
     #[error("No table found")]
     NoTable,
+    #[error("Key {0} is too long for B+ tree")]
+    LongKey(String),
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;

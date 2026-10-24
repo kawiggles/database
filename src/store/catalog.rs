@@ -1,11 +1,12 @@
 use crate::{
-    errors::{DbResult, UserErr, UserResult, StoreErr, StoreResult},
+    errors::{DbResult, UserErr, UserResult, StoreErr},
     store::{
         bptree::BpTree,
         pager::{DataPage, Pager, page::PageId},
-        schema::{Column, Schema, Type},
-        value::Value,
-        table::Table,
+        relation::{
+            schema::{Column, Schema, Type},
+            table::Table,
+        },
     },
 };
 
@@ -14,32 +15,34 @@ use std::{
 };
 
 // Hardcoded class schema
-const CLASS_COLS: &[(&str, Type)] = &[
-    ("tid", Type::Uint),
-    ("name", Type::Text),
-    ("root_page", Type::Uint),
-    ("active_data", Type::Uint),
+#[rustfmt::skip]
+const CLASS_COLS: &[(&str, Type, bool)] = &[
+    ("tid", Type::Uint, true),
+    ("name", Type::Text, false),
+    ("root_page", Type::Uint, false),
+    ("active_data", Type::Uint, false),
 ];
 const CLASS_TID: usize = 1;
 const CLASS_ROOT: usize = 1;
 
 
 // Hardcoded attributes schema
-const ATTR_COLS: &[(&str, Type)] = &[
-    ("attnum", Type::Uint),
-    ("tid", Type::Uint),
-    ("name", Type::Text),
-    ("ty", Type::Uint), // C-style enum mapping types to numbers
-    ("is_key", Type::Bool),
-    ("nullable", Type::Bool),
-    ("is_dead", Type::Bool),
+#[rustfmt::skip]
+const ATTR_COLS: &[(&str, Type, bool)] = &[
+    ("tid", Type::Uint, true),
+    ("attnum", Type::Uint, true),
+    ("name", Type::Text, false),
+    ("ty", Type::Uint, false), // C-style enum mapping types to numbers
+    ("is_key", Type::Bool, false),
+    ("nullable", Type::Bool, false),
+    ("is_dead", Type::Bool, false),
 ];
 const ATTR_TID: usize = 2;
-const ATTR_ROOT: usize = 2;
+const ATTR_ROOT: usize = 3;
 
-const FIRST_TID: usize = 3; // equal to number of catalog tables + 1
+// equal to number of catalog tables + 1, so if you add another catalog table, update this
+const FIRST_TID: usize = 3;
 
-// TODO: store catalog roots in the database header
 #[derive(Debug, PartialEq)]
 pub struct Catalog {
     pub tables: HashMap<usize, Table>,
@@ -54,22 +57,22 @@ impl Catalog {
         let mut tables = HashMap::new();
         let mut names = HashMap::new();
 
-        let class_schema = Schema::from_static(CLASS_COLS, CLASS_TID);
-        let attr_schema = Schema::from_static(ATTR_COLS, ATTR_TID);
         let schemas = vec![Schema::from_static(CLASS_COLS, CLASS_TID),
             Schema::from_static(ATTR_COLS, ATTR_TID)];
 
-        let mut class = Table::new(CLASS_TID, "class_catalog", class_schema, pager)?;
-        let mut attr = Table::new(ATTR_TID, "attr_catalog", attr_schema, pager)?;
+        let mut class = Table::new(CLASS_TID, "class_catalog", schemas[0].clone(), pager)?;
+        let mut attr = Table::new(ATTR_TID, "attr_catalog", schemas[1].clone(), pager)?;
 
         class.insert((&class).into(), pager)?;
         class.insert((&attr).into(), pager)?;
 
-        for (i, schema) in schemas.into_iter().enumerate() {
-            let tid = i + 1;
-            for (i, col) in schema.0.into_iter().enumerate() {
-                let row = AttrRow { attnum: i + 1, tid, col };
-                attr.insert(row.into(), pager)?;
+        let mut next_tid: usize = 0;
+        for schema in schemas {
+            next_tid += 1;
+            for (i, mut col) in schema.0.into_iter().enumerate() {
+                col.tid = next_tid;
+                col.attnum = i;
+                attr.insert((&col).into(), pager)?;
             }
         }
 
@@ -119,7 +122,7 @@ impl Catalog {
             tables.insert(row.tid, Table {
                 tid: row.tid,
                 name: row.name,
-                tree: BpTree::open(row.root),
+                tree: row.root,
                 active_data: row.active,
                 schema: Schema(schemas.remove(&row.tid).ok_or(StoreErr::NoSchema(row.tid))?),
             });
@@ -144,12 +147,17 @@ impl Catalog {
         let new_table = Table::new(tid, name, schema.clone(), pager)?;
         
         let class = self.tables.get_mut(&CLASS_TID).ok_or(StoreErr::NoClass)?;
-        class.insert((&new_table).into(), pager);
+        // TODO: check that the name doesn't override an existing table
+        class.insert((&new_table).into(), pager)?;
 
         let attr = self.tables.get_mut(&ATTR_TID).ok_or(StoreErr::NoAttr)?;
 
+        // TODO: validate schema before inserting
+        // check that there is at least one is_key column
+        // check that no is_key column is of Type Float or Blob
+        // check that all Text keys are all the last is_key
         for col in schema.0 {
-            attr.insert((&col).into(), pager);
+            attr.insert((&col).into(), pager)?;
         }
 
         self.tables.insert(tid, new_table);
@@ -160,88 +168,10 @@ impl Catalog {
     }
 }
 
-fn field<T>(val: &mut [Option<Value>], col: usize) -> StoreResult<T>
-where T: TryFrom<Value, Error = StoreErr> {
-    val.get_mut(col)
-        .ok_or(StoreErr::BadColIndex(col))?
-        .take()
-        .ok_or(StoreErr::NullField(col))?
-        .try_into()
-}
-
-pub struct ClassRow {
-    pub tid: usize,
-    pub name: String,
-    pub root: PageId,
-    pub active: PageId,
-}
- 
-impl TryFrom<Vec<Option<Value>>> for ClassRow {
-    type Error = StoreErr;
-
-    fn try_from(mut row: Vec<Option<Value>>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            tid: field(&mut row, 0)?,
-            name: field(&mut row, 1)?,
-            root: field(&mut row, 2)?,
-            active: field(&mut row, 3)?,
-        })
-    }
-}
-
-impl From<ClassRow> for Vec<Option<Value>> {
-    fn from(row: ClassRow) -> Self {
-        vec![
-            Some(Value::Uint(row.tid)),
-            Some(Value::Text(row.name.into())),
-            Some(Value::Uint(row.root.get())),
-            Some(Value::Uint(row.active.get())),
-        ]
-    }
-}
-
-pub struct AttrRow {
-    pub attnum: usize,
-    pub tid: usize,
-    pub col: Column,
-}
-
-impl TryFrom<Vec<Option<Value>>> for AttrRow {
-    type Error = StoreErr;
-
-    fn try_from(mut row: Vec<Option<Value>>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            attnum: field(&mut row, 0)?,
-            tid: field(&mut row, 1)?,
-            col: Column {
-                name: field(&mut row, 2)?,
-                ty: field(&mut row, 3)?,
-                is_key: field(&mut row, 4)?,
-                nullable: field(&mut row, 5)?,
-                is_dead: field(&mut row, 6)?,
-            },
-        })
-    }
-}
-
-impl From<AttrRow> for Vec<Option<Value>> {
-    fn from(attr: AttrRow) -> Self {
-        vec![
-            Some(attr.attnum.into()),
-            Some(attr.tid.into()),
-            Some(attr.col.name.into()),
-            Some((attr.col.ty as usize).into()),
-            Some(attr.col.is_key.into()),
-            Some(attr.col.nullable.into()),
-            Some(attr.col.is_dead.into()),
-        ]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::pager::Page;
+    use crate::store::{Value, pager::Page};
     use tempfile::NamedTempFile;
 
     fn init_catalog() -> (Pager, Catalog, NamedTempFile) {
@@ -282,10 +212,10 @@ mod tests {
         let class_bytes = class_page.get(class_rid.slot).unwrap();
         let class_row = class_table.schema.decode(&class_bytes).unwrap();
 
-        assert_eq!(class_row[0], Some(Value::Uint(CLASS_TID))); 
-        assert_eq!(class_row[1], Some(Value::Text("class_catalog".into())));
-        assert_eq!(class_row[2], Some(Value::Uint(CLASS_ROOT)));
-        assert_eq!(class_row[3], Some(Value::Uint(class_page.header().id.get())));
+        assert_eq!(class_row.0[0], Some(Value::Uint(CLASS_TID))); 
+        assert_eq!(class_row.0[1], Some(Value::Text("class_catalog".into())));
+        assert_eq!(class_row.0[2], Some(Value::Uint(CLASS_ROOT)));
+        assert_eq!(class_row.0[3], Some(Value::Uint(class_page.header().id.get())));
     }
 
     #[test]

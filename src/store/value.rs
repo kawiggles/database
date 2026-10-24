@@ -1,7 +1,7 @@
 use crate::{
     errors::{StoreErr, StoreResult},
     store::{
-        schema::Type,
+        relation::schema::Type,
         pager::page::PageId,
     },
 };
@@ -33,8 +33,8 @@ impl Value {
 
     pub fn as_key(&self) -> StoreResult<String> {
         match self {
-            Value::Uint(x) => Ok(format!("{:20}", x)),
-            Value::Int(x) => Ok(format!("{:20}", (*x as usize) ^ ( 1 << (usize::BITS - 1)))),
+            Value::Uint(x) => Ok(format!("{:020}", x)),
+            Value::Int(x) => Ok(format!("{:020}", (*x as usize) ^ ( 1 << (usize::BITS - 1)))),
             Value::Bool(x) => Ok(if *x { "1" } else { "0" }.into()),
             Value::Text(x) => Ok(x.clone()),
             Value::Float(_) | Value::Blob(_) => Err(StoreErr::NotKeyable),
@@ -48,54 +48,54 @@ impl Value {
 
 
 // TODO: turn all of these nearly identical functions into a macro_rules!
-impl TryFrom<Value> for bool {
+impl TryFrom<&Value> for bool {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Bool(x) => Ok(x),
+            Value::Bool(x) => Ok(*x),
             _ => Err(StoreErr::TypeErr(Type::Bool)),
         }
     }
 }
 
-impl TryFrom<Value> for isize {
+impl TryFrom<&Value> for isize {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Int(x) => Ok(x),
+            Value::Int(x) => Ok(*x),
             _ => Err(StoreErr::TypeErr(Type::Int)),
         }
     }
 }
 
-impl TryFrom<Value> for usize {
+impl TryFrom<&Value> for usize {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Uint(x) => Ok(x),
+            Value::Uint(x) => Ok(*x),
             _ => Err(StoreErr::TypeErr(Type::Uint)),
         }
     }
 }
 
-impl TryFrom<Value> for PageId {
+impl TryFrom<&Value> for PageId {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Uint(x) => Ok(PageId::new(x).ok_or(StoreErr::PageIdZero)?),
+            Value::Uint(x) => Ok(PageId::new(*x).ok_or(StoreErr::PageIdZero)?),
             _ => Err(StoreErr::TypeErr(Type::Uint)),
         }
     }
 }
 
-impl TryFrom<Value> for Type {
+impl TryFrom<&Value> for Type {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match usize::try_from(val)? {
             0 => Ok(Type::Bool),
             1 => Ok(Type::Int),
@@ -108,34 +108,34 @@ impl TryFrom<Value> for Type {
     }
 }
 
-impl TryFrom<Value> for f64 {
+impl TryFrom<&Value> for f64 {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Float(x) => Ok(x),
+            Value::Float(x) => Ok(*x),
             _ => Err(StoreErr::TypeErr(Type::Float)),
         }
     }
 }
 
-impl TryFrom<Value> for String {
+impl TryFrom<&Value> for String {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Text(x) => Ok(x),
+            Value::Text(x) => Ok(*x),
             _ => Err(StoreErr::TypeErr(Type::Text)),
         }
     }
 }
 
-impl TryFrom<Value> for Vec<u8> {
+impl TryFrom<&Value> for Vec<u8> {
     type Error = StoreErr;
 
-    fn try_from(val: Value) -> Result<Self, Self::Error> {
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Blob(x) => Ok(x),
+            Value::Blob(x) => Ok(x.clone()),
             _ => Err(StoreErr::TypeErr(Type::Blob)),
         }
     }

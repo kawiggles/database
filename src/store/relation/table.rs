@@ -1,25 +1,23 @@
 use crate::{
-    errors::{DbResult, StoreErr, StoreResult},
+    errors::{DbResult, StoreResult},
     store::{
         bptree::BpTree,
         pager::{DataPage, PageId, Pager,
             page::{PAGE_CAPACITY}},
-        schema::Schema,
         value::Value,
     },
 };
-pub const RID_SIZE: usize = 10; // usize + u16 when serialized
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Rid {
-    pub page: PageId,
-    pub slot: u16,
-}
+
+use super::{
+    Row, Rid,
+    schema::Schema,
+};
 
 #[derive(Debug, PartialEq)]
 pub struct Table {
     pub tid: usize,
     pub name: String,
-    pub tree: BpTree,
+    pub tree_root: PageId,
     pub active_data: PageId,
     pub schema: Schema,
 }
@@ -32,11 +30,21 @@ impl Table {
         pager.write(data)?;
         pager.flush()?;
 
-        Ok(Self { tid, name: name.into(), tree, active_data, schema })
+        Ok(Self { tid, name: name.into(), tree_root: tree.root, active_data, schema })
     }
 
-    pub fn insert(&mut self, row: Vec<Option<Value>>, pager: &mut Pager) -> DbResult<()>{
-        let key = self.schema.gen_row_keys(&row)?;
+    pub fn from_row(row: &Row, schema: Schema) -> DbResult<Self> {
+        Ok(Self {
+            tid: row.field(0)?,
+            name: row.field(1)?,
+            tree_root: row.field(2)?,
+            active_data: row.field(3)?,
+            schema
+        })
+    }
+
+    pub fn insert(&mut self, row: Row, pager: &mut Pager) -> DbResult<()>{
+        let key = self.schema.gen_key(&row)?;
         let bytes = self.schema.encode(row)?;
 
         let mut data = match pager.read_header(self.active_data)?.free_space() {
@@ -63,7 +71,8 @@ impl Table {
             data.insert(&bytes)?
         };
 
-        if let Some(old) = self.tree.insert(&key, rid, pager)? {
+        let mut tree = BpTree::open(self.tree_root);
+        if let Some(old) = tree.insert(&key, rid, pager)? {
             let mut old_data = pager.read::<DataPage>(old.page)?;
             old_data.delete(old.slot)?;
             pager.write(old_data)?;
@@ -83,24 +92,20 @@ impl Table {
         todo!()
     }
 
-    pub fn get_row(&self, rid: Rid, pager: &mut Pager) -> StoreResult<Vec<Option<Value>>> {
+    pub fn get_row(&self, rid: Rid, pager: &mut Pager) -> StoreResult<Row> {
         let page = pager.read::<DataPage>(rid.page)?;
         let bytes = page.get(rid.slot)?;
         self.schema.decode(&bytes)
     }
-
-    pub fn class_key(&self) -> String {
-        format!("{:020}", self.tid)
-    }
 }
 
-impl From<&Table> for Vec<Option<Value>> {
+impl From<&Table> for Row {
     fn from(table: &Table) -> Self {
-        vec![
+        Self(vec![
             Some(Value::Uint(table.tid)),
             Some(Value::Text(table.name.clone())),
-            Some(Value::Uint(table.tree.root.get())),
+            Some(Value::Uint(table.tree_root.get())),
             Some(Value::Uint(table.active_data.get())),
-        ]
+        ])
     }
 }

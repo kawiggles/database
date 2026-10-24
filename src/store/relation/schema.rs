@@ -8,6 +8,10 @@ use crate::{
     store::value::Value,
 };
 
+use super::{
+    Row
+};
+
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Type {
@@ -37,8 +41,8 @@ impl TryFrom<usize> for Type {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Column {
-    pub attnum: usize,
     pub tid: usize,
+    pub attnum: usize,
     pub name: String,
     pub ty: Type,
     pub is_key: bool,
@@ -52,9 +56,9 @@ impl Column {
     }
 }
 
-impl From<&Column> for Vec<Option<Value>> {
+impl From<&Column> for Row {
     fn from(col: &Column) -> Self {
-        vec![
+        Self(vec![
             Some(Value::Uint(col.attnum)),
             Some(Value::Uint(col.tid)),
             Some(Value::Text(col.name.clone())),
@@ -62,7 +66,23 @@ impl From<&Column> for Vec<Option<Value>> {
             Some(Value::Bool(col.is_key)),
             Some(Value::Bool(col.nullable)),
             Some(Value::Bool(col.is_dead)),
-        ]
+        ])
+    }
+}
+
+impl TryFrom<Row> for Column {
+    type Error = StoreErr;
+
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            tid: row.field(0)?,
+            attnum: row.field(1)?,
+            name: row.field(2)?,
+            ty: row.field(3)?,
+            is_key: row.field(4)?,
+            nullable: row.field(5)?,
+            is_dead: row.field(6)?,
+        })
     }
 }
 
@@ -71,23 +91,33 @@ pub struct Schema(pub Vec<Column>);
 
 // TODO: for future optimization: use split on the bytestream instead of reading to reduce copying
 impl Schema {
-    pub fn from_static(cols: &[(&str, Type)], tid: usize) -> Self {
-        Self(cols.iter().enumerate().map(|(i, &(name, ty))| Column {
-            attnum: i,
+
+    /// Used to generate Schemas for the catalog's hardcoded tables
+    pub fn from_static(cols: &[(&str, Type, bool)], tid: usize) -> Self {
+        Self(cols.iter().enumerate().map(|(i, &(name, ty, is_key))| Column {
             tid,
+            attnum: i,
             name: name.into(),
             ty,
-            is_key: if i == 0 { true } else { false },
+            is_key,
             nullable: false,
             is_dead: false,
         }).collect())
     }
 
-    pub fn gen_row_keys(&self, row: &[Option<Value>]) -> StoreResult<String> {
-        todo!()
+    /// Generates a key for a row using this schema
+    pub fn gen_key(&self, row: &Row) -> StoreResult<String> {
+        self.0.iter().enumerate()
+            .filter(|(_, col)| col.is_key)
+            .map(|(i, _)| row.0.get(i)
+                .ok_or(StoreErr::BadColIndex(i))?
+                .as_ref()
+                .ok_or(StoreErr::NullField(i))?
+                .as_key())
+            .collect()
     }
 
-    pub fn decode(&self, mut row_bytes: &[u8]) -> StoreResult<Vec<Option<Value>>> {
+    pub fn decode(&self, mut row_bytes: &[u8]) -> StoreResult<Row> {
         let mut vals: Vec<Option<Value>> = Vec::with_capacity(self.0.len());
 
         let mut bitmap = vec![0u8; self.0.len().div_ceil(8)];
@@ -145,15 +175,15 @@ impl Schema {
             }
         }
 
-        Ok(vals)
+        Ok(Row(vals))
     }
 
     // TODO: check values here instead of outside of function
-    pub fn encode(&self, entries: Vec<Option<Value>>) -> StoreResult<Vec<u8>> {
+    pub fn encode(&self, entries: Row) -> StoreResult<Vec<u8>> {
         let mut bytes: Vec<u8> = Vec::new();
         let mut bitmap = vec![0u8; self.0.len().div_ceil(8)];
 
-        for (i, entry) in entries.iter().enumerate() {
+        for (i, entry) in entries.0.iter().enumerate() {
             if let Some(val) = entry {
                 match val {
                     Value::Bool(x) => bytes.push(*x as u8),
@@ -193,16 +223,16 @@ mod tests {
     #[test]
     fn encode_decode_schema_roundtrip() {
         let schema = Schema::from_static(&[
-            ("bool", Type::Bool),
-            ("int", Type::Int),
-            ("uint", Type::Uint),
-            ("float", Type::Float),
-            ("text", Type::Text),
-            ("blob", Type::Blob),
-            ("null", Type::Text),
+            ("bool", Type::Bool, false),
+            ("int", Type::Int, true),
+            ("uint", Type::Uint, false),
+            ("float", Type::Float, false),
+            ("text", Type::Text, false),
+            ("blob", Type::Blob, false),
+            ("null", Type::Text, false),
         ], 5);
 
-        let vals: Vec<Option<Value>> = vec![
+        let vals: Row = Row(vec![
             Some(Value::Bool(true)),
             Some(Value::Int(-4)),
             Some(Value::Uint(4)),
@@ -210,7 +240,7 @@ mod tests {
             Some(Value::Text("this is text".into())),
             Some(Value::Blob(vec![b'h', b'i'])),
             None
-        ];
+        ]);
 
         let encoded = schema.encode(vals.clone()).unwrap();
         assert_eq!(vals, schema.decode(&encoded).unwrap());

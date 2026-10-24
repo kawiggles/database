@@ -6,7 +6,7 @@ use super::{
 
 use crate::{
     errors::{StoreErr, StoreResult, TreeErr, UserResult, UserErr},
-    store::table::{RID_SIZE, Rid},
+    store::relation::{RID_SIZE, Rid},
 };
 
 #[derive(Debug, PartialEq)]
