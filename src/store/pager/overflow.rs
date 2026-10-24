@@ -1,6 +1,7 @@
 use super::{
     Page, PageId, PageType, PageHeader, Pager,
-    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE },
+    data::MAX_FREE_SPACE,
+    page::{PageCursor, PAGE_SIZE, PAGEID_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE},
     read_usize,
 };
 use crate::errors::{StoreResult, StoreErr};
@@ -16,9 +17,9 @@ impl OverflowPage {
         let header = PageHeader {
             id,
             pagetype: PageType::Overflow,
-            slots: 0,
-            lower: 0,
-            upper: 0,
+            slots: 1,
+            lower: (PAGEHEADER_SIZE + SLOT_POINTER_SIZE) as u16,
+            upper: (PAGE_SIZE - PAGE_SIZE) as u16,
         };
 
         Self { header, next: None, data: Vec::new() }
@@ -26,6 +27,15 @@ impl OverflowPage {
 
     pub fn fill(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<()> {
         todo!()
+    }
+
+    fn refresh_header(&mut self) {
+        self.header.slots = 2;
+        self.header.lower = (PAGEHEADER_SIZE + 2 * SLOT_POINTER_SIZE) as u16;
+        self.header.upper = PAGE_SIZE
+            .checked_sub(self.data.len())
+            .and_then(|v| v.checked_sub(PAGEID_SIZE))
+            .unwrap_or(0) as u16;
     }
 }
 
@@ -46,12 +56,12 @@ impl Page for OverflowPage {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].clone_from_slice(&self.header.serialize());
 
-        let len = PAGE_SIZE - (self.data.len() + 8);
+        let len = PAGE_SIZE - (self.data.len() + PAGEID_SIZE);
         let dir = PAGEHEADER_SIZE;
-        if len < dir + 8 {
+        if len < dir + PAGEID_SIZE {
             return Err(StoreErr::SlotOverwrite {
                 page: self.header.id,
-                len: 8 - self.data.len(),
+                len: self.data.len(),
                 pagetype: PageType::Overflow
             });
         }
@@ -61,12 +71,12 @@ impl Page for OverflowPage {
             .unwrap_or(0)
             .to_le_bytes();
 
-        bytes[PAGE_SIZE-8..PAGE_SIZE].copy_from_slice(&next);
-        bytes[len..PAGE_SIZE-8].copy_from_slice(&self.data);
+        bytes[PAGE_SIZE-PAGEID_SIZE..PAGE_SIZE].copy_from_slice(&next);
+        bytes[len..PAGE_SIZE-PAGEID_SIZE].copy_from_slice(&self.data);
 
-        bytes[dir..dir+2].copy_from_slice(&((PAGE_SIZE - 8) as u16).to_le_bytes());
-        bytes[dir+2..dir+4].copy_from_slice(&(8 as u16).to_le_bytes());
-        bytes[dir+4..dir+6].copy_from_slice(&((PAGE_SIZE - 8 - len) as u16).to_le_bytes());
+        bytes[dir..dir+2].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE) as u16).to_le_bytes());
+        bytes[dir+2..dir+4].copy_from_slice(&(PAGEID_SIZE as u16).to_le_bytes());
+        bytes[dir+4..dir+6].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE - len) as u16).to_le_bytes());
         bytes[dir+6..dir+8].copy_from_slice(&(len as u16).to_le_bytes());
 
         Ok(bytes)

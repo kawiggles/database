@@ -1,10 +1,8 @@
-use std::collections::HashSet;
-
 use crate::{
     errors::{DbResult, StoreResult},
     store::{
         bptree::BpTree,
-        pager::{Page, DataPage, PageId, Pager, data::MAX_FREE_SPACE},
+        pager::{Page, DataPage, PageId, Pager, data::MAX_FREE_SPACE, page::SLOT_POINTER_SIZE},
         value::Value,
     },
 };
@@ -56,16 +54,19 @@ impl Table {
         let mut data = pager.read::<DataPage>(self.active_data)?;
 
         let rid = if bytes.len() > MAX_FREE_SPACE {
-            let new = DataPage::new(pager.alloc());
-            self.active_data = new.header().id;
+            let mut stub = DataPage::new(pager.alloc());
 
-            let rid = data.insert_overflow(&bytes, pager)?;
-            pager.write(data)?;
+            let rid = stub.insert_overflow(&bytes, pager)?;
+            pager.write(stub)?;
+            
+            let new = DataPage::new(pager.alloc());
             pager.write(new)?;
 
             rid
         } else {
-            if let Some(space) = data.free_space() && space as usize > bytes.len() {
+            if let Some(space) = data.free_space()
+                && space as usize >= bytes.len() + SLOT_POINTER_SIZE {
+
                 let rid = data.insert(&bytes)?;
                 pager.write(data)?;
                 rid
@@ -93,9 +94,9 @@ impl Table {
 
     /// Clears a row (identified by key) from the table's BpTree and tombstones the slot in its 
     /// associated datapage
-    pub fn remove(&mut self, key: String, pager: &mut Pager) -> DbResult<()> {
+    pub fn remove(&mut self, key: &str, pager: &mut Pager) -> DbResult<()> {
         let mut tree = BpTree::open(self.tree_root);
-        let rid = tree.remove(&key, pager)?;
+        let rid = tree.remove(key, pager)?;
         let mut data = pager.read::<DataPage>(rid.page)?;
         data.delete(rid.slot)?;
         pager.write(data)?;
@@ -106,33 +107,18 @@ impl Table {
 
     /// Returns every Row in a table
     pub fn scan(&self, pager: &mut Pager) -> DbResult<Vec<Row>>{
-        let tree = BpTree::open(self.tree_root);
-        let rids = tree.scan_rids(pager)?;
-
-        let mut rows: Vec<Row> = Vec::new();
-        let mut pages: HashSet<PageId> = HashSet::new();
-
-        for rid in rids {
-            if pages.contains(&rid.page) { continue; }
-
-            let data = pager.read::<DataPage>(rid.page)?;
-            let data_rows: Vec<Row> = data.data.into_iter()
-                .flatten()
-                .filter_map(|bytes| self.schema.decode(&bytes).ok())
-                .collect();
-            rows.extend_from_slice(&data_rows);
-
-            pages.insert(rid.page);
-        }
-
-        Ok(rows)
+        BpTree::open(self.tree_root)
+            .scan_rids(pager)?
+            .into_iter()
+            .map(|rid| self.get_row(&rid, pager))
+            .collect()
     }
 
     /// Returns a single Row from a table, identified by Rid
-    pub fn get_row(&self, rid: &Rid, pager: &mut Pager) -> StoreResult<Row> {
+    pub fn get_row(&self, rid: &Rid, pager: &mut Pager) -> DbResult<Row> {
         let page = pager.read::<DataPage>(rid.page)?;
         let bytes = page.get(rid.slot)?;
-        self.schema.decode(&bytes)
+        Ok(self.schema.decode(&bytes)?)
     }
 }
 

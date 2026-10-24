@@ -11,11 +11,11 @@ use crate::{
 
 pub struct DataPage {
     header: PageHeader,
-    pub data: Vec<Option<Vec<u8>>>,
+    data: Vec<Option<Vec<u8>>>,
     overflow: Option<PageId>,
 }
 
-pub const MAX_FREE_SPACE: usize = PAGE_SIZE - (PAGEHEADER_SIZE + SLOT_POINTER_SIZE);
+pub const MAX_FREE_SPACE: usize = PAGE_SIZE - PAGEHEADER_SIZE - 2 * SLOT_POINTER_SIZE - PAGEID_SIZE;
 
 impl DataPage {
     pub fn new(id: PageId) -> Self {
@@ -23,8 +23,8 @@ impl DataPage {
             id,
             pagetype: PageType::Data,
             slots: 1 as u16,
-            lower: PAGEHEADER_SIZE as u16,
-            upper: PAGE_SIZE as u16,
+            lower: (PAGEHEADER_SIZE + SLOT_POINTER_SIZE) as u16,
+            upper: (PAGE_SIZE - PAGEID_SIZE) as u16,
         };
 
         Self { header, data: Vec::new(), overflow: None }
@@ -49,7 +49,17 @@ impl DataPage {
     }
 
     pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {
-        todo!()
+        let bytes = self.data.get_mut(slot as usize)
+            .and_then(Option::take)
+            .ok_or(StoreErr::DatapageNoSlotData { page: self.header.id, slot })?;
+
+        while let Some(None) = self.data.last() {
+            self.data.pop();
+        }
+
+        self.refresh_header();
+
+        Ok(bytes)
     }
 
     fn refresh_header(&mut self) {

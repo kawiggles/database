@@ -18,6 +18,7 @@ use crate::{
 };
 
 // Buffer pool for database, holds cache?
+// Not here numbnutz
 pub struct Store {
     pub catalog: Catalog,
     pub pager: Pager,
@@ -30,12 +31,12 @@ impl Store {
 
         if path.exists() {
             let mut pager = Pager::open(filepath)?;
-            let mut catalog = Catalog::open(&mut pager)?;
+            let catalog = Catalog::open(&mut pager)?;
             
             Ok(Self { catalog, pager })
         } else {
             let mut pager = Pager::new(filepath)?;
-            let mut catalog = Catalog::init(&mut pager)?;
+            let catalog = Catalog::init(&mut pager)?;
 
             Ok(Self { catalog, pager })
         }
