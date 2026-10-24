@@ -374,13 +374,15 @@ mod tests {
         let id = pager.alloc();
         let id2 = pager.alloc();
         let page = DataPage::new(id);
-        let page2 = OverflowPage::new(id);
+        let page2 = OverflowPage::new(id2);
         pager.write(page).unwrap();
         pager.write(page2).unwrap();
         pager.flush()?;
 
         pager.free(id)?;
         pager.free(id2)?;
+
+        pager.close()?;
 
         let mut new_pager = Pager::open(path)?;
 

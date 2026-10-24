@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    errors::{StoreResult, StoreErr},
+    errors::{StoreResult, StoreErr, TableDefErr, UserResult},
     store::value::Value,
 };
 
@@ -50,17 +50,11 @@ pub struct Column {
     pub is_dead: bool,
 }
 
-impl Column {
-    pub fn attr_key(&self) -> String {
-        format!("{:020}{:020}", self.tid, self.attnum)
-    }
-}
-
 impl From<&Column> for Row {
     fn from(col: &Column) -> Self {
         Self(vec![
-            Some(Value::Uint(col.attnum)),
             Some(Value::Uint(col.tid)),
+            Some(Value::Uint(col.attnum)),
             Some(Value::Text(col.name.clone())),
             Some(Value::Uint(col.ty as usize)),
             Some(Value::Bool(col.is_key)),
@@ -206,6 +200,34 @@ impl Schema {
 
         Ok(bitmap.into_iter().chain(bytes).collect())
     }
+
+    /// Ensures that a defined schema can properly generate B+ tree keys
+    pub fn validate(&self) -> UserResult<()> {
+        let mut key_exists = false;
+        let mut text_key_appeared = false;
+
+        for col in self.0.iter() {
+            if col.is_key {
+                key_exists = true;
+
+                if text_key_appeared {
+                    return Err(TableDefErr::NonEndingTextKey)?;
+                }
+
+                if col.ty == Type::Blob || col.ty == Type::Float {
+                    return Err(TableDefErr::NonKeyableType)?;
+                } else if col.ty == Type::Text {
+                    text_key_appeared = true;
+                }
+            }
+        }
+
+        if !key_exists {
+            return Err(TableDefErr::NoKey)?;
+        }
+
+        Ok(())
+    }
 }
 
 fn bm_nullable(map: &[u8], col: usize) -> bool {
@@ -244,5 +266,36 @@ mod tests {
 
         let encoded = schema.encode(vals.clone()).unwrap();
         assert_eq!(vals, schema.decode(&encoded).unwrap());
+    }
+
+    #[test]
+    fn schema_validation() {
+        let bad_schema1 = Schema::from_static(&[
+            ("a bool", Type::Bool, false),
+            ("key val", Type::Text, true),
+            ("a num", Type::Int, true),
+        ], 1);
+        assert!(bad_schema1.validate().is_err());
+
+        let bad_schema2 = Schema::from_static(&[
+            ("a bool", Type::Bool, false),
+            ("key val", Type::Text, false),
+            ("a num", Type::Int, false),
+        ], 1);
+        assert!(bad_schema2.validate().is_err());
+
+        let bad_schema3 = Schema::from_static(&[
+            ("a bool", Type::Bool, false),
+            ("key val", Type::Float, true),
+            ("a num", Type::Int, false),
+        ], 1);
+        assert!(bad_schema3.validate().is_err());
+
+        let good_schema = Schema::from_static(&[
+            ("a bool", Type::Bool, false),
+            ("key val", Type::Text, true),
+            ("a num", Type::Int, false),
+        ], 1);
+        assert!(good_schema.validate().is_ok());
     }
 }

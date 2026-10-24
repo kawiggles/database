@@ -124,7 +124,7 @@ impl TryFrom<&Value> for String {
 
     fn try_from(val: &Value) -> Result<Self, Self::Error> {
         match val {
-            Value::Text(x) => Ok(*x),
+            Value::Text(x) => Ok(x.clone()),
             _ => Err(StoreErr::TypeErr(Type::Text)),
         }
     }

@@ -168,9 +168,7 @@ mod tests {
         let mut data = DataPage::new(PageId::new(1).unwrap());
         let bytes = vec![b'h', b'i'];
 
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let mut pager = Pager::new(tmp.path().to_str().unwrap()).unwrap();
-        data.insert(&bytes, &mut pager).unwrap();
+        data.insert(&bytes).unwrap();
     }
 
     #[test]

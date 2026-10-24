@@ -92,7 +92,7 @@ impl Table {
         todo!()
     }
 
-    pub fn get_row(&self, rid: Rid, pager: &mut Pager) -> StoreResult<Row> {
+    pub fn get_row(&self, rid: &Rid, pager: &mut Pager) -> StoreResult<Row> {
         let page = pager.read::<DataPage>(rid.page)?;
         let bytes = page.get(rid.slot)?;
         self.schema.decode(&bytes)

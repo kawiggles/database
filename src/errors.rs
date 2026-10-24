@@ -161,9 +161,21 @@ pub enum UserErr {
     NoTable,
     #[error("Key {0} is too long for B+ tree")]
     LongKey(String),
+    #[error("Error defining new table")]
+    TableDefErr(#[from] TableDefErr),
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
+
+#[derive(Error, Debug)]
+pub enum TableDefErr {
+    #[error("Non-keyable type marked as table key")]
+    NonKeyableType,
+    #[error("A key text attribute is not the last key amongst keyable types in the defined schema")]
+    NonEndingTextKey,
+    #[error("The defined schema has no key columns")]
+    NoKey,
+}
 
 #[derive(Error, Debug)]
 pub enum QueryErr {
