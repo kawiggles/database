@@ -19,7 +19,7 @@ impl OverflowPage {
             pagetype: PageType::Overflow,
             slots: 1,
             lower: (PAGEHEADER_SIZE + SLOT_POINTER_SIZE) as u16,
-            upper: (PAGE_SIZE - PAGE_SIZE) as u16,
+            upper: (PAGE_SIZE - PAGEID_SIZE) as u16,
         };
 
         Self { header, next: None, data: Vec::new() }
@@ -36,6 +36,14 @@ impl OverflowPage {
             .checked_sub(self.data.len())
             .and_then(|v| v.checked_sub(PAGEID_SIZE))
             .unwrap_or(0) as u16;
+    }
+
+    pub fn get_next(&self) -> Option<PageId> {
+        self.next
+    }
+
+    pub fn get_data(&self) -> Vec<u8> {
+        self.data
     }
 }
 
@@ -56,9 +64,9 @@ impl Page for OverflowPage {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].clone_from_slice(&self.header.serialize());
 
-        let len = PAGE_SIZE - (self.data.len() + PAGEID_SIZE);
+        let start = PAGE_SIZE - (self.data.len() + PAGEID_SIZE);
         let dir = PAGEHEADER_SIZE;
-        if len < dir + PAGEID_SIZE {
+        if start < dir + PAGEID_SIZE {
             return Err(StoreErr::SlotOverwrite {
                 page: self.header.id,
                 len: self.data.len(),
@@ -72,21 +80,29 @@ impl Page for OverflowPage {
             .to_le_bytes();
 
         bytes[PAGE_SIZE-PAGEID_SIZE..PAGE_SIZE].copy_from_slice(&next);
-        bytes[len..PAGE_SIZE-PAGEID_SIZE].copy_from_slice(&self.data);
+        bytes[start..PAGE_SIZE-PAGEID_SIZE].copy_from_slice(&self.data);
 
         bytes[dir..dir+2].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE) as u16).to_le_bytes());
         bytes[dir+2..dir+4].copy_from_slice(&(PAGEID_SIZE as u16).to_le_bytes());
-        bytes[dir+4..dir+6].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE - len) as u16).to_le_bytes());
-        bytes[dir+6..dir+8].copy_from_slice(&(len as u16).to_le_bytes());
+        bytes[dir+4..dir+6].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE - start) as u16).to_le_bytes());
+        bytes[dir+6..dir+8].copy_from_slice(&(start as u16).to_le_bytes());
 
         Ok(bytes)
     }
 
     fn deserialize(header: PageHeader, cursor: &mut PageCursor) -> StoreResult<Self> {
-        let next = PageId::new(read_usize(&mut cursor.next()?)?);
         let data = cursor.next()?.to_vec();
+        let next = PageId::new(read_usize(&mut cursor.next()?)?);
 
         Ok(Self { header, next, data })
     }
 }
 
+// TODO: write tests
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn serialize_and_deserialize() {
+    }
+}
