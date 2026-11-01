@@ -86,10 +86,28 @@ impl DataPage {
         Ok(Rid { page: self.header.id, slot: self.data.len() as u16 - 1 })
     }
 
-    pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {
-        let bytes = self.data.get_mut(slot as usize)
+    pub fn delete(&mut self, slot: u16, pager: &mut Pager) -> StoreResult<Vec<u8>> {
+        let mut data: Vec<u8> = Vec::new();
+
+        data.extend_from_slice(&self.data
+            .get_mut(slot as usize)
             .and_then(Option::take)
-            .ok_or(StoreErr::DatapageNoSlotData { page: self.header.id, slot })?;
+            .ok_or(StoreErr::DatapageNoSlotData { page: self.header.id, slot })?
+        );
+
+        if let Some(mut id) = self.overflow {
+            loop {
+                let overflow = pager.read::<OverflowPage>(id)?;
+                data.extend_from_slice(overflow.get());
+                pager.free(id)?;
+                if let Some(new_id) = overflow.next() {
+                    id = new_id;
+                } else {
+                    break;
+                }
+            }
+            self.overflow = None;
+        }
 
         while let Some(None) = self.data.last() {
             self.data.pop();
@@ -97,7 +115,7 @@ impl DataPage {
 
         self.refresh_header();
 
-        Ok(bytes)
+        Ok(data)
     }
 
     fn refresh_header(&mut self) {
@@ -255,5 +273,26 @@ mod tests {
 
     #[test]
     fn delete() {
+        let mut pager = setup();
+
+        let mut data = DataPage::new(pager.alloc());
+        let mut buf: Vec<u8> = vec![0u8; 8192];
+        fastrand::fill(&mut buf);
+
+        let rid = data.insert_overflow(&buf, &mut pager).unwrap();
+        pager.write(data).unwrap();
+        pager.flush().unwrap();
+
+        let mut new_data = pager.read::<DataPage>(rid.page).unwrap();
+        let new_buf = new_data.delete(rid.slot, &mut pager).unwrap();
+        pager.write(new_data).unwrap();
+        pager.flush().unwrap();
+
+        assert_eq!(buf, new_buf);
+
+        let new_new_data = pager.read::<DataPage>(rid.page).unwrap();
+        assert_eq!(new_new_data.overflow, None);
+        
+
     }
 }

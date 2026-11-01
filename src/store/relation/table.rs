@@ -2,7 +2,7 @@ use crate::{
     errors::{DbResult},
     store::{
         bptree::BpTree,
-        pager::{Page, DataPage, OverflowPage, PageId, Pager,
+        pager::{Page, DataPage, PageId, Pager,
             data::MAX_FREE_SPACE, page::SLOT_POINTER_SIZE},
         value::Value,
     },
@@ -86,7 +86,7 @@ impl Table {
         let mut tree = BpTree::open(self.tree_root);
         if let Some(old) = tree.insert(&key, rid, pager)? {
             let mut old_data = pager.read::<DataPage>(old.page)?;
-            old_data.delete(old.slot)?;
+            old_data.delete(old.slot, pager)?;
             pager.write(old_data)?;
         }
         pager.flush()?;
@@ -100,7 +100,7 @@ impl Table {
         let mut tree = BpTree::open(self.tree_root);
         let rid = tree.remove(key, pager)?;
         let mut data = pager.read::<DataPage>(rid.page)?;
-        data.delete(rid.slot)?;
+        data.delete(rid.slot, pager)?;
         pager.write(data)?;
         pager.flush()?;
 
