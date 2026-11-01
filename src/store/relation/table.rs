@@ -58,13 +58,10 @@ impl Table {
 
             let rid = stub.insert_overflow(&bytes, pager)?;
             pager.write(stub)?;
-<<<<<<< HEAD
             
             self.active_data = pager.alloc();
             let new = DataPage::new(self.active_data);
             pager.write(new)?;
-=======
->>>>>>> 98133637498626e1134fc2cb30cdf3ef87ee1474
 
             rid
         } else {
@@ -122,19 +119,8 @@ impl Table {
     /// Returns a single Row from a table, identified by Rid
     pub fn get_row(&self, rid: &Rid, pager: &mut Pager) -> DbResult<Row> {
         let page = pager.read::<DataPage>(rid.page)?;
-<<<<<<< HEAD
         let bytes = page.get(rid.slot, pager)?;
-=======
-        let mut bytes = page.get(rid.slot)?;
 
-        let mut next = page.get_overflow();
-        while let Some(id) = next {
-            let o_page = pager.read::<OverflowPage>(id)?;
-            bytes.extend(o_page.get_data());
-            next = o_page.get_next();
-        }
-
->>>>>>> 98133637498626e1134fc2cb30cdf3ef87ee1474
         Ok(self.schema.decode(&bytes)?)
     }
 }
