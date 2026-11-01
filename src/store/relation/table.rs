@@ -2,7 +2,8 @@ use crate::{
     errors::{DbResult},
     store::{
         bptree::BpTree,
-        pager::{Page, DataPage, PageId, Pager, data::MAX_FREE_SPACE, page::SLOT_POINTER_SIZE},
+        pager::{Page, DataPage, OverflowPage, PageId, Pager,
+            data::MAX_FREE_SPACE, page::SLOT_POINTER_SIZE},
         value::Value,
     },
 };
@@ -51,20 +52,23 @@ impl Table {
         let key = self.schema.gen_key(&row)?;
         let bytes = self.schema.encode(row)?;
 
-        let mut data = pager.read::<DataPage>(self.active_data)?;
 
         let rid = if bytes.len() > MAX_FREE_SPACE {
             let mut stub = DataPage::new(pager.alloc());
 
             let rid = stub.insert_overflow(&bytes, pager)?;
             pager.write(stub)?;
+<<<<<<< HEAD
             
             self.active_data = pager.alloc();
             let new = DataPage::new(self.active_data);
             pager.write(new)?;
+=======
+>>>>>>> 98133637498626e1134fc2cb30cdf3ef87ee1474
 
             rid
         } else {
+            let mut data = pager.read::<DataPage>(self.active_data)?;
             if let Some(space) = data.free_space()
                 && space as usize >= bytes.len() + SLOT_POINTER_SIZE {
 
@@ -118,7 +122,19 @@ impl Table {
     /// Returns a single Row from a table, identified by Rid
     pub fn get_row(&self, rid: &Rid, pager: &mut Pager) -> DbResult<Row> {
         let page = pager.read::<DataPage>(rid.page)?;
+<<<<<<< HEAD
         let bytes = page.get(rid.slot, pager)?;
+=======
+        let mut bytes = page.get(rid.slot)?;
+
+        let mut next = page.get_overflow();
+        while let Some(id) = next {
+            let o_page = pager.read::<OverflowPage>(id)?;
+            bytes.extend(o_page.get_data());
+            next = o_page.get_next();
+        }
+
+>>>>>>> 98133637498626e1134fc2cb30cdf3ef87ee1474
         Ok(self.schema.decode(&bytes)?)
     }
 }

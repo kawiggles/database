@@ -54,6 +54,10 @@ impl DataPage {
         Ok(data)
     }
 
+    pub fn get_overflow(&self) -> Option<PageId> {
+        self.overflow
+    }
+
     pub fn insert(&mut self, bytes: &[u8]) -> StoreResult<Rid> {
         self.data.push(Some(bytes.to_vec()));
 
@@ -215,6 +219,7 @@ mod tests {
         pager
     }
 
+    // TODO: Finish writing these tests
     #[test]
     fn serialize_and_deserialize() {
         let mut data = DataPage::new(PageId::new(1).unwrap());
