@@ -1,11 +1,11 @@
 use super::{
-    Page, PageId, PageType, PageHeader, Pager,
-    data::MAX_FREE_SPACE,
+    Page, PageId, PageType, PageHeader,
     page::{PageCursor, PAGE_SIZE, PAGEID_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE},
     read_usize,
 };
 use crate::errors::{StoreResult, StoreErr};
 
+#[derive(Debug, PartialEq)]
 pub struct OverflowPage {
     header: PageHeader,
     next: Option<PageId>,
@@ -19,14 +19,33 @@ impl OverflowPage {
             pagetype: PageType::Overflow,
             slots: 1,
             lower: (PAGEHEADER_SIZE + SLOT_POINTER_SIZE) as u16,
-            upper: (PAGE_SIZE - PAGE_SIZE) as u16,
+            upper: (PAGE_SIZE - PAGEID_SIZE) as u16,
         };
 
         Self { header, next: None, data: Vec::new() }
     }
 
-    pub fn fill(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<()> {
-        todo!()
+    pub fn fill(&mut self, bytes: &[u8]) {
+        self.data = bytes.to_vec();
+        self.refresh_header();
+    }
+
+    pub fn get(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn next(&self) -> Option<PageId> {
+        self.next
+    }
+
+    pub fn link(&mut self, id: PageId) {
+        self.next = Some(id);
+        self.refresh_header();
+    }
+
+    pub fn break_link(&mut self) {
+        self.next = None;
+        self.refresh_header();
     }
 
     fn refresh_header(&mut self) {
@@ -76,8 +95,8 @@ impl Page for OverflowPage {
 
         bytes[dir..dir+2].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE) as u16).to_le_bytes());
         bytes[dir+2..dir+4].copy_from_slice(&(PAGEID_SIZE as u16).to_le_bytes());
-        bytes[dir+4..dir+6].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE - len) as u16).to_le_bytes());
-        bytes[dir+6..dir+8].copy_from_slice(&(len as u16).to_le_bytes());
+        bytes[dir+4..dir+6].copy_from_slice(&(len as u16).to_le_bytes());
+        bytes[dir+6..dir+8].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE - len) as u16).to_le_bytes());
 
         Ok(bytes)
     }
@@ -90,3 +109,23 @@ impl Page for OverflowPage {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialize_and_deserialize() {
+        let mut overflow = OverflowPage::new(PageId::new(1).unwrap());
+        let data = vec![b'h',b'i'];
+
+        overflow.fill(&data);
+
+        let bytes = overflow.serialize().unwrap();
+        let mut cursor = PageCursor::new(&bytes);
+        let header = overflow.header.clone();
+        let new_overflow = OverflowPage::deserialize(header, &mut cursor).unwrap();
+
+        assert_eq!(overflow, new_overflow);
+    }
+}

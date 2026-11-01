@@ -5,10 +5,10 @@ use super::{
 };
 
 use crate::{
-    errors::{StoreErr, StoreResult},
-    store::relation::Rid,
+    errors::{StoreErr, StoreResult}, store::{pager::OverflowPage, relation::Rid},
 };
 
+#[derive(Debug, PartialEq)]
 pub struct DataPage {
     header: PageHeader,
     data: Vec<Option<Vec<u8>>>,
@@ -30,11 +30,28 @@ impl DataPage {
         Self { header, data: Vec::new(), overflow: None }
     }
 
-    pub fn get(&self, slot: u16) -> StoreResult<Vec<u8>> {
-        match self.data.get(slot as usize).and_then(|o| o.as_deref()) {
-            Some(x) => Ok(x.to_vec()),
-            None => Err(StoreErr::DatapageNoSlotData { page: self.header.id, slot })
-        }
+    pub fn get(&self, slot: u16, pager: &mut Pager) -> StoreResult<Vec<u8>> {
+        let mut data: Vec<u8> = Vec::new();
+        data.extend_from_slice(self.data
+            .get(slot as usize)
+            .and_then(|o| o.as_deref())
+            .ok_or(StoreErr::DatapageNoSlotData { page: self.header.id, slot })?
+        );
+
+        if let Some(oid) = self.overflow {
+            let mut id = oid;
+            loop {
+                let overflow = pager.read::<OverflowPage>(id)?;
+                data.extend_from_slice(overflow.get());
+                if let Some(oid) = overflow.next() {
+                    id = oid;
+                } else {
+                    break;
+                }
+            }
+        };
+
+        Ok(data)
     }
 
     pub fn insert(&mut self, bytes: &[u8]) -> StoreResult<Rid> {
@@ -45,7 +62,24 @@ impl DataPage {
     }
 
     pub fn insert_overflow(&mut self, bytes: &[u8], pager: &mut Pager) -> StoreResult<Rid> {
-        todo!()
+        let (head, tail) = bytes.split_at(MAX_FREE_SPACE);
+        self.data.push(Some(head.to_vec()));
+
+        self.overflow = tail
+            .rchunks(MAX_FREE_SPACE)
+            .try_fold(None, |next, chunk| -> StoreResult<Option<PageId>> {
+                let id = pager.alloc();
+                let mut page = OverflowPage::new(id);
+                page.fill(chunk);
+                if let Some(next) = next {
+                    page.link(next);
+                }
+                pager.write(page)?;
+                Ok(Some(id))
+            })?;
+
+        self.refresh_header();
+        Ok(Rid { page: self.header.id, slot: self.data.len() as u16 - 1 })
     }
 
     pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {
@@ -172,16 +206,49 @@ impl Page for DataPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fastrand;
+    use tempfile::NamedTempFile;
+
+    fn setup() -> Pager {
+        let file = NamedTempFile::new().unwrap();
+        let pager = Pager::new(file.path().to_str().unwrap()).unwrap();
+        pager
+    }
 
     #[test]
     fn serialize_and_deserialize() {
         let mut data = DataPage::new(PageId::new(1).unwrap());
-        let bytes = vec![b'h', b'i'];
+        let b = vec![b'h', b'i'];
 
-        data.insert(&bytes).unwrap();
+        data.insert(&b).unwrap();
+
+        let bytes = data.serialize().unwrap();
+        let mut cursor = PageCursor::new(&bytes);
+        let header = data.header.clone();
+        let new_data = DataPage::deserialize(header, &mut cursor).unwrap();
+
+        assert_eq!(data, new_data);
     }
 
     #[test]
-    fn get_slot() {
+    fn insert_and_get_overflow() {
+        let mut pager = setup();
+
+        let mut data = DataPage::new(pager.alloc());
+        let mut buf: Vec<u8> = vec![0u8; 8192];
+        fastrand::fill(&mut buf);
+
+        let rid = data.insert_overflow(&buf, &mut pager).unwrap();
+        pager.write(data).unwrap();
+        pager.flush().unwrap();
+
+        let new_data = pager.read::<DataPage>(rid.page).unwrap();
+        let new_buf = new_data.get(rid.slot, &mut pager).unwrap();
+
+        assert_eq!(buf, new_buf);
+    }
+
+    #[test]
+    fn delete() {
     }
 }

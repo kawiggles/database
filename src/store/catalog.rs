@@ -98,7 +98,7 @@ impl Catalog {
         let mut schemas: HashMap<usize, Vec<Column>> = HashMap::new();
         for rid in attr_rids {
             let page = pager.read::<DataPage>(rid.page)?;
-            let bytes = page.get(rid.slot)?;
+            let bytes = page.get(rid.slot, pager)?;
             let col = Column::try_from(attr_schema.decode(&bytes)?)?;
 
             schemas.entry(col.tid)
@@ -114,7 +114,7 @@ impl Catalog {
         // create and insert tables into catalog for each rid
         for rid in class_rids {
             let page = pager.read::<DataPage>(rid.page)?;
-            let row = class_schema.decode(&page.get(rid.slot)?)?;
+            let row = class_schema.decode(&page.get(rid.slot, pager)?)?;
             let tid: usize = row.field(0)?;
 
             let schema = schemas.remove(&tid).ok_or(StoreErr::NoSchema(tid))?;
@@ -207,7 +207,7 @@ mod tests {
         let class_tree = BpTree::open(class_table.tree_root);
         let class_rid = class_tree.get(&class_key, &mut pager).unwrap();
         let class_page = pager.read::<DataPage>(class_rid.page).unwrap();
-        let class_bytes = class_page.get(class_rid.slot).unwrap();
+        let class_bytes = class_page.get(class_rid.slot, &mut pager).unwrap();
         let class_row = class_table.schema.decode(&class_bytes).unwrap();
 
         assert_eq!(class_row, Row::from(class_table))

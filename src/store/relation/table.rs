@@ -1,5 +1,5 @@
 use crate::{
-    errors::{DbResult, StoreResult},
+    errors::{DbResult},
     store::{
         bptree::BpTree,
         pager::{Page, DataPage, PageId, Pager, data::MAX_FREE_SPACE, page::SLOT_POINTER_SIZE},
@@ -59,7 +59,8 @@ impl Table {
             let rid = stub.insert_overflow(&bytes, pager)?;
             pager.write(stub)?;
             
-            let new = DataPage::new(pager.alloc());
+            self.active_data = pager.alloc();
+            let new = DataPage::new(self.active_data);
             pager.write(new)?;
 
             rid
@@ -117,7 +118,7 @@ impl Table {
     /// Returns a single Row from a table, identified by Rid
     pub fn get_row(&self, rid: &Rid, pager: &mut Pager) -> DbResult<Row> {
         let page = pager.read::<DataPage>(rid.page)?;
-        let bytes = page.get(rid.slot)?;
+        let bytes = page.get(rid.slot, pager)?;
         Ok(self.schema.decode(&bytes)?)
     }
 }
