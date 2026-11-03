@@ -48,6 +48,7 @@ impl Table {
 
     /// Inserts a Row into a datapage, and then inserts the associated Rid into the Table b+ tree
     /// Caller must check if active_data is different and update the catalog accordingly
+    // this may need to return replaced bytes/rows
     pub fn insert(&mut self, row: Row, pager: &mut Pager) -> DbResult<()> {
         let key = self.schema.gen_key(&row)?;
         let bytes = self.schema.encode(row)?;
@@ -58,10 +59,6 @@ impl Table {
 
             let rid = stub.insert_overflow(&bytes, pager)?;
             pager.write(stub)?;
-            
-            self.active_data = pager.alloc();
-            let new = DataPage::new(self.active_data);
-            pager.write(new)?;
 
             rid
         } else {
@@ -86,10 +83,15 @@ impl Table {
         let mut tree = BpTree::open(self.tree_root);
         if let Some(old) = tree.insert(&key, rid, pager)? {
             let mut old_data = pager.read::<DataPage>(old.page)?;
-            old_data.delete(old.slot, pager)?;
-            pager.write(old_data)?;
+            if old_data.overflow().is_some() { // if it does, get them from the delete calls
+                old_data.delete_overflow(pager)?;
+                pager.free(old.page)?;
+            } else {
+                old_data.delete(old.slot)?;
+                pager.write(old_data)?;
+            }
+            pager.flush()?;
         }
-        pager.flush()?;
 
         Ok(())
     }
@@ -100,8 +102,13 @@ impl Table {
         let mut tree = BpTree::open(self.tree_root);
         let rid = tree.remove(key, pager)?;
         let mut data = pager.read::<DataPage>(rid.page)?;
-        data.delete(rid.slot, pager)?;
-        pager.write(data)?;
+        if data.overflow().is_some() { // if it does, get them from the delete calls
+            data.delete_overflow(pager)?;
+            pager.free(rid.page)?;
+        } else {
+            data.delete(rid.slot)?;
+            pager.write(data)?;
+        }
         pager.flush()?;
 
         Ok(())
@@ -134,4 +141,9 @@ impl From<&Table> for Row {
             Some(Value::Uint(table.active_data.get())),
         ])
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 }

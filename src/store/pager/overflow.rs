@@ -43,11 +43,6 @@ impl OverflowPage {
         self.refresh_header();
     }
 
-    pub fn break_link(&mut self) {
-        self.next = None;
-        self.refresh_header();
-    }
-
     fn refresh_header(&mut self) {
         self.header.slots = 2;
         self.header.lower = (PAGEHEADER_SIZE + 2 * SLOT_POINTER_SIZE) as u16;

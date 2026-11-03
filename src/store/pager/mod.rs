@@ -364,7 +364,6 @@ mod tests {
         assert_eq!(pager.num_pages, 1);
     }
 
-    // TODO: This is failing, figure out why
     #[test]
     fn free() -> StoreResult<()> {
         let tmp = temp_path();

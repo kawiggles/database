@@ -54,7 +54,7 @@ impl DataPage {
         Ok(data)
     }
 
-    pub fn get_overflow(&self) -> Option<PageId> {
+    pub fn overflow(&self) -> Option<PageId> {
         self.overflow
     }
 
@@ -86,13 +86,30 @@ impl DataPage {
         Ok(Rid { page: self.header.id, slot: self.data.len() as u16 - 1 })
     }
 
-    pub fn delete(&mut self, slot: u16, pager: &mut Pager) -> StoreResult<Vec<u8>> {
+    // TODO: this probably works, but write a test for it
+    /// Use to delete normal pages
+    pub fn delete(&mut self, slot: u16) -> StoreResult<Vec<u8>> {
+        let bytes = self.data.get_mut(slot as usize)
+            .and_then(Option::take)
+            .ok_or(StoreErr::DatapageNoSlotData { page: self.header.id, slot })?;
+
+        while let Some(None) = self.data.last() {
+            self.data.pop();
+        }
+
+        self.refresh_header();
+
+        Ok(bytes)
+    }
+
+    /// Use to delete contents of overflowpages
+    pub fn delete_overflow(&mut self, pager: &mut Pager) -> StoreResult<Vec<u8>> {
         let mut data: Vec<u8> = Vec::new();
 
         data.extend_from_slice(&self.data
-            .get_mut(slot as usize)
+            .get_mut(0)
             .and_then(Option::take)
-            .ok_or(StoreErr::DatapageNoSlotData { page: self.header.id, slot })?
+            .ok_or(StoreErr::DatapageNoSlotData { page: self.header.id, slot: 0 })?
         );
 
         if let Some(mut id) = self.overflow {
@@ -237,7 +254,6 @@ mod tests {
         pager
     }
 
-    // TODO: Finish writing these tests
     #[test]
     fn serialize_and_deserialize() {
         let mut data = DataPage::new(PageId::new(1).unwrap());
@@ -271,6 +287,7 @@ mod tests {
         assert_eq!(buf, new_buf);
     }
 
+
     #[test]
     fn delete() {
         let mut pager = setup();
@@ -283,8 +300,9 @@ mod tests {
         pager.write(data).unwrap();
         pager.flush().unwrap();
 
+
         let mut new_data = pager.read::<DataPage>(rid.page).unwrap();
-        let new_buf = new_data.delete(rid.slot, &mut pager).unwrap();
+        let new_buf = new_data.delete_overflow(&mut pager).unwrap();
         pager.write(new_data).unwrap();
         pager.flush().unwrap();
 
@@ -292,7 +310,5 @@ mod tests {
 
         let new_new_data = pager.read::<DataPage>(rid.page).unwrap();
         assert_eq!(new_new_data.overflow, None);
-        
-
     }
 }
