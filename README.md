@@ -1,7 +1,7 @@
 # kawika-db
 **kawika-db** is a networked and serialized database written in Rust. My aim in building this project was to learn how Rust and databases work, and to build skills in networking and multithreading. **THIS IS A LEARNING PROJECT ONLY! DO NOT USE THIS AS AN ACTUAL DATABASE!**
 
-## How to Run it
+## How to Run It
 In order to run this project, you need to have Rust installed.
 
 Firstly, clone the git repository with `git clone https://github.com/kawiggles/database.git`, and then `cd` into it.
@@ -31,12 +31,10 @@ DataPages are the second kind of page, and these are the pages that hold the raw
 
 The pager itself is essentially a struct that holds the database filepath, metadata, and a suite of methods to expose pages to the b+ tree for read write operations. Critically, the pager writes changes by adding all the modified pages to a hash map from their page indices, and then writes all the updated pages once the database operation is complete. The pager also keeps tracks of pages which have been deleted so that they can be reallocated, preventing the database from using unnecessary extra space.
 
-The pager currently uses bincode to read and write raw data to storage, but I plan on eventually implementing my own system for encoding data to save space (doubling the number of keys that can be placed in an IndexPage) and reduce dependencies.
+The design flaw is that this is really slow, as only one mutation can occur at a time. The better option is to employ a buffer pool and use a guard system to expose read/write locked pages to the b+ tree and catalog
 
-### Organizational Data Structure
-The core organizational data structure of the database is the b+ tree. This B+ tree started out as an arena allocator, but the vector arena has been replaced with the storage pager, the design of which is detailed below. However, the basic notion of pointers simply being indices is preserved with the notion of the PageId. A PageId is a struct which wraps a NonZeroUsize that refers to a specific byte offset... I did this because actual pointers are really difficult in Rust, and trying to make a traditional "C-like" b+ tree would result in entirely too many instances of `Option<Rc<RefCell<Node>>>`. The b+ tree being arena allocated made it extremely easy to merge with the pager, as node indices in the vector of nodes was simply replaced by page indexes in concert with pager read and write operations.
+### Catalog
 
-The tree has three basic operations, matching those of the hash map which the tree replaced: get, insert, and remove. Implementing the insert and remove operations was by far the hardest part of this project so far because of the number of edge cases in each operation. Off by one errors were abound, and the tree structure itself is difficult to visualize. In the bptree.rs file, you'll find a validator I wrote for testing the tree as well as methods for printing out the tree, which I used heavily to debug the structure. You can now also run the `validate` command or the `print tree` command.
 
 ### Networking
 Networking is accomplished through the tokio `net`crate. The server uses tokio to start a thread for the local cli, and then creates a new thread for each connection that it receives. A RwLock allows multiple clients to interact with the database simultaneously. The server is abstracted as a struct with methods that wrap the initialization of the TCP socket and the local database as well as handle client connections.
