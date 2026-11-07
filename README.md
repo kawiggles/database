@@ -52,18 +52,17 @@ The project has slowly added features as I've learned about Rust. Here's a rough
 + 6/21/26: basic multithreading implementation 
 + 7/4/26: basic version of postgresql protocol
 + 7/26/26: tokio async implementation
-+ 9/7/26: b+ tree and pager refactor, bincode dependency removed.
++ 9/7/26: b+ tree and pager refactor, bincode dependency removed
++ 11/2/26: catalog, overflow and data pages, table methods
 
 ### Known Bugs
++ still panics immediately, not very useful
 + \q with psql does not work, as far as I can tell
 + a tokio thread failing messes up the local cli
 + a BUNCH of postgresql networking isn't being handles, specifically error messages
 
 ### Future Plans
 Because this project is for learning, it will be under constant, slow development for pretty much the entirety of its existence. I aim to add features that will help me learn about programming and systems architecture. If I'm lucky, this project may one day end up as a functional database. Below is the running list of things I'm looking to accomplish.
-+ Increase max value size from 4KB to whatever size on disk is necessary
-    + Modify wire protocol to process values in chunks
-    + Write DataPage overflow chains
 + Modify Pager
     + Add a buffer pool to reduce the number of I/O operations
     + Have the pager use guards and cursor to:
