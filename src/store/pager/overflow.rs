@@ -1,10 +1,11 @@
 use super::{
     Page, PageId, PageType, PageHeader,
-    page::{PageCursor, PAGE_SIZE, PAGEHEADER_SIZE },
+    page::{PageCursor, PAGE_SIZE, PAGEID_SIZE, PAGEHEADER_SIZE, SLOT_POINTER_SIZE},
     read_usize,
 };
 use crate::errors::{StoreResult, StoreErr};
 
+#[derive(Debug, PartialEq)]
 pub struct OverflowPage {
     header: PageHeader,
     next: Option<PageId>,
@@ -12,14 +13,53 @@ pub struct OverflowPage {
 }
 
 impl OverflowPage {
-    pub fn new() -> Self {
-        todo!()
+    pub fn new(id: PageId) -> Self {
+        let header = PageHeader {
+            id,
+            pagetype: PageType::Overflow,
+            slots: 1,
+            lower: (PAGEHEADER_SIZE + SLOT_POINTER_SIZE) as u16,
+            upper: (PAGE_SIZE - PAGEID_SIZE) as u16,
+        };
+
+        Self { header, next: None, data: Vec::new() }
+    }
+
+    pub fn fill(&mut self, bytes: &[u8]) {
+        self.data = bytes.to_vec();
+        self.refresh_header();
+    }
+
+    pub fn get(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn next(&self) -> Option<PageId> {
+        self.next
+    }
+
+    pub fn link(&mut self, id: PageId) {
+        self.next = Some(id);
+        self.refresh_header();
+    }
+
+    fn refresh_header(&mut self) {
+        self.header.slots = 2;
+        self.header.lower = (PAGEHEADER_SIZE + 2 * SLOT_POINTER_SIZE) as u16;
+        self.header.upper = PAGE_SIZE
+            .checked_sub(self.data.len())
+            .and_then(|v| v.checked_sub(PAGEID_SIZE))
+            .unwrap_or(0) as u16;
     }
 }
 
 impl Page for OverflowPage {
     fn header(&self) -> &PageHeader {
         &self.header
+    }
+
+    fn set_id(&mut self, id: PageId) {
+        self.header.id = id;
     }
 
     fn pagetype() -> PageType {
@@ -30,13 +70,13 @@ impl Page for OverflowPage {
         let mut bytes = vec![0u8; PAGE_SIZE];
         bytes[0..PAGEHEADER_SIZE].clone_from_slice(&self.header.serialize());
 
-        let len = PAGE_SIZE - 8 - self.data.len();
+        let len = PAGE_SIZE - (self.data.len() + PAGEID_SIZE);
         let dir = PAGEHEADER_SIZE;
-        if len < dir + 8 {
+        if len < dir + PAGEID_SIZE {
             return Err(StoreErr::SlotOverwrite {
                 page: self.header.id,
-                len: 8 - self.data.len(),
-                pagetype: PageType::Data
+                len: self.data.len(),
+                pagetype: PageType::Overflow
             });
         }
 
@@ -45,13 +85,13 @@ impl Page for OverflowPage {
             .unwrap_or(0)
             .to_le_bytes();
 
-        bytes[PAGE_SIZE-8..PAGE_SIZE].copy_from_slice(&next);
-        bytes[len..PAGE_SIZE-8].copy_from_slice(&self.data);
+        bytes[PAGE_SIZE-PAGEID_SIZE..PAGE_SIZE].copy_from_slice(&next);
+        bytes[len..PAGE_SIZE-PAGEID_SIZE].copy_from_slice(&self.data);
 
-        bytes[dir..dir+2].copy_from_slice(&((PAGE_SIZE - 8) as u16).to_le_bytes());
-        bytes[dir+2..dir+4].copy_from_slice(&(8 as u16).to_le_bytes());
-        bytes[dir+4..dir+6].copy_from_slice(&((PAGE_SIZE - 8 - len) as u16).to_le_bytes());
-        bytes[dir+6..dir+8].copy_from_slice(&(len as u16).to_le_bytes());
+        bytes[dir..dir+2].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE) as u16).to_le_bytes());
+        bytes[dir+2..dir+4].copy_from_slice(&(PAGEID_SIZE as u16).to_le_bytes());
+        bytes[dir+4..dir+6].copy_from_slice(&(len as u16).to_le_bytes());
+        bytes[dir+6..dir+8].copy_from_slice(&((PAGE_SIZE - PAGEID_SIZE - len) as u16).to_le_bytes());
 
         Ok(bytes)
     }
@@ -64,3 +104,22 @@ impl Page for OverflowPage {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialize_and_deserialize() {
+        let mut overflow = OverflowPage::new(PageId::new(1).unwrap());
+        let data = vec![b'h',b'i'];
+
+        overflow.fill(&data);
+
+        let bytes = overflow.serialize().unwrap();
+        let mut cursor = PageCursor::new(&bytes);
+        let header = overflow.header.clone();
+        let new_overflow = OverflowPage::deserialize(header, &mut cursor).unwrap();
+
+        assert_eq!(overflow, new_overflow);
+    }
+}

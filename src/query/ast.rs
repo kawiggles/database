@@ -129,22 +129,22 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(tokens: &'a [Token]) -> Self {
-        Parser {
-            tokens: tokens,
-            pos: 0,
-        }
+        Parser { tokens, pos: 0 }
     }
 
-    fn peek(&self) -> &Token {
-        &self.tokens[self.pos]
+    /// Use if the next token is optional
+    fn peek(&self) -> &'a Token {
+        &self.tokens.get(self.pos).expect("Advanced past eof parsing tokens")
     }
 
+    /// Use to consume a peeked token
     fn advance(&mut self) -> Token {
-        let t = self.tokens[self.pos].clone();
+        let t = self.tokens.get(self.pos).expect("Advanced past eof parsing tokens").clone();
         self.pos += 1;
         t
     }
 
+    /// Use if a statement has a required token
     fn expect(&mut self, expected: &Token) -> QueryResult<()> {
         if self.peek() == expected {
             self.pos += 1;
@@ -331,7 +331,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // TODO: parse schema dots
+    // TODO: parse schema dots, as in <table>.<col>. We can't do that right now
     fn parse_table_ref(&mut self) -> QueryResult<TableRef> {
         match self.advance() {
             Token::Ident(ident) => {
@@ -431,7 +431,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment(&mut self) -> QueryResult<Assignment> {
-        // TODO: Update target column parsing
+        // TODO: UPDATE target column parsing
+        // wtf does this mean past me???
         let column = self.parse_column_ref()?;
         self.expect(&Token::Eq)?;
         let val = self.parse_expr()?;
@@ -542,7 +543,7 @@ impl<'a> Parser<'a> {
     }
     
     fn peek_binop(&self) -> Option<BOp> {
-        match &self.tokens[self.pos] {
+        match self.peek() {
             Token::Eq => Some(BOp::Eq),
             Token::NotEq => Some(BOp::NotEq),
             Token::Lt => Some(BOp::Lt),

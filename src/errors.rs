@@ -9,7 +9,10 @@ use simplelog::{WriteLogger, Config};
 use crate::{
     tcp::response::Response,
     query::lexer::Token,
-    store::pager::{PageType, PageId},
+    store::{
+        pager::{PageType, PageId},
+        relation::schema::Type,
+    },
 };
 
 pub fn init_logs() {
@@ -85,7 +88,30 @@ pub enum StoreErr {
     EmptyPage {
         page: PageId,
         pagetype: PageType,
-    }
+    },
+    #[error("Attempted to read slot {} of datapage {}, but no slot was found.", slot, page)]
+    DatapageNoSlotData {
+        page: PageId,
+        slot: u16,
+    },
+    #[error("Unexpected value type indicator")]
+    UnexpectedType,
+    #[error("Failed to decode AttrRow at field {0}")]
+    NullField(usize),
+    #[error("Attempted to index out of bounds column {0}")]
+    BadColIndex(usize),
+    #[error("PageId of zero detected, that's illegal")]
+    PageIdZero,
+    #[error("Error encountered attempting to convert a Value type, expected {0:?}")]
+    TypeErr(Type),
+    #[error("No schema found for TID {0}")]
+    NoSchema(usize),
+    #[error("Value cannot be converted into a b+ tree key")]
+    NotKeyable,
+    #[error("Class catalog table missing!!!!")]
+    NoClass,
+    #[error("Attribute catalog table missing!!!!")]
+    NoAttr,
 }
 
 pub type StoreResult<T> = std::result::Result<T, StoreErr>;
@@ -115,8 +141,11 @@ pub enum TreeErr {
     #[error("Page {0} is underflowing")]
     PageUnderflow(PageId),
 }
-
 pub type TreeResult<T> = std::result::Result<T, TreeErr>;
+
+#[derive(Error, Debug)]
+pub enum TypeErr {
+}
 
 #[derive(Error, Debug)]
 pub enum UserErr {
@@ -128,15 +157,25 @@ pub enum UserErr {
     BadQuery(#[from] QueryErr),
     #[error("Put call was unsuccessful")]
     BadPut,
-    #[error("No value to delete at requested key")]
-    BadDel,
-    #[error("There is no content in the database")]
-    NoRoot,
-    #[error("Key {0} is too long (sorry)")]
+    #[error("No table found")]
+    NoTable,
+    #[error("Key {0} is too long for B+ tree")]
     LongKey(String),
+    #[error("Error defining new table")]
+    TableDefErr(#[from] TableDefErr),
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
+
+#[derive(Error, Debug)]
+pub enum TableDefErr {
+    #[error("Non-keyable type marked as table key")]
+    NonKeyableType,
+    #[error("A key text attribute is not the last key amongst keyable types in the defined schema")]
+    NonEndingTextKey,
+    #[error("The defined schema has no key columns")]
+    NoKey,
+}
 
 #[derive(Error, Debug)]
 pub enum QueryErr {

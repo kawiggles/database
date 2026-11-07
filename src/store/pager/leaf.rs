@@ -6,7 +6,7 @@ use super::{
 
 use crate::{
     errors::{StoreErr, StoreResult, TreeErr, UserResult, UserErr},
-    store::{RID_SIZE, Rid},
+    store::relation::{RID_SIZE, Rid},
 };
 
 #[derive(Debug, PartialEq)]
@@ -18,6 +18,21 @@ pub struct LeafPage {
 }
 
 impl LeafPage {
+    pub fn new_empty(id: PageId) -> Self {
+        Self {
+            header: PageHeader {
+                id,
+                pagetype: PageType::Leaf,
+                slots: 1,
+                lower: (PAGEHEADER_SIZE + SLOT_POINTER_SIZE) as u16,
+                upper: (PAGE_SIZE - PAGEID_SIZE) as u16,
+            },
+            keys: Vec::new(),
+            rids: Vec::new(),
+            next_leaf: None,
+        }
+    }
+
     pub fn new(id: PageId, keys: Vec<String>, rids: Vec<Rid>, next_leaf: Option<PageId>) -> Self {
         let slots = (keys.len() + 1) as u16;
         let lower = PAGEHEADER_SIZE as u16 + slots * SLOT_POINTER_SIZE as u16; 
@@ -27,7 +42,7 @@ impl LeafPage {
             .sum::<usize>() - PAGEID_SIZE) as u16;
 
         Self {
-            header: PageHeader{ id, pagetype: PageType::Leaf, next: None, slots, lower, upper },
+            header: PageHeader{ id, pagetype: PageType::Leaf, slots, lower, upper },
             keys, rids, next_leaf
         }
     }
@@ -141,6 +156,10 @@ impl LeafPage {
 impl Page for LeafPage {
     fn header(&self) -> &PageHeader {
         &self.header
+    }
+
+    fn set_id(&mut self, id: PageId) {
+        self.header.id = id;        
     }
 
     fn pagetype() -> PageType {

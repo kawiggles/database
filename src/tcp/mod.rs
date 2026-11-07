@@ -23,7 +23,6 @@ use crate::tcp::{
 use crate::cli::run_cli;
 
 pub const DEFAULT_FILE: &str = "kawika.db";
-pub const DEFAULT_ORDER: usize = 150;
 pub const DEFAULT_PORT: &str = "127.0.0.1:5432";
 
 pub struct Server {
@@ -43,9 +42,10 @@ impl Server {
         init_logs();
         info!("Starting server...");
 
-        // TODO: add way to configure file and order selection
+        // TODO: add way to configure file
+        // TODO: handle catalog and pager startup errors
         let db = Arc::new(RwLock::new(Store::start(DEFAULT_FILE)
-                .expect("Failed to start database")));
+            .expect("Failed to start database")));
         info!(" - Database initialized");
 
         // TODO: add way to select where the server is being hosted

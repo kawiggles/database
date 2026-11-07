@@ -1,17 +1,17 @@
 use std::{
-    io::Read,
     num::NonZeroUsize,
     fmt::{Display, Formatter, Result},
 };
 
 use crate::errors::{StoreResult, StoreErr};
 
-use super::{ read_usize, read_u16 };
+use super::{ read_usize, read_u16, read_byte };
 
 pub const SLOT_POINTER_SIZE: usize = 4; // u16 + u16
 pub const PAGE_SIZE: usize = 4096;
 pub trait Page: Sized {
     fn header(&self) -> &PageHeader;
+    fn set_id(&mut self, id: PageId);
     fn free_space(&self) -> Option<u16> {
         (self.header().upper).checked_sub(self.header().lower)
     }
@@ -40,13 +40,12 @@ impl Display for PageId {
     }
 }
 
-pub const PAGEHEADER_SIZE: usize = 23;
+pub const PAGEHEADER_SIZE: usize = 15;
 pub const PAGE_CAPACITY: u16 = (PAGE_SIZE - PAGEHEADER_SIZE) as u16;
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct PageHeader {
     pub id: PageId,             // 8
     pub pagetype: PageType,     // 1
-    pub next: Option<PageId>,   // 8
     pub slots: u16,             // 2
     pub lower: u16,             // 2
     pub upper: u16,             // 2
@@ -57,57 +56,46 @@ impl PageHeader {
         let id = PageId::new(read_usize(bytes)?)
             .expect("read PageId of 0");
 
-        let pagetype = PageType::deserialize(bytes)?;
+        let pagetype = PageType::try_from(read_byte(bytes)?)?;
 
-        let next = PageId::new(read_usize(bytes)?);
         let slots = read_u16(bytes)?;
         let lower = read_u16(bytes)?;
         let upper = read_u16(bytes)?;
         
-        Ok(PageHeader { id, pagetype, next, slots, lower, upper })
+        Ok(PageHeader { id, pagetype, slots, lower, upper })
     }
     
     pub fn serialize(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Vec::new();
 
         bytes.extend_from_slice(&self.id.get().to_le_bytes());
-        bytes.push(self.pagetype.serialize());
-        bytes.extend_from_slice(&self.next
-            .map(|id| id.get())
-            .unwrap_or(0)
-            .to_le_bytes());
+        bytes.push(self.pagetype as u8);
         bytes.extend_from_slice(&self.slots.to_le_bytes());
         bytes.extend_from_slice(&self.lower.to_le_bytes());
         bytes.extend_from_slice(&self.upper.to_le_bytes());
         bytes
     }
+
+    pub fn free_space(&self) -> Option<u16> {
+        self.upper.checked_sub(self.lower)
+    }
 }
 
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PageType {
-    Free,
-    Branch,
-    Leaf,
-    Data,
-    Overflow,
+    Free = 0,
+    Branch = 1,
+    Leaf = 2,
+    Data = 3,
+    Overflow = 4,
 }
 
-impl PageType {
-    fn serialize(&self) -> u8 {
-        match self {
-            Self::Free => 0,
-            Self::Branch => 1,
-            Self::Leaf => 2,
-            Self::Data => 3,
-            Self::Overflow => 4,
-        }
-    }
+impl TryFrom<u8> for PageType {
+    type Error = StoreErr;
 
-    fn deserialize<R: Read>(bytes: &mut R) -> StoreResult<Self> {
-        let mut buf = [0u8; 1];
-        bytes.read_exact(&mut buf)?;
-        
-        match u8::from_le_bytes(buf) {
+    fn try_from(value: u8) -> std::prelude::v1::Result<Self, Self::Error> {
+        match value {
             0 => Ok(Self::Free),
             1 => Ok(Self::Branch),
             2 => Ok(Self::Leaf),
@@ -128,8 +116,15 @@ impl<'a> PageCursor<'a> {
         Self { page, pos: PAGEHEADER_SIZE }
     }
 
+    pub fn offset(&self) -> StoreResult<usize> {
+        let mut entry = self.page.get(self.pos..self.pos + SLOT_POINTER_SIZE)
+            .expect("Attempted to index outside page buffer");
+        Ok(read_u16(&mut entry)? as usize)
+    }
+
     pub fn next(&mut self) -> StoreResult<&'a [u8]> {
-        let mut entry = &self.page[self.pos..self.pos + SLOT_POINTER_SIZE];
+        let mut entry = self.page.get(self.pos..self.pos + SLOT_POINTER_SIZE)
+            .expect("Attempted to index outside page buffer");
         let offset = read_u16(&mut entry)? as usize;
         let len = read_u16(&mut entry)? as usize;
         self.pos += SLOT_POINTER_SIZE;
@@ -146,7 +141,6 @@ mod tests {
         let header = PageHeader { 
             id: PageId::new(4).unwrap(),
             pagetype: PageType::Free,
-            next: None,
             slots: 0, lower: 0, upper: 0,
         };
 

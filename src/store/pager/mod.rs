@@ -19,9 +19,12 @@ use crate::{
 };
 
 use std::{
-    collections::HashMap, fs::{File, OpenOptions}, io::{Read, Seek, SeekFrom::{self, Start}, Write}, str::from_utf8,
+    collections::HashMap,
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom, Write},
+    str::from_utf8,
 };
-use log::{info};
+use log::{warn};
 
 const MAGIC: [u8; 8] = *b"KAWIKADB";
 
@@ -30,7 +33,6 @@ pub struct Pager {
     free_list: Vec<PageId>,
     dirty_cache: HashMap<PageId, Vec<u8>>,
     pub num_pages: usize,
-    pub active_data: Option<PageId>,
 }
 
 pub enum AnyPage {
@@ -42,7 +44,8 @@ pub enum AnyPage {
 }
 
 impl AnyPage {
-    pub fn to_pagetype(&self) -> PageType {
+    /// Returns the PageType of the page.
+    pub fn pagetype(&self) -> PageType {
         match self {
             AnyPage::Leaf(_) => PageType::Leaf,
             AnyPage::Branch(_) => PageType::Branch,
@@ -52,6 +55,7 @@ impl AnyPage {
         }
     }
 
+    /// Returns the PageId of the page.
     pub fn id(&self) -> PageId {
         match self {
             AnyPage::Leaf(l) => l.header().id,
@@ -64,43 +68,40 @@ impl AnyPage {
 }
 
 impl Pager {
-    pub fn new(path: &str) -> StoreResult<(Self, Option<PageId>)> {
-        let filepath = if path.is_empty() { DEFAULT_FILE } else { path };
-
+    /// Initializes a new Pager, using file at 'path' or DEFAULT_FILE if empty.
+    pub fn new(path: &str) -> StoreResult<Self> {
+        warn!("Generating new pager at path {}", path);
         let new_head = DbHeader {
             magic: MAGIC,
             version: VERSION,
             page_size: PAGE_SIZE,
-            root_page: None, // None means no root (no dip, me)
             num_pages: 1,
             free_list_head: None,
-            active_data: None,
         };
 
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open(filepath)?;
+            .open(if path.is_empty() { DEFAULT_FILE } else { path })?;
         new_head.write(&mut file)?;
 
-        Ok((Pager {
+        Ok(Pager {
                 file,
                 free_list: Vec::new(),
                 dirty_cache: HashMap::new(),
                 num_pages: 1,
-                active_data: None,
-            },
-            new_head.root_page
-        ))
+        })
     }
 
-    pub fn open(path: &str) -> StoreResult<(Self, Option<PageId>)> {
+    /// Opens and existing Pager, using file at 'path' or DEFAULT_FILE if empty.
+    pub fn open(path: &str) -> StoreResult<Self> {
+        warn!("Opening pager at path {}", path);
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(path)?;
-        let header = DbHeader::deserialize(&mut file)?;
+            .open(if path.is_empty() { DEFAULT_FILE } else { path })?;
+        let header = DbHeader::read(&mut file)?;
 
         if header.magic != MAGIC {
             return Err(StoreErr::BadFile);
@@ -112,18 +113,20 @@ impl Pager {
             free_list.push(id);
             let bytes = scan_page(id, &mut file)?;
             let header = PageHeader::deserialize(&mut &bytes[..])?;
-            current = header.next;
+            let mut cursor = PageCursor::new(&bytes[..]);
+            let free = FreePage::deserialize(header, &mut cursor)?;
+            current = free.next;
         }
 
-        Ok((Pager {
+        Ok(Pager {
             file,
             free_list,
             dirty_cache: HashMap::new(),
             num_pages: header.num_pages,
-            active_data: header.active_data,
-        }, header.root_page))
+        }) 
     }
 
+    /// Read an ambiguous page, pattern match over PageType manually.
     pub fn read_any(&mut self, id: PageId) -> StoreResult<AnyPage> {
         let bytes = match self.dirty_cache.get(&id) {
             Some(bytes) => bytes.as_slice(),
@@ -143,7 +146,7 @@ impl Pager {
         }
     }
 
-    // e.g. read::<DataPage>
+    /// Read a specific PageType T, e.g. read::<DataPage>(**id**).
     pub fn read<T: Page>(&mut self, id: PageId) -> StoreResult<T> {
         let bytes = match self.dirty_cache.get(&id) {
             Some(bytes) => bytes.as_slice(),
@@ -157,10 +160,13 @@ impl Pager {
             return Err(StoreErr::UnexpectedPagetype(header.pagetype));
         }
 
-        T::deserialize(header, &mut cursor)
+        T::deserialize(header, &mut cursor) // Essentially why we use traits
     }
 
+    /// Like read(), but only returns the PageHeader.
     pub fn read_header(&mut self, id: PageId) -> StoreResult<PageHeader> {
+        // This works because PageHeader is the same for all pages.
+        // It can be used to bypass matching over read_any
         let bytes = match self.dirty_cache.get(&id) {
             Some(bytes) => bytes.as_slice(),
             None => &scan_page(id, &mut self.file)?,
@@ -169,13 +175,14 @@ impl Pager {
         Ok(header)
     }
 
+    /// Write a page of PageType T to disk, e.g. write::<BranchPage>(**page**)
     pub fn write<T: Page>(&mut self, page: T) -> StoreResult<()> {
         let bytes = page.serialize()?;
         self.dirty_cache.insert(page.header().id, bytes);
         Ok(())
     }
 
-    // Clear out the cache and write it to disk
+    /// Clear out the dirty cache and write it to disk.
     pub fn flush(&mut self) -> StoreResult<()> {
         let cache = std::mem::take(&mut self.dirty_cache);
 
@@ -186,7 +193,7 @@ impl Pager {
         Ok(())
     }
 
-    // Construct page and serialize it
+    /// Pulls a PageId from the free_list, or generates a new PageId.
     pub fn alloc(&mut self) -> PageId {
         if self.free_list.is_empty() {
             let id = PageId::new(self.num_pages)
@@ -207,36 +214,32 @@ impl Pager {
         }
     }
 
-    // Delete a page, cache invalidation issues happen here
+    /// Delete a page by PageId, cache invalidation issues happen here.
     pub fn free(&mut self, id: PageId) -> StoreResult<()> {
         if let Some(prev_id) = self.free_list.last().copied() {
-            let new_header = PageHeader {
-                id: prev_id,
-                pagetype: PageType::Free,
-                next: Some(id),
-                slots: 0,
-                lower: 0,
-                upper: 0,
-            };
-            self.write::<FreePage>(FreePage(new_header))?;
+            let mut free_page = self.read::<FreePage>(prev_id)?;
+            free_page.next = Some(id);
+            self.write::<FreePage>(free_page)?;
         }
 
         self.write::<FreePage>(FreePage::new(id))?;
         self.free_list.push(id);
+
+        self.flush()?;
+
         Ok(())
     }
 
-    pub fn close(&mut self, root: Option<PageId>) -> StoreResult<()> {
-        info!(" - Pager is closing...");
+    // Closes the Pager and the (...the what?)
+    pub fn close(&mut self) -> StoreResult<()> {
+        warn!("Closing Pager");
         self.flush()?;
         let new_dbheader = DbHeader {
             magic: MAGIC,
             version: VERSION,
             page_size: PAGE_SIZE,
-            root_page: root,
             num_pages: self.num_pages,
             free_list_head: self.free_list.first().copied(),
-            active_data: self.active_data,
         };
 
         new_dbheader.write(&mut self.file)?;
@@ -248,27 +251,25 @@ pub struct DbHeader {
     pub magic: [u8; 8],
     pub version: u32,
     pub page_size: usize,
-    pub root_page: Option<PageId>,
     pub num_pages: usize,
     pub free_list_head: Option<PageId>,
-    pub active_data: Option<PageId>,
 }
 
 impl DbHeader {
-    pub fn deserialize(file: &mut File) -> StoreResult<Self> {
+    /// Read the database header from a file.
+    pub fn read(file: &mut File) -> StoreResult<Self> {
         let mut magic = [0u8; 8];
         file.read_exact(&mut magic)?;
 
         let version = read_u32(file)?;
         let page_size = read_usize(file)?;
-        let root_page = PageId::new(read_usize(file)?);
         let num_pages = read_usize(file)?;
         let free_list_head = PageId::new(read_usize(file)?);
-        let active_data = PageId::new(read_usize(file)?);
 
-        Ok(DbHeader{ magic, version, page_size, root_page, num_pages, free_list_head, active_data }) 
+        Ok(DbHeader{ magic, version, page_size, num_pages, free_list_head }) 
     }
 
+    /// Write the database header to file.
     pub fn write(&self, file: &mut File) -> StoreResult<()> {
         let mut buf: Vec<u8>  = Vec::new();
 
@@ -276,21 +277,9 @@ impl DbHeader {
         buf.extend_from_slice(&self.version.to_le_bytes());
         buf.extend_from_slice(&self.page_size.to_le_bytes());
 
-        if let Some(id) = self.root_page {
-            buf.extend_from_slice(&id.get().to_le_bytes());
-        } else {
-            buf.extend_from_slice(&(0 as usize).to_le_bytes());
-        }
-
         buf.extend_from_slice(&self.num_pages.to_le_bytes());
 
         if let Some(id) = self.free_list_head {
-            buf.extend_from_slice(&id.get().to_le_bytes());
-        } else {
-            buf.extend_from_slice(&(0 as usize).to_le_bytes());
-        }
-
-        if let Some(id) = self.active_data {
             buf.extend_from_slice(&id.get().to_le_bytes());
         } else {
             buf.extend_from_slice(&(0 as usize).to_le_bytes());
@@ -302,32 +291,44 @@ impl DbHeader {
     }
 }
 
+/// Reads a single usize/u64 little-endian.
 pub fn read_usize<R: Read>(bytes: &mut R) -> StoreResult<usize> {
     let mut buf = [0u8; 8];
     bytes.read_exact(&mut buf)?;
     Ok(u64::from_le_bytes(buf) as usize)
 }
 
+/// Reads a single u32 little-endian.
 pub fn read_u32<R: Read>(bytes: &mut R) -> StoreResult<u32> {
     let mut buf = [0u8; 4];
     bytes.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
 }
 
+/// Reads a single u16 little-endian.
 pub fn read_u16<R: Read>(bytes: &mut R) -> StoreResult<u16> {
     let mut buf = [0u8; 2];
     bytes.read_exact(&mut buf)?;
     Ok(u16::from_le_bytes(buf))
 }
 
-// IMPORTANT: this works by reading the rest of the bytes from the slot and turning into a string
-// It breaks immediately if the thing you're looking to read from has more than one string
+/// Reads a single byte.
+pub fn read_byte<R: Read>(bytes: &mut R) -> StoreResult<u8> {
+    let mut buf = [0u8; 1];
+    bytes.read_exact(&mut buf)?;
+    Ok(u8::from_le_bytes(buf))
+}
+
+/// Reads strings little-endian.
+/// IMPORTANT: this works by reading the rest of the bytes from the slot and turning into a string.
+/// It breaks immediately if the thing you're looking to read from has more than one string.
 pub fn read_str<R: Read>(bytes: &mut R) -> StoreResult<String> {
     let mut buf: Vec<u8> = Vec::new();
     bytes.read_to_end(&mut buf)?;
     Ok(from_utf8(&buf)?.into())
 }
 
+/// Reads an entire page as a slice.
 pub fn scan_page(id: PageId, file: &mut File) -> StoreResult<[u8; PAGE_SIZE]> {
     file.seek(SeekFrom::Start((id.get() * PAGE_SIZE) as u64))?;
     let mut buf = [0u8; PAGE_SIZE];
@@ -339,6 +340,7 @@ pub fn scan_page(id: PageId, file: &mut File) -> StoreResult<[u8; PAGE_SIZE]> {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+    use crate::errors::StoreResult;
 
     fn temp_path() -> NamedTempFile {
         NamedTempFile::new().unwrap()
@@ -348,8 +350,7 @@ mod tests {
     fn new() {
         let tmp = temp_path();
         let path = tmp.path().to_str().unwrap();
-        let (pager, root) = Pager::new(path).unwrap();
-        assert!(root.is_none());
+        let pager = Pager::new(path).unwrap();
         assert_eq!(pager.num_pages, 1);
     }
 
@@ -359,9 +360,41 @@ mod tests {
         let path = tmp.path().to_str().unwrap();
         Pager::new(path).unwrap();
 
-        let (pager, root) = Pager::open(path).unwrap();
-        assert!(root.is_none());
+        let pager = Pager::open(path).unwrap();
         assert_eq!(pager.num_pages, 1);
+    }
+
+    #[test]
+    fn free() -> StoreResult<()> {
+        let tmp = temp_path();
+        let path = tmp.path().to_str().unwrap();
+        let mut pager = Pager::new(path).unwrap();
+
+        let id = pager.alloc();
+        let id2 = pager.alloc();
+        let page = DataPage::new(id);
+        let page2 = OverflowPage::new(id2);
+        pager.write(page).unwrap();
+        pager.write(page2).unwrap();
+        pager.flush()?;
+
+        pager.free(id)?;
+        pager.free(id2)?;
+
+        pager.close()?;
+
+        let mut new_pager = Pager::open(path)?;
+
+        let free = pager.read::<FreePage>(id)?;
+        let free1 = new_pager.read::<FreePage>(new_pager.free_list[0])?;
+
+        assert_eq!(free, free1);
+
+        let free2 = pager.read::<FreePage>(id2)?;
+        let free3 = new_pager.read::<FreePage>(free1.next.unwrap())?;
+        assert_eq!(free2, free3);
+
+        Ok(())
     }
 
 }
