@@ -1,42 +1,43 @@
 pub mod lexer;
 pub mod ast;
-pub mod iterator;
+pub mod executor;
+pub mod binder;
 
 use crate::{
-    store::{Store, value::Value},
-    errors::{UserResult, DbResult, StoreErr},
-    query::{
-        lexer::lexerize,
-        ast::make_ast,
-    },
+    store::{ Store, relation::Row },
+    errors::{DbResult},
 };
 
-use log::{info};
-use std::sync::RwLock;
+use self::{
+    ast::{Expr},
+};
 
 #[derive(Debug, PartialEq)]
-pub enum Query {
-    Get(String),
-    Put {
-        key: String,
-        value: Value,
-    },
-    Del(String),
+pub enum Operator {
+    SeqScan(SeqScan),
+    Filter { child: Box<Operator>, pred: Expr },
+    Project { child: Box<Operator>, exprs: Vec<Expr> },
+    Limit { child: Box<Operator>, remaining: usize },
 }
 
-impl Query {
-    pub fn parse(input: &[u8]) -> UserResult<Self> {
-        let tokens = lexerize(input)?;
-        let ast = make_ast(tokens);
-        todo!();
-    }
+#[derive(Debug, PartialEq)]
+struct SeqScan;
 
-    pub fn execute(self, db: &RwLock<Store>) -> DbResult<Value> {
-        info!(" - Executing call");
+impl SeqScan {
+    fn scan(&self) -> Vec<Row>
+}
+
+impl Operator {
+    fn next(&mut self, store: &mut Store) -> DbResult<Option<Row>> {
         match self {
-            Query::Get(key) => db.read().unwrap().get(&key),
-            Query::Put { key, value } => db.write().unwrap().put(&key, value),
-            Query::Del(key) => db.write().unwrap().del(&key),
+            Self::SeqScan(seq) => {
+            },
+            Self::Filter { child, pred } => {
+            },
+            Self::Project { child, exprs } => {
+            },
+            Self::Limit { child, remaining } => {
+            },
         }
     }
 }
