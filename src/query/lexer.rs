@@ -9,20 +9,21 @@ use std::{
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
+    // Statements
+    Create, Drop, Select, Insert, Update, Delete,
+
     // Keywords
-    Select, From, Where, Insert, Into, Values,
-    Create, Table, Stdin, Stdout, Update, Set,
-    And, Or, Not, Null, As,
-    Copy, With, Format, Header, To,
+    Table, Where, From, Into, Values, Set, As, Is,
+    And, Or, Not, Null, True, False, Primary, Key,
 
     // Literals
     Ident(String),
-    IntLiteral(i64),
+    IntLiteral(isize),
+    FloatLiteral(f64),
     StringLiteral(String),
-    BoolLiteral(bool),
 
     // Operators
-    Eq, NotEq, Lt, Gt, LtEq, GtEq,
+    Eq, NotEq, Lt, Gt, LtEq, GtEq, Plus, Minus, Slash,
 
     // Punctuation
     Comma, Semicolon, LParen, RParen, Dot, Star,
@@ -33,38 +34,45 @@ pub enum Token {
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Token::Create           => write!(f, "CREATE"),
+            Token::Drop             => write!(f, "DROP"),
             Token::Select           => write!(f, "SELECT"),
-            Token::From             => write!(f, "FROM"),
-            Token::Where            => write!(f, "WHERE"),
             Token::Insert           => write!(f, "INSERT"),
+            Token::Update           => write!(f, "UPDATE"),
+            Token::Delete           => write!(f, "DELETE"),
+
+            Token::Table            => write!(f, "TABLE"),
+            Token::Where            => write!(f, "WHERE"),
+            Token::From             => write!(f, "FROM"),
             Token::Into             => write!(f, "INTO"),
             Token::Values           => write!(f, "VALUES"),
-            Token::Create           => write!(f, "CREATE"),
-            Token::Table            => write!(f, "TABLE"),
-            Token::Stdin            => write!(f, "STDIN"),
-            Token::Stdout           => write!(f, "STDOUT"),
-            Token::Update           => write!(f, "UPDATE"),
             Token::Set              => write!(f, "SET"),
+            Token::As               => write!(f, "AS"),
+            Token::Is               => write!(f, "IS"),
             Token::And              => write!(f, "AND"),
             Token::Or               => write!(f, "OR"),
             Token::Not              => write!(f, "NOT"),
             Token::Null             => write!(f, "NULL"),
-            Token::As               => write!(f, "AS"),
-            Token::Copy             => write!(f, "COPY"),
-            Token::With             => write!(f, "WITH"),
-            Token::Format           => write!(f, "FORMAT"),
-            Token::Header           => write!(f, "HEADER"),
-            Token::To               => write!(f, "TO"),
+            Token::True             => write!(f, "TRUE"),
+            Token::False            => write!(f, "FALSE"),
+            Token::Primary          => write!(f, "PRIMARY"),
+            Token::Key              => write!(f, "KEY"),
+
             Token::Ident(i)         => write!(f, "ident<{}>", i),
             Token::IntLiteral(i)    => write!(f, "int<{}>", i),
+            Token::FloatLiteral(fl) => write!(f, "float<{}>", fl),
             Token::StringLiteral(s) => write!(f, "string<{}>", s),
-            Token::BoolLiteral(b)   => write!(f, "bool<{}>", b),
+
             Token::Eq               => write!(f, "="),
             Token::NotEq            => write!(f, "!="),
             Token::Lt               => write!(f, "<"),
             Token::Gt               => write!(f, ">"),
             Token::LtEq             => write!(f, "<="),
             Token::GtEq             => write!(f, ">="),
+            Token::Plus             => write!(f, "+"),
+            Token::Minus            => write!(f, "-"),
+            Token::Slash            => write!(f, "/"),
+
             Token::Comma            => write!(f, ","),
             Token::Semicolon        => write!(f, ";"),
             Token::LParen           => write!(f, "("),
@@ -112,11 +120,24 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
                 start += 1;
             },
             b'.' => { 
+                // TODO: check for and scan floats
                 tokens.push(Token::Dot);
                 start += 1;
             },
             b'*' => { 
                 tokens.push(Token::Star);
+                start += 1;
+            },
+            b'+' => {
+                tokens.push(Token::Plus);
+                start += 1;
+            },
+            b'-' => {
+                tokens.push(Token::Minus);
+                start += 1;
+            },
+            b'/' => {
+                tokens.push(Token::Slash);
                 start += 1;
             },
             b'!' => { 
@@ -154,7 +175,8 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
                     tokens.push(scan_ident_or_keyword(&mut end, query)?);
                     start = end;
                 } else if query[start].is_ascii_digit() {
-                    tokens.push(scan_int_literal(&mut end, query)?);
+                    // TODO: check for and scan floats
+                    tokens.push(scan_num_literal(&mut end, query)?);
                     start = end;
                 } else {
                     return Err(UserErr::BadQuery(QueryErr::NonAsciiChar{
@@ -215,40 +237,45 @@ fn scan_ident_or_keyword(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
 
     let text = from_utf8(&word)?;
     match text.to_ascii_uppercase().as_str() {
-        "SELECT" => Ok(Token::Select),
-        "FROM" => Ok(Token::From),
-        "WHERE" => Ok(Token::Where),
-        "INSERT" => Ok(Token::Insert),
-        "INTO" => Ok(Token::Into),
-        "VALUES" => Ok(Token::Values),
-        "CREATE" => Ok(Token::Create),
-        "TABLE" => Ok(Token::Table),
-        "COPY" => Ok(Token::Copy),
-        "STDIN" => Ok(Token::Stdin),
-        "STDOUT" => Ok(Token::Stdout),
-        "UPDATE" => Ok(Token::Update),
-        "AND" => Ok(Token::And),
-        "OR" => Ok(Token::Or),
-        "NOT" => Ok(Token::Not),
-        "NULL" => Ok(Token::Null),
-        "AS" => Ok(Token::As),
-        "SET" => Ok(Token::Set),
-        "WITH" => Ok(Token::With),
-        "FORMAT" => Ok(Token::Format),
-        "HEADER" => Ok(Token::Header),
-        "TO" => Ok(Token::To),
-        "TRUE" => Ok(Token::BoolLiteral(true)),
-        "FALSE" => Ok(Token::BoolLiteral(false)),
+        "CREATE"    => Ok(Token::Create),
+        "DROP"      => Ok(Token::Drop),
+        "SELECT"    => Ok(Token::Select),
+        "INSERT"    => Ok(Token::Insert),
+        "UPDATE"    => Ok(Token::Update),
+        "DELETE"    => Ok(Token::Delete),
+        "TABLE"     => Ok(Token::Table),
+        "WHERE"     => Ok(Token::Where),
+        "FROM"      => Ok(Token::From),
+        "INTO"      => Ok(Token::Into),
+        "VALUES"    => Ok(Token::Values),
+        "SET"       => Ok(Token::Set),
+        "AS"        => Ok(Token::As),
+        "IS"        => Ok(Token::Is),
+        "AND"       => Ok(Token::And),
+        "OR"        => Ok(Token::Or),
+        "NOT"       => Ok(Token::Not),
+        "NULL"      => Ok(Token::Null),
+        "TRUE"      => Ok(Token::True),
+        "FALSE"     => Ok(Token::False),
+        "PRIMARY"   => Ok(Token::Primary),
+        "KEY"       => Ok(Token::Key),
         _ => Ok(Token::Ident(text.to_string())),
     }
 }
 
-fn scan_int_literal(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
+fn scan_num_literal(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
     let mut digits: Vec<u8> = Vec::new();
 
-    while *end < query.len() && query[*end].is_ascii_digit() {
-        digits.push(query[*end]);
-        *end += 1;
+    while *end < query.len() {
+        if query[*end].is_ascii_digit() {
+            digits.push(query[*end]);
+            *end += 1;
+        } else if query[*end] == b'.' {
+            // TODO: do the float lexing here
+            *end += 1;
+        } else {
+            break;
+        }
     }
 
     let num = from_utf8(&digits)?;

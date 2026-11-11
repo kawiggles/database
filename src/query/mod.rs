@@ -9,7 +9,7 @@ use crate::{
 };
 
 use self::{
-    ast::{Expr},
+    ast::{Expr, BOp},
 };
 
 #[derive(Debug, PartialEq)]

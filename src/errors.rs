@@ -197,7 +197,8 @@ pub enum QueryErr {
     },
     #[error("Input format {0} not recognized")]
     UnknownFormat(String),
-
+    #[error("Unknown type {0}, valid types are: bool, int, uint, float, text, and blob")]
+    UnknownType(String),
 }
 
 pub type QueryResult<T> = std::result::Result<T, QueryErr>;
