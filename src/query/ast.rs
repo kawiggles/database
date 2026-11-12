@@ -6,48 +6,51 @@ use crate::{
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {
-    Create(CreateStmt),
-    Drop(DropStmt),
-    Select(SelectStmt),
-    Insert(InsertStmt),
-    Update(UpdateStmt),
-    Delete(DeleteStmt),
+    Create(Create),
+    Drop(Drop),
+    Select(Select),
+    Insert(Insert),
+    Update(Update),
+    Delete(Delete),
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CreateStmt {
+struct Create {
     name: String,
-    columns: Vec<ColumnDef>,
+    columns: Vec<Definition>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct DropStmt {
+struct Drop {
     table: TableRef,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct SelectStmt {
-    projections: Vec<SelectItem>,
-    from: TableRef,
+struct Select {
+    projections: Vec<Projection>,
+    table: TableRef,
     filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct InsertStmt {
+struct Insert {
     table: TableRef,
     columns: Vec<ColumnRef>,
     values: Vec<Vec<Expr>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct UpdateStmt {
+struct Update {
     table: TableRef,
     assignments: Vec<Assignment>,
     where_clause: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Expr {
+struct Delete;
+
+#[derive(Debug, PartialEq)]
+enum Expr {
     Literal(Literal),
     ColumnRef(ColumnRef),
     BinaryExpr { 
@@ -64,14 +67,14 @@ pub enum Expr {
 #[derive(Debug, PartialEq)]
 pub enum Literal {
     Str(String),
-    Int(i64),
+    Int(isize),
     Float(f64),
     Bool(bool),
     Null,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum SelectItem {
+pub enum Projection {
     Wildcard,
     QualifiedWildcard(String),
     Expr { expr: Expr, alias: Option<String> },
@@ -102,7 +105,7 @@ pub struct Assignment {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ColumnDef {
+pub struct Definition {
     name: String,
     ty: Type,
     primary: bool,
@@ -133,15 +136,29 @@ impl<'a> Parser<'a> {
 
     /// Use if a statement has a required token
     fn expect(&mut self, expected: &Token) -> QueryResult<()> {
-        if self.peek() == expected {
-            self.pos += 1;
-            Ok(())
-        } else {
+        let token = self.advance();
+        if &token == expected { Ok(()) } else {
             Err(QueryErr::UnexpectedToken {
-                found: self.peek().clone(),
+                found: token,
                 expected: format!("{}", expected)
             })
         }
+    }
+
+    /// Used specifically to check for and consume an Ident token
+    fn expect_ident(&mut self) -> QueryResult<String> {
+        match self.advance() {
+            Token::Ident(ident) => Ok(ident),
+            other => Err(QueryErr::UnexpectedToken {
+                found: other.clone(),
+                expected: "an identifier".into()
+            }),
+        }
+    }
+    
+    // TODO: use pos to peek ahead and see if there's wildcard.
+    fn try_qualified_wildcard(&mut self) -> QueryResult<Option<Projection>> {
+        todo!()
     }
 
     fn parse_statement(&mut self) -> QueryResult<Statement> {
@@ -151,7 +168,7 @@ impl<'a> Parser<'a> {
             Token::Select   => Ok(Statement::Select(self.parse_select()?)),
             Token::Insert   => Ok(Statement::Insert(self.parse_insert()?)),
             Token::Update   => Ok(Statement::Update(self.parse_update()?)),
-            Token::Delete   => Ok(Statement::Update(self.parse_delete()?)),
+            Token::Delete   => Ok(Statement::Delete(self.parse_delete()?)),
             other => Err(QueryErr::UnexpectedToken {
                 found: other.clone(),
                 expected: "CREATE, DROP, SELECT, INSERT, UPDATE, or DELETE".into()
@@ -159,31 +176,25 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_create(&mut self) -> QueryResult<CreateStmt> {
+    fn parse_create(&mut self) -> QueryResult<Create> {
         self.expect(&Token::Create)?;
         self.expect(&Token::Table)?;
-        let name = match self.advance() {
-            Token::Ident(i) => i,
-            other => return Err(QueryErr::UnexpectedToken {
-                found: other.clone(),
-                expected: "new table identifier".into()
-            }),
-        };
+        let name = self.expect_ident()?;
 
         self.expect(&Token::LParen)?;
-        let columns = self.parse_column_list_def()?;
+        let columns = self.parse_definitions()?;
         self.expect(&Token::RParen)?;
 
-        Ok(CreateStmt { name, columns })
+        Ok(Create { name, columns })
     }
 
-    fn parse_drop(&mut self) -> QueryResult<DropStmt> {
-        Ok(DropStmt { table: self.parse_table_ref()? })
+    fn parse_drop(&mut self) -> QueryResult<Drop> {
+        Ok(Drop { table: self.parse_table_ref()? })
     }
 
-    fn parse_select(&mut self) -> QueryResult<SelectStmt> {
+    fn parse_select(&mut self) -> QueryResult<Select> {
         self.expect(&Token::Select)?;
-        let projections = self.parse_select_item_list()?;
+        let projections = self.parse_projections()?;
         self.expect(&Token::From)?;
         let from = self.parse_table_ref()?;
 
@@ -194,10 +205,10 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok(SelectStmt { projections, from, filter })
+        Ok(Select { projections, from, filter })
     }
 
-    fn parse_insert(&mut self) -> QueryResult<InsertStmt> {
+    fn parse_insert(&mut self) -> QueryResult<Insert> {
         self.expect(&Token::Insert)?;
         self.expect(&Token::Into)?;
         let table = self.parse_table_ref()?;
@@ -209,10 +220,10 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Values)?;
         let values = self.parse_values()?;
 
-        Ok(InsertStmt { table, columns, values })
+        Ok(Insert { table, columns, values })
     }
 
-    fn parse_update(&mut self) -> QueryResult<UpdateStmt> {
+    fn parse_update(&mut self) -> QueryResult<Update> {
         self.expect(&Token::Update)?;
         let table = self.parse_table_ref()?;
         self.expect(&Token::Set)?;
@@ -225,49 +236,35 @@ impl<'a> Parser<'a> {
             None
         };
         
-        Ok(UpdateStmt { table, assignments, where_clause })
+        Ok(Update { table, assignments, where_clause })
     }
 
-    fn parse_delete(&mut self) -> QueryResult<DeleteStmt> {
+    fn parse_delete(&mut self) -> QueryResult<Delete> {
         todo!()
     }
 
-    fn parse_column_list_def(&mut self) -> QueryResult<Vec<ColumnDef>> {
-        let mut columns = vec![self.parse_column_def()?];
+    fn parse_definitions(&mut self) -> QueryResult<Vec<Definition>> {
+        let mut columns = vec![self.parse_definition()?];
 
         while self.peek() == &Token::Comma {
             self.advance();
-            columns.push(self.parse_column_def()?);
+            columns.push(self.parse_definition()?);
         }
 
         Ok(columns)
     }
 
-    fn parse_column_def(&mut self) -> QueryResult<ColumnDef> {
-        let name = match self.advance() {
-            Token::Ident(i) => i,
-            other => return Err(QueryErr::UnexpectedToken {
-                found: other,
-                expected: "new column identifier".into(),
-            }),
-        };
+    fn parse_definition(&mut self) -> QueryResult<Definition> {
+        let name = self.expect_ident()?;
 
-        let ty = match self.advance() {
-            Token::Ident(i) => {
-                match i.as_str() {
-                    "bool"  => Type::Bool,
-                    "int"   => Type::Int,
-                    "uint"  => Type::Uint,
-                    "float" => Type::Float,
-                    "text"  => Type::Text,
-                    "blob"  => Type::Blob,
-                    other   => return Err(QueryErr::UnknownType(other.into()))
-                }
-            },
-            other => return Err(QueryErr::UnexpectedToken {
-                found: other,
-                expected: "new column type identifier".into(),
-            }),
+        let ty = match self.expect_ident()?.as_str() {
+            "bool"  => Type::Bool,
+            "int"   => Type::Int,
+            "uint"  => Type::Uint,
+            "float" => Type::Float,
+            "text"  => Type::Text,
+            "blob"  => Type::Blob,
+            other   => return Err(QueryErr::UnknownType(other.into()))
         };
 
         let mut primary = false;
@@ -293,114 +290,57 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(ColumnDef { name, ty, primary, not_null })
+        Ok(Definition { name, ty, primary, not_null })
     }
 
     fn parse_table_ref(&mut self) -> QueryResult<TableRef> {
-        match self.advance() {
-            Token::Ident(name) => {
-                if self.peek() == &Token::As {
-                    self.advance();
-                    match self.advance() {
-                        Token::Ident(a) => Ok(TableRef { name, alias: Some(a) }),
-                        other => return Err(QueryErr::UnexpectedToken {
-                            found: other,
-                            expected: "table alias".into()
-                        })
-                    }
-                } else {
-                    Ok(TableRef { name, alias: None })
-                }
-            },
-            other => Err(QueryErr::UnexpectedToken {
-                found: other,
-                expected: "table identifier".into()
-            })
+        let name = self.expect_ident()?;
+        if self.peek() == &Token::As {
+            self.advance();
+            let alias = self.expect_ident()?;
+            Ok(TableRef { name, alias: Some(alias) })
+        } else {
+            Ok(TableRef { name, alias: None })
         }
     }
 
-    fn parse_select_item_list(&mut self) -> QueryResult<Vec<SelectItem>> {
-        let mut items = vec![self.parse_select_item()?];
+    fn parse_projections(&mut self) -> QueryResult<Vec<Projection>> {
+        let mut items = vec![self.parse_projection()?];
 
         while self.peek() == &Token::Comma {
             self.advance();
-            items.push(self.parse_select_item()?);
+            items.push(self.parse_projection()?);
         }
 
         Ok(items)
     }
 
-    fn parse_select_item(&mut self) -> QueryResult<SelectItem> {
+    fn parse_projection(&mut self) -> QueryResult<Projection> {
         if self.peek() == &Token::Star {
             self.advance();
-            return Ok(SelectItem::Wildcard)
-        }
-        
-        let first = match self.advance() {
-            Token::Ident(name) => name,
-            other => return Err(QueryErr::UnexpectedToken {
-                found: other,
-                expected: "column name, table name, or *".to_string()
-            }),
-        };
-    }
-
-    fn parse_column_list(&mut self) -> QueryResult<Vec<ColumnRef>> {
-        let mut columns = vec![self.parse_column_ref()?];
-
-        while self.peek() == &Token::Comma {
-            self.advance();
-            columns.push(self.parse_column_ref()?);
+            return Ok(Projection::Wildcard)
         }
 
-        Ok(columns)
-    }
-
-    fn parse_column_ref(&mut self) -> QueryResult<ColumnRef> {
-        if self.peek() == &Token::Star {
+        // TODO: take this and chuck it into parse primary?
+        let mut column = self.expect_ident()?;
+        let mut qualifier = None;
+        if self.peek() == &Token::Dot {
             self.advance();
-            return Ok(SelectItem::Wildcard)
-        }
-
-        let first = match self.advance() {
-            Token::Ident(name) => name,
-            other => return Err(QueryErr::UnexpectedToken {
-                found: other,
-                expected: "column name or *".to_string()
-            }),
-        };
-
-        let second = if self.peek() == &Token::Dot {
-            self.advance();
-            match self.advance() {
-                Token::Ident(i) => Some(i,
-                Token::Star => 
-                other => return Err(QueryErr::UnexpectedToken {
-                    found: other,
-                    expected: "column identifier".to_string()
-                }),
+            if self.peek() == &Token::Star {
+                self.advance();
+                return Ok(Projection::QualifiedWildcard(column));
+            } else {
+                qualifier = Some(column);
+                column = self.expect_ident()?;
             }
-        } else {
-            ColumnRef { 
-                table: None,
-                column: first
-            }
-        };
-
-        if self.peek() == &Token::As {
-            self.advance();
-            let alias = match self.advance() {
-                Token::Ident(i) => i,
-                other => return Err(QueryErr::UnexpectedToken {
-                    found: other,
-                    expected: "an alias".to_string(),
-                }),
-            };
-
-            Ok(ColumnRef::Alias { alias, column: Box::new(column) })
-        } else {
-            Ok(column)
         }
+
+        let alias = if self.peek() == &Token::As {
+            self.advance();
+            Some(self.expect_ident()?)
+        } else { None };
+
+        Ok(Projection::Expr { expr: Expr::ColumnRef(ColumnRef { qualifier, column }), alias })
     }
 
     fn parse_expr(&mut self) -> QueryResult<Expr> {
@@ -512,8 +452,10 @@ impl<'a> Parser<'a> {
     fn parse_primary(&mut self) -> QueryResult<Expr> {
         match self.advance() {
             Token::IntLiteral(i) => Ok(Expr::Literal(Literal::Int(i))),
+            Token::FloatLiteral(f) => Ok(Expr::Literal(Literal::Float(f))),
             Token::StringLiteral(s) => Ok(Expr::Literal(Literal::Str(s))),
-            Token::BoolLiteral(b) => Ok(Expr::Literal(Literal::Bool(b))),
+            Token::True => Ok(Expr::Literal(Literal::Bool(true))),
+            Token::False => Ok(Expr::Literal(Literal::Bool(false))),
             Token::Null => Ok(Expr::Literal(Literal::Null)),
             // TODO: dotted column references: if self.peek() == &Token::Dot {
             Token::Ident(n) => Ok(Expr::ColumnRef(ColumnRef::Column {
@@ -559,7 +501,7 @@ mod tests {
     use super::*;
     use crate::query::ast::{Expr};
 
-    fn int(n: i64) -> Expr {
+    fn int(n: isize) -> Expr {
         Expr::Literal(Literal::Int(n))
     }
 
@@ -636,6 +578,40 @@ mod tests {
     }
 
     #[test]
+    fn basic_create_table() {
+        let tokens = vec![
+            Token::Create, Token::Table, Token::Ident("users".into()),
+            Token::LParen,
+            Token::Ident("id".into()), Token::Ident("uint".into()), Token::Primary, Token::Key,
+            Token::Comma,
+            Token::Ident("name".into()), Token::Ident("text".into()), Token::Not, Token::Null,
+            Token::RParen, Token::Eof
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = Create {
+            name: "users".into(),
+            columns: vec![
+                Definition { name: "id".into(), ty: Type::Uint, primary: true, not_null: false },
+                Definition { name: "name".into(), ty: Type::Text, primary: false, not_null: true },
+            ],
+        };
+
+        assert_eq!(parser.parse_create().unwrap(), expected);
+    }
+
+    #[test]
+    fn basic_drop_table() {
+        let tokens = vec![
+            Token::Drop, Token::Table, Token::Ident("users".into()), Token::Eof
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = Drop { table: TableRef { name: "users".into(), alias: None } };
+        assert_eq!(parser.parse_drop().unwrap(), expected);
+    }
+
+    #[test]
     fn basic_select() {
         let tokens = vec![
             Token::Select, Token::Star,
@@ -644,7 +620,7 @@ mod tests {
         ];
         let mut parser = Parser::new(&tokens);
 
-        let expected = SelectStmt {
+        let expected = Select {
             table: TableRef::Table("table".to_string()),
             columns: vec![ColumnRef::AllColumns],
             where_clause: None,
@@ -667,7 +643,7 @@ mod tests {
         ];
         let mut parser = Parser::new(&tokens);
 
-        let expected = SelectStmt {
+        let expected = Select {
             table: TableRef::Table("table".to_string()),
             columns: vec![
                 ColumnRef::Column { table: None, column: "col2".into() },
@@ -693,7 +669,7 @@ mod tests {
         ];
         let mut parser = Parser::new(&tokens);
 
-        let expected = SelectStmt {
+        let expected = Select {
             table: TableRef::Table("table".to_string()),
             columns: vec![
                 ColumnRef::Alias { 
@@ -723,7 +699,7 @@ mod tests {
         ];
         let mut parser = Parser::new(&tokens);
 
-        let expected = InsertStmt {
+        let expected = Insert {
             table: TableRef::Table("users".into()),
             columns: vec![
                 ColumnRef::Column { table: None, column: "id".into() },
@@ -739,26 +715,6 @@ mod tests {
     }
 
     #[test]
-    fn basic_create_table() {
-        let tokens = vec![
-            Token::Create, Token::Table, Token::Ident("users".into()), Token::LParen,
-            Token::Ident("id".into()), Token::Comma, Token::Ident("name".into()),
-            Token::RParen, Token::Eof
-        ];
-        let mut parser = Parser::new(&tokens);
-
-        let expected = CreateStmt {
-            table: TableRef::Table("users".into()),
-            columns: vec![
-                ColumnDef { name: "id".into() },
-                ColumnDef { name: "name".into() },
-            ],
-        };
-
-        assert_eq!(parser.parse_create().unwrap(), expected);
-    }
-
-    #[test]
     fn basic_update() {
         let tokens = vec![
             Token::Update, Token::Ident("users".into()),
@@ -768,7 +724,7 @@ mod tests {
         ];
         let mut parser = Parser::new(&tokens);
 
-        let expected = UpdateStmt {
+        let expected = Update {
             table: TableRef::Table("users".into()),
             assignments: vec![Assignment {
                 column: ColumnRef::Column { table: None, column: "name".into() },
@@ -778,27 +734,5 @@ mod tests {
         };
 
         assert_eq!(parser.parse_update().unwrap(), expected);
-    }
-
-    #[test]
-    fn basic_copy() {
-        let tokens = vec![
-            Token::Copy, Token::Ident("table".into()),
-            Token::From, Token::StringLiteral("/path/to/file.csv".into()),
-            Token::With, Token::LParen,
-            Token::Format, Token::Ident("csv".into()), Token::Comma,
-            Token::Header, Token::BoolLiteral(true),
-            Token::RParen, Token::Eof,
-        ];
-        let mut parser = Parser::new(&tokens);
-
-        let expected = CopyStmt {
-            table: TableRef::Table("table".into()),
-            target: Target::From("/path/to/file.csv".into()),
-            format: Format::Csv,
-            header: true,
-        };
-
-        assert_eq!(parser.parse_copy().unwrap(), expected);
     }
 }
