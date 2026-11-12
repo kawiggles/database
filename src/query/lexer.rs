@@ -120,9 +120,13 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
                 start += 1;
             },
             b'.' => { 
-                // TODO: check for and scan floats
-                tokens.push(Token::Dot);
-                start += 1;
+                if start + 1 < query.len() && query[start+1].is_ascii_digit() {
+                    tokens.push(scan_num_literal(&mut end, query)?);
+                    start = end;
+                } else {
+                    tokens.push(Token::Dot);
+                    start += 1;
+                }
             },
             b'*' => { 
                 tokens.push(Token::Star);
@@ -175,7 +179,6 @@ pub fn lexerize(query: &[u8]) -> UserResult<Vec<Token>> {
                     tokens.push(scan_ident_or_keyword(&mut end, query)?);
                     start = end;
                 } else if query[start].is_ascii_digit() {
-                    // TODO: check for and scan floats
                     tokens.push(scan_num_literal(&mut end, query)?);
                     start = end;
                 } else {
@@ -265,13 +268,15 @@ fn scan_ident_or_keyword(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
 
 fn scan_num_literal(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
     let mut digits: Vec<u8> = Vec::new();
+    let mut float = false;
 
     while *end < query.len() {
         if query[*end].is_ascii_digit() {
             digits.push(query[*end]);
             *end += 1;
         } else if query[*end] == b'.' {
-            // TODO: do the float lexing here
+            float = true;
+            digits.push(query[*end]);
             *end += 1;
         } else {
             break;
@@ -279,7 +284,11 @@ fn scan_num_literal(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
     }
 
     let num = from_utf8(&digits)?;
-    Ok(Token::IntLiteral(num.parse::<i64>()?))
+    if float {
+        Ok(Token::FloatLiteral(num.parse::<f64>()?))
+    } else {
+        Ok(Token::IntLiteral(num.parse::<isize>()?))
+    }
 }
 
 #[cfg(test)]
@@ -299,7 +308,22 @@ mod tests {
         let query = "12345";
         let mut pointer = 0;
         let token = Token::IntLiteral(12345);
-        assert_eq!(token, scan_int_literal(&mut pointer, query.as_bytes()).unwrap());
+        assert_eq!(token, scan_num_literal(&mut pointer, query.as_bytes()).unwrap());
+    }
+
+    #[test]
+    fn lex_float_literal() {
+        let query = "123.456";
+        let mut pointer = 0;
+        let token = Token::FloatLiteral(123.456);
+        assert_eq!(token, scan_num_literal(&mut pointer, query.as_bytes()).unwrap());
+    }
+
+    #[test]
+    fn lex_fraction_literal() {
+        let query = ".456";
+        let expected = vec![Token::FloatLiteral(0.456)];
+        assert_eq!(expected, lexerize(query.as_bytes()).unwrap());
     }
 
     #[test]
