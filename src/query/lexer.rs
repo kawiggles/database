@@ -278,6 +278,10 @@ fn scan_num_literal(end: &mut usize, query: &[u8]) -> QueryResult<Token> {
             float = true;
             digits.push(query[*end]);
             *end += 1;
+        } else if (query[*end] == b'e' || query[*end] == b'E') && query[*end + 1].is_ascii_digit() {
+            float = true;
+            digits.push(query[*end]);
+            *end += 1;
         } else {
             break;
         }

@@ -190,6 +190,8 @@ pub enum QueryErr {
     NonUtf8(#[from] std::str::Utf8Error),
     #[error("Int literal contains non-ascii digits")]
     BadIntParse(#[from] std::num::ParseIntError),
+    #[error("Int literal contains non-ascii digits")]
+    BadFloatParse(#[from] std::num::ParseFloatError),
     #[error("Unexpected token {} found when parsing query, expected {}", found, expected)]
     UnexpectedToken {
         found: Token,
