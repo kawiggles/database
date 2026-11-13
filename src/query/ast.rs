@@ -35,7 +35,7 @@ struct Select {
 #[derive(Debug, PartialEq)]
 struct Insert {
     table: TableRef,
-    columns: Vec<ColumnRef>,
+    columns: Vec<String>,
     values: Vec<Vec<Expr>>,
 }
 
@@ -52,7 +52,10 @@ struct Delete;
 #[derive(Debug, PartialEq)]
 enum Expr {
     Literal(Literal),
-    ColumnRef(ColumnRef),
+    ColumnRef {
+        qualifier: Option<String>,
+        column: String,
+    },
     BinaryExpr { 
         left: Box<Expr>,
         operator: BOp,
@@ -81,12 +84,6 @@ pub enum Projection {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ColumnRef {
-    qualifier: Option<String>,
-    column: String,
-}
-
-#[derive(Debug, PartialEq)]
 pub struct TableRef {
     name: String,
     alias: Option<String>,
@@ -100,7 +97,7 @@ pub enum UOp { Not, Neg, IsNull }
 
 #[derive(Debug, PartialEq)]
 pub struct Assignment {
-    column: ColumnRef,
+    column: String,
     val: Box<Expr>,
 }
 
@@ -125,6 +122,10 @@ impl<'a> Parser<'a> {
     /// Use if the next token is optional
     fn peek(&self) -> &'a Token {
         &self.tokens.get(self.pos).expect("Advanced past eof parsing tokens")
+    }
+
+    fn peek_n(&self, n: usize) -> &'a Token {
+        &self.tokens.get(self.pos + n).expect("Advanced past eof parsing tokens")
     }
 
     /// Use to consume a peeked token
@@ -156,19 +157,21 @@ impl<'a> Parser<'a> {
         }
     }
     
-    // TODO: use pos to peek ahead and see if there's wildcard.
-    fn try_qualified_wildcard(&mut self) -> QueryResult<Option<Projection>> {
-        todo!()
+    fn at_qualified_wildcard(&mut self) -> bool {
+        matches!(
+            (self.peek_n(0), self.peek_n(1), self.peek_n(2)),
+            (Token::Ident(_), Token::Dot, Token::Star)
+        )
     }
 
     fn parse_statement(&mut self) -> QueryResult<Statement> {
-        match self.peek() {
-            Token::Create   => Ok(Statement::Create(self.parse_create()?)),
-            Token::Drop     => Ok(Statement::Drop(self.parse_drop()?)),
-            Token::Select   => Ok(Statement::Select(self.parse_select()?)),
-            Token::Insert   => Ok(Statement::Insert(self.parse_insert()?)),
-            Token::Update   => Ok(Statement::Update(self.parse_update()?)),
-            Token::Delete   => Ok(Statement::Delete(self.parse_delete()?)),
+        match self.peek() { // This drives me insane
+            Token::Create   => Ok(Statement::Create(self.parse_create()?)), // 75 characters
+            Token::Drop     => Ok(Statement::Drop(self.parse_drop()?)), // 71 FUCKING CHARACTERS
+            Token::Select   => Ok(Statement::Select(self.parse_select()?)), // 75 characters
+            Token::Insert   => Ok(Statement::Insert(self.parse_insert()?)), // 75 characters
+            Token::Update   => Ok(Statement::Update(self.parse_update()?)), // 75 characters
+            Token::Delete   => Ok(Statement::Delete(self.parse_delete()?)), // 75 characters
             other => Err(QueryErr::UnexpectedToken {
                 found: other.clone(),
                 expected: "CREATE, DROP, SELECT, INSERT, UPDATE, or DELETE".into()
@@ -196,7 +199,7 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Select)?;
         let projections = self.parse_projections()?;
         self.expect(&Token::From)?;
-        let from = self.parse_table_ref()?;
+        let table = self.parse_table_ref()?;
 
         let filter = if self.peek() == &Token::Where {
             self.advance();
@@ -205,7 +208,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok(Select { projections, from, filter })
+        Ok(Select { projections, table, filter })
     }
 
     fn parse_insert(&mut self) -> QueryResult<Insert> {
@@ -214,7 +217,7 @@ impl<'a> Parser<'a> {
         let table = self.parse_table_ref()?;
 
         self.expect(&Token::LParen)?;
-        let columns = self.parse_column_list()?;
+        let columns = self.parse_ident_list()?;
         self.expect(&Token::RParen)?;
 
         self.expect(&Token::Values)?;
@@ -318,45 +321,34 @@ impl<'a> Parser<'a> {
     fn parse_projection(&mut self) -> QueryResult<Projection> {
         if self.peek() == &Token::Star {
             self.advance();
-            return Ok(Projection::Wildcard)
+            return Ok(Projection::Wildcard);
         }
 
-        // TODO: take this and chuck it into parse primary?
-        let mut column = self.expect_ident()?;
-        let mut qualifier = None;
-        if self.peek() == &Token::Dot {
-            self.advance();
-            if self.peek() == &Token::Star {
-                self.advance();
-                return Ok(Projection::QualifiedWildcard(column));
-            } else {
-                qualifier = Some(column);
-                column = self.expect_ident()?;
-            }
+        if self.at_qualified_wildcard() {
+            let ident = self.expect_ident()?;
+            self.advance(); self.advance();
+            return Ok(Projection::QualifiedWildcard(ident));
         }
+
+        let expr = self.parse_expr()?;
 
         let alias = if self.peek() == &Token::As {
             self.advance();
             Some(self.expect_ident()?)
         } else { None };
 
-        Ok(Projection::Expr { expr: Expr::ColumnRef(ColumnRef { qualifier, column }), alias })
+        Ok(Projection::Expr { expr, alias })
     }
 
-    fn parse_expr(&mut self) -> QueryResult<Expr> {
-        let mut left = self.parse_conjunction()?;
+    fn parse_ident_list(&mut self) -> QueryResult<Vec<String>> {
+        let mut idents = vec![self.expect_ident()?];
 
-        while self.peek() == &Token::Or {
+        while self.peek() == &Token::Comma {
             self.advance();
-            let right = self.parse_conjunction()?;
-            left = Expr::BinaryExpr {
-                left: Box::new(left),
-                operator: BOp::Or,
-                right: Box::new(right)
-            };
+            idents.push(self.expect_ident()?);
         }
-        
-        Ok(left)
+
+        Ok(idents)
     }
 
     fn parse_values(&mut self) -> QueryResult<Vec<Vec<Expr>>> {
@@ -395,9 +387,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment(&mut self) -> QueryResult<Assignment> {
-        // TODO: UPDATE target column parsing
-        // wtf does this mean past me???
-        let column = self.parse_column_ref()?;
+        let column = self.expect_ident()?;
         self.expect(&Token::Eq)?;
         let val = self.parse_expr()?;
 
@@ -407,12 +397,29 @@ impl<'a> Parser<'a> {
         })
     }
 
+    // Pratt parsing begins here
+    fn parse_expr(&mut self) -> QueryResult<Expr> {
+        let mut left = self.parse_conjunction()?;
+
+        while self.peek() == &Token::Or {
+            self.advance();
+            let right = self.parse_conjunction()?;
+            left = Expr::BinaryExpr {
+                left: Box::new(left),
+                operator: BOp::Or,
+                right: Box::new(right)
+            };
+        }
+        
+        Ok(left)
+    }
+
     fn parse_conjunction(&mut self) -> QueryResult<Expr> {
-        let mut left = self.parse_not()?;
+        let mut left = self.parse_unop()?;
 
         while self.peek() == &Token::And {
             self.advance();
-            let right = self.parse_not()?;
+            let right = self.parse_unop()?;
             left = Expr::BinaryExpr {
                 left: Box::new(left),
                 operator: BOp::And,
@@ -421,16 +428,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(left)
-    }
-
-    fn parse_not(&mut self) -> QueryResult<Expr> {
-        if self.peek() == &Token::Not {
-            self.advance();
-            let expr = self.parse_not()?;
-            return Ok(Expr::UnaryExpr { operator: UOp::Not, expr: Box::new(expr) });
-        }
-
-        self.parse_comparison()
     }
 
     fn parse_comparison(&mut self) -> QueryResult<Expr> {
@@ -457,11 +454,15 @@ impl<'a> Parser<'a> {
             Token::True => Ok(Expr::Literal(Literal::Bool(true))),
             Token::False => Ok(Expr::Literal(Literal::Bool(false))),
             Token::Null => Ok(Expr::Literal(Literal::Null)),
-            // TODO: dotted column references: if self.peek() == &Token::Dot {
-            Token::Ident(n) => Ok(Expr::ColumnRef(ColumnRef::Column {
-                table: None,
-                column: n,
-            })),
+            Token::Ident(n) => {
+                let mut column = n;
+                let mut qualifier = None;
+                if self.peek() == &Token::Dot {
+                    qualifier = Some(column);
+                    column = self.expect_ident()?;
+                }
+                Ok(Expr::ColumnRef { qualifier, column })
+            },
             Token::LParen => {
                 let inner = self.parse_expr()?;
                 self.expect(&Token::RParen)?;
@@ -474,7 +475,6 @@ impl<'a> Parser<'a> {
         }
     }
     
-    // TODO: expand for arithmetic
     fn peek_binop(&self) -> Option<BOp> {
         match self.peek() {
             Token::Eq => Some(BOp::Eq),
@@ -483,9 +483,36 @@ impl<'a> Parser<'a> {
             Token::Gt => Some(BOp::Gt),
             Token::LtEq => Some(BOp::LtEq),
             Token::GtEq => Some(BOp::GtEq),
+            Token::Plus => Some(BOp::Add),
+            Token::Minus => Some(BOp::Sub),
+            Token::Star => Some(BOp::Mul),
+            Token::Slash => Some(BOp::Div),
             _ => None,
         }
     }
+
+    // TODO: figure out unop pratt parsing order
+    fn parse_unop(&mut self) -> QueryResult<Expr> {
+        match self.peek() {
+            Token::Not => {
+                self.advance();
+                let expr = self.parse_unop()?;
+                return Ok(Expr::UnaryExpr { operator: UOp::Not, expr: Box::new(expr) });
+            },
+            Token::Plus => {
+                todo!()
+            },
+            Token::Minus => {
+                todo!()
+            },
+            _ => {
+                todo!()
+            }
+        }
+
+        self.parse_comparison()
+    }
+
 }
 
 pub fn make_ast(tokens: Vec<Token>) -> QueryResult<Statement> {
