@@ -52,19 +52,10 @@ struct Delete;
 #[derive(Debug, PartialEq)]
 enum Expr {
     Literal(Literal),
-    ColumnRef {
-        qualifier: Option<String>,
-        column: String,
-    },
-    BinaryExpr { 
-        left: Box<Expr>,
-        operator: BOp,
-        right: Box<Expr>
-    },
-    UnaryExpr {
-        operator: UOp,
-        expr: Box<Expr>,
-    },
+    ColumnRef { qualifier: Option<String>, column: String },
+    Binary { left: Box<Expr>, operator: BOp, right: Box<Expr> },
+    Unary { operator: UOp, expr: Box<Expr> },
+    IsNull { expr: Box<Expr>, negated: bool },
 }
 
 #[derive(Debug, PartialEq)]
@@ -93,7 +84,10 @@ pub struct TableRef {
 pub enum BOp { Eq, NotEq, Lt, Gt, LtEq, GtEq, And, Or, Add, Sub, Mul, Div }
 
 #[derive(Debug, PartialEq)]
-pub enum UOp { Not, Neg, IsNull }
+pub enum UOp { Not, Neg, Pos }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Prec { Lowest, Or, And, Not, Is, Cmp, Add, Mul, Neg }
 
 #[derive(Debug, PartialEq)]
 pub struct Assignment {
@@ -397,53 +391,64 @@ impl<'a> Parser<'a> {
         })
     }
 
-    // Pratt parsing begins here
     fn parse_expr(&mut self) -> QueryResult<Expr> {
-        let mut left = self.parse_conjunction()?;
-
-        while self.peek() == &Token::Or {
-            self.advance();
-            let right = self.parse_conjunction()?;
-            left = Expr::BinaryExpr {
-                left: Box::new(left),
-                operator: BOp::Or,
-                right: Box::new(right)
-            };
-        }
-        
-        Ok(left)
+        self.parse_expr_prec(Prec::Lowest)
     }
 
-    fn parse_conjunction(&mut self) -> QueryResult<Expr> {
-        let mut left = self.parse_unop()?;
-
-        while self.peek() == &Token::And {
+    // Pratt parsing begins here
+    fn parse_expr_prec(&mut self, precedence: Prec) -> QueryResult<Expr> {
+        // first evaluate prefix (unary) operators
+        let mut lhs = if let Some((op, prec)) = self.prefix_op() {
             self.advance();
-            let right = self.parse_unop()?;
-            left = Expr::BinaryExpr {
-                left: Box::new(left),
-                operator: BOp::And,
-                right: Box::new(right)
-            };
+            let operand = self.parse_expr_prec(prec)?;
+            Expr::Unary { operator: op, expr: Box::new(operand) }
+        } else {
+            self.parse_primary()?
+        };
+
+        // second evaluate infix operators
+        loop {
+            // IS NULL is the sole postfix operator
+            if self.peek() == &Token::Is {
+                if Prec::Is <= precedence { break }
+                self.advance();
+                let negated = self.peek() == &Token::Not;
+                if negated { self.advance(); }
+                self.expect(&Token::Null)?;
+                lhs = Expr::IsNull { expr: Box::new(lhs), negated };
+                continue;
+            }
+
+            // TODO: infix operators
         }
 
-        Ok(left)
+        Ok(lhs)
     }
 
-    fn parse_comparison(&mut self) -> QueryResult<Expr> {
-        let left = self.parse_primary()?;
-
-        if let Some(op) = self.peek_binop() {
-            self.advance();
-            let right = self.parse_primary()?;
-            return Ok(Expr::BinaryExpr {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right), 
-            });
+    fn prefix_op(&self) -> Option<(UOp, Prec)> {
+        match self.peek() {
+            Token::Not      => Some((UOp::Not, Prec::Not)),
+            Token::Minus    => Some((UOp::Neg, Prec::Neg)),
+            Token::Plus     => Some((UOp::Pos, Prec::Neg)),
+            _               => None
         }
+    }
 
-        Ok(left)
+    fn infix_op(&self) -> Option<(BOp, Prec)> {
+        match self.peek() {
+            Token::Or       => Some((BOp::Or, Prec::Or)),
+            Token::And      => Some((BOp::And, Prec::And)),
+            Token::Eq       => Some((BOp::Eq, Prec::Cmp)),
+            Token::Lt       => Some((BOp::Lt, Prec::Cmp)),
+            Token::LtEq     => Some((BOp::LtEq, Prec::Cmp)),
+            Token::Gt       => Some((BOp::Gt, Prec::Cmp)),
+            Token::GtEq     => Some((BOp::GtEq, Prec::Cmp)),
+            Token::Plus     => Some((BOp::Add, Prec::Add)),
+            Token::Minus    => Some((BOp::Sub, Prec::Add)),
+            Token::Star     => Some((BOp::Mul, Prec::Mul)),
+            Token::Slash    => Some((BOp::Div, Prec::Mul)),
+            _               => None
+        }
     }
 
     fn parse_primary(&mut self) -> QueryResult<Expr> {
@@ -475,44 +480,6 @@ impl<'a> Parser<'a> {
         }
     }
     
-    fn peek_binop(&self) -> Option<BOp> {
-        match self.peek() {
-            Token::Eq => Some(BOp::Eq),
-            Token::NotEq => Some(BOp::NotEq),
-            Token::Lt => Some(BOp::Lt),
-            Token::Gt => Some(BOp::Gt),
-            Token::LtEq => Some(BOp::LtEq),
-            Token::GtEq => Some(BOp::GtEq),
-            Token::Plus => Some(BOp::Add),
-            Token::Minus => Some(BOp::Sub),
-            Token::Star => Some(BOp::Mul),
-            Token::Slash => Some(BOp::Div),
-            _ => None,
-        }
-    }
-
-    // TODO: figure out unop pratt parsing order
-    fn parse_unop(&mut self) -> QueryResult<Expr> {
-        match self.peek() {
-            Token::Not => {
-                self.advance();
-                let expr = self.parse_unop()?;
-                return Ok(Expr::UnaryExpr { operator: UOp::Not, expr: Box::new(expr) });
-            },
-            Token::Plus => {
-                todo!()
-            },
-            Token::Minus => {
-                todo!()
-            },
-            _ => {
-                todo!()
-            }
-        }
-
-        self.parse_comparison()
-    }
-
 }
 
 pub fn make_ast(tokens: Vec<Token>) -> QueryResult<Statement> {
@@ -537,7 +504,7 @@ mod tests {
     }
 
     fn col(c: &str) -> Expr {
-        Expr::ColumnRef(ColumnRef::Column { table: None, column: c.to_string() })
+        Expr::ColumnRef { qualifier: None, column: c.to_string() }
     }
 
     fn bin(left: Expr, op: BOp, right: Expr) -> Expr {
@@ -657,10 +624,10 @@ mod tests {
     }
 
     #[test]
-    fn where_select() {
+    fn filter_select() {
         let tokens = vec![
             Token::Select, Token::Ident("col2".into()),Token::Comma, Token::Ident("col1".into()),
-            Token::From, Token::Ident("table".to_string()),
+            Token::From, Token::Ident("table".to_string()), Token::As, Token::Ident("t".into()),
             Token::Where, Token::LParen,
             Token::Ident("status".into()), Token::Eq, Token::StringLiteral("active".into()),
             Token::Or,
@@ -671,12 +638,10 @@ mod tests {
         let mut parser = Parser::new(&tokens);
 
         let expected = Select {
-            table: TableRef::Table("table".to_string()),
-            columns: vec![
-                ColumnRef::Column { table: None, column: "col2".into() },
-                ColumnRef::Column { table: None, column: "col1".into() }
+            projections: vec![
             ],
-            where_clause: Some(bin(
+            table: TableRef{ name: "table".to_string(), alias: Some("t".into()) },
+            filter: Some(bin(
                     bin(col("status"), BOp::Eq, str_("active")),
                     BOp::Or,
                     bin(col("status"), BOp::NotEq, str_("banned"))
@@ -687,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn dotted_select() {
+    fn dotted_alias_select() {
         let tokens = vec![
             Token::Select, Token::Ident("users".into()), Token::Dot, Token::Ident("names".into()),
             Token::As, Token::Ident("u".into()),
@@ -697,17 +662,12 @@ mod tests {
         let mut parser = Parser::new(&tokens);
 
         let expected = Select {
-            table: TableRef::Table("table".to_string()),
-            columns: vec![
-                ColumnRef::Alias { 
-                    alias: "u".into(),
-                    column: Box::new(ColumnRef::Column {
-                        table: Some(TableRef::Table("users".into())),
-                        column: "names".into(),
-                    }),
-                }
-            ],
-            where_clause: None,
+            projections: vec![Projection::Expr {
+                expr: Expr::ColumnRef { qualifier: Some("users".into()), column: "names".into() },
+                alias: Some("u".into())
+            }],
+            table: TableRef { name: "table".into(), alias: None },
+            filter: None,
         };
 
         assert_eq!(parser.parse_select().unwrap(), expected);

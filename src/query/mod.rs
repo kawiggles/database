@@ -1,7 +1,8 @@
 pub mod lexer;
 pub mod ast;
-pub mod executor;
 pub mod binder;
+// pub mod planner;
+pub mod executor;
 
 use crate::{
     store::{ Store, relation::Row },
