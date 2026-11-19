@@ -12,11 +12,15 @@ use crate::store::value::Value;
 pub struct Query;
 
 impl Query {
-    pub fn parse(bytes: &[u8]) -> DbResult<Self> {
+    pub fn parse(bytes: &[u8], db) -> DbResult<Self> {
         todo!()
     }
 
     pub fn execute(&self, db: &std::sync::RwLock<Store>) -> DbResult<Value> {
+        let tokens = lexer::lexerize(bytes)?;
+        let statement = ast::make_ast(tokens)?;
+        let catalog = db.read().unwrap().catalog;
+        let bound = binder::BoundStatement::bind_statement(statement, &catalog)?;
         todo!()
     }
 }

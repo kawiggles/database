@@ -162,6 +162,10 @@ impl Catalog {
         self.next_tid += 1;
         Ok(tid)
     }
+
+    pub fn delete_table(&mut self, tid: usize) -> DbResult<()> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
