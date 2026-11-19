@@ -326,8 +326,9 @@ mod tests {
     #[test]
     fn lex_fraction_literal() {
         let query = ".456";
-        let expected = vec![Token::FloatLiteral(0.456)];
-        assert_eq!(expected, lexerize(query.as_bytes()).unwrap());
+        let mut pointer = 0;
+        let expected = Token::FloatLiteral(0.456);
+        assert_eq!(expected, scan_num_literal(&mut pointer, query.as_bytes()).unwrap());
     }
 
     #[test]

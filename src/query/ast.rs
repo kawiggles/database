@@ -43,11 +43,14 @@ struct Insert {
 struct Update {
     table: TableRef,
     assignments: Vec<Assignment>,
-    where_clause: Option<Expr>,
+    filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
-struct Delete;
+struct Delete {
+    table: TableRef,
+    filter: Option<Expr>,
+}
 
 #[derive(Debug, PartialEq)]
 enum Expr {
@@ -186,6 +189,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_drop(&mut self) -> QueryResult<Drop> {
+        self.expect(&Token::Drop)?;
+        self.expect(&Token::Table)?;
         Ok(Drop { table: self.parse_table_ref()? })
     }
 
@@ -194,13 +199,7 @@ impl<'a> Parser<'a> {
         let projections = self.parse_projections()?;
         self.expect(&Token::From)?;
         let table = self.parse_table_ref()?;
-
-        let filter = if self.peek() == &Token::Where {
-            self.advance();
-            Some(self.parse_expr()?)
-        } else {
-            None
-        };
+        let filter = self.parse_filter()?;
 
         Ok(Select { projections, table, filter })
     }
@@ -225,19 +224,27 @@ impl<'a> Parser<'a> {
         let table = self.parse_table_ref()?;
         self.expect(&Token::Set)?;
         let assignments = self.parse_assignments()?;
+        let filter = self.parse_filter()?;
         
-        let where_clause = if self.peek() == &Token::Where {
-            self.advance();
-            Some(self.parse_expr()?)
-        } else {
-            None
-        };
-        
-        Ok(Update { table, assignments, where_clause })
+        Ok(Update { table, assignments, filter })
     }
 
     fn parse_delete(&mut self) -> QueryResult<Delete> {
-        todo!()
+        self.expect(&Token::Delete)?;
+        self.expect(&Token::From)?;
+        let table = self.parse_table_ref()?;
+        let filter = self.parse_filter()?;
+
+        Ok(Delete { table, filter })
+    }
+
+    fn parse_filter(&mut self) -> QueryResult<Option<Expr>> {
+        if self.peek() == &Token::Where {
+            self.advance();
+            Ok(Some(self.parse_expr()?))
+        } else {
+            Ok(None)
+        }
     }
 
     fn parse_definitions(&mut self) -> QueryResult<Vec<Definition>> {
@@ -320,7 +327,8 @@ impl<'a> Parser<'a> {
 
         if self.at_qualified_wildcard() {
             let ident = self.expect_ident()?;
-            self.advance(); self.advance();
+            self.expect(&Token::Dot)?;
+            self.expect(&Token::Star)?;
             return Ok(Projection::QualifiedWildcard(ident));
         }
 
@@ -396,7 +404,7 @@ impl<'a> Parser<'a> {
     }
 
     // Pratt parsing begins here
-    fn parse_expr_prec(&mut self, precedence: Prec) -> QueryResult<Expr> {
+    fn parse_expr_prec(&mut self, min: Prec) -> QueryResult<Expr> {
         // first evaluate prefix (unary) operators
         let mut lhs = if let Some((op, prec)) = self.prefix_op() {
             self.advance();
@@ -410,7 +418,7 @@ impl<'a> Parser<'a> {
         loop {
             // IS NULL is the sole postfix operator
             if self.peek() == &Token::Is {
-                if Prec::Is <= precedence { break }
+                if Prec::Is <= min { break }
                 self.advance();
                 let negated = self.peek() == &Token::Not;
                 if negated { self.advance(); }
@@ -419,7 +427,11 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            // TODO: infix operators
+            let Some((op, prec)) = self.infix_op() else { break };
+            if prec <= min { break }
+            self.advance();
+            let rhs = self.parse_expr_prec(prec)?;
+            lhs = Expr::Binary { left: Box::new(lhs), operator: op, right: Box::new(rhs) }
         }
 
         Ok(lhs)
@@ -439,6 +451,7 @@ impl<'a> Parser<'a> {
             Token::Or       => Some((BOp::Or, Prec::Or)),
             Token::And      => Some((BOp::And, Prec::And)),
             Token::Eq       => Some((BOp::Eq, Prec::Cmp)),
+            Token::NotEq    => Some((BOp::NotEq, Prec::Cmp)),
             Token::Lt       => Some((BOp::Lt, Prec::Cmp)),
             Token::LtEq     => Some((BOp::LtEq, Prec::Cmp)),
             Token::Gt       => Some((BOp::Gt, Prec::Cmp)),
@@ -463,6 +476,7 @@ impl<'a> Parser<'a> {
                 let mut column = n;
                 let mut qualifier = None;
                 if self.peek() == &Token::Dot {
+                    self.advance();
                     qualifier = Some(column);
                     column = self.expect_ident()?;
                 }
@@ -508,11 +522,11 @@ mod tests {
     }
 
     fn bin(left: Expr, op: BOp, right: Expr) -> Expr {
-        Expr::BinaryExpr { left: Box::new(left), operator: op, right: Box::new(right) }
+        Expr::Binary { left: Box::new(left), operator: op, right: Box::new(right) }
     }
 
     fn not_(e: Expr) -> Expr {
-        Expr::UnaryExpr { operator: UOp::Not, expr: Box::new(e) }
+        Expr::Unary { operator: UOp::Not, expr: Box::new(e) }
     }
 
     #[test]
@@ -615,9 +629,9 @@ mod tests {
         let mut parser = Parser::new(&tokens);
 
         let expected = Select {
-            table: TableRef::Table("table".to_string()),
-            columns: vec![ColumnRef::AllColumns],
-            where_clause: None,
+            projections: vec![Projection::Wildcard],
+            table: TableRef { name: "table".to_string(), alias: None },
+            filter: None,
         };
 
         assert_eq!(parser.parse_select().unwrap(), expected);
@@ -639,6 +653,8 @@ mod tests {
 
         let expected = Select {
             projections: vec![
+                Projection::Expr { expr: col("col2"), alias: None },
+                Projection::Expr { expr: col("col1"), alias: None },
             ],
             table: TableRef{ name: "table".to_string(), alias: Some("t".into()) },
             filter: Some(bin(
@@ -687,11 +703,8 @@ mod tests {
         let mut parser = Parser::new(&tokens);
 
         let expected = Insert {
-            table: TableRef::Table("users".into()),
-            columns: vec![
-                ColumnRef::Column { table: None, column: "id".into() },
-                ColumnRef::Column { table: None, column: "name".into() },
-            ],
+            table: TableRef { name: "users".into(), alias: None },
+            columns: vec!["id".into(), "name".into()],
             values: vec![
                 vec![int(1), str_("bob")],
                 vec![int(2), str_("bill")],
@@ -712,14 +725,28 @@ mod tests {
         let mut parser = Parser::new(&tokens);
 
         let expected = Update {
-            table: TableRef::Table("users".into()),
-            assignments: vec![Assignment {
-                column: ColumnRef::Column { table: None, column: "name".into() },
-                val: Box::new(str_("Bob")),
-            }],
-            where_clause: Some(bin(col("id"), BOp::Eq, int(1))),
+            table: TableRef { name: "users".into(), alias: None },
+            assignments: vec![Assignment { column: "name".into(), val: Box::new(str_("Bob")), }],
+            filter: Some(bin(col("id"), BOp::Eq, int(1))),
         };
 
         assert_eq!(parser.parse_update().unwrap(), expected);
+    }
+
+    #[test]
+    fn basic_delete() {
+        let tokens = vec![
+            Token::Delete, Token::From, Token::Ident("users".into()),
+            Token::Where, Token::Ident("id".into()), Token::Eq, Token::IntLiteral(1),
+            Token::Eof
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        let expected = Delete {
+            table: TableRef { name: "users".into(), alias: None },
+            filter: Some(bin(col("id"), BOp::Eq, int(1))),
+        };
+
+        assert_eq!(parser.parse_delete().unwrap(), expected);
     }
 }

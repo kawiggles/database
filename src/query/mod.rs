@@ -4,41 +4,19 @@ pub mod binder;
 // pub mod planner;
 pub mod executor;
 
-use crate::{
-    store::{ Store, relation::Row },
-    errors::{DbResult},
-};
+use crate::errors::DbResult;
+use crate::store::Store;
+use crate::store::value::Value;
 
-use self::{
-    ast::{Expr, BOp},
-};
+#[derive(Debug)]
+pub struct Query;
 
-#[derive(Debug, PartialEq)]
-pub enum Operator {
-    SeqScan(SeqScan),
-    Filter { child: Box<Operator>, pred: Expr },
-    Project { child: Box<Operator>, exprs: Vec<Expr> },
-    Limit { child: Box<Operator>, remaining: usize },
-}
+impl Query {
+    pub fn parse(bytes: &[u8]) -> DbResult<Self> {
+        todo!()
+    }
 
-#[derive(Debug, PartialEq)]
-struct SeqScan;
-
-impl SeqScan {
-    fn scan(&self) -> Vec<Row>
-}
-
-impl Operator {
-    fn next(&mut self, store: &mut Store) -> DbResult<Option<Row>> {
-        match self {
-            Self::SeqScan(seq) => {
-            },
-            Self::Filter { child, pred } => {
-            },
-            Self::Project { child, exprs } => {
-            },
-            Self::Limit { child, remaining } => {
-            },
-        }
+    pub fn execute(&self, db: &std::sync::RwLock<Store>) -> DbResult<Value> {
+        todo!()
     }
 }
