@@ -15,45 +15,45 @@ pub enum Statement {
 }
 
 #[derive(Debug, PartialEq)]
-struct Create {
-    name: String,
-    columns: Vec<Definition>,
+pub(super) struct Create {
+    pub(super) name: String,
+    pub(super) columns: Vec<Definition>,
 }
 
 #[derive(Debug, PartialEq)]
-struct Drop {
+pub(super) struct Drop {
     table: TableRef,
 }
 
 #[derive(Debug, PartialEq)]
-struct Select {
+pub(super) struct Select {
     projections: Vec<Projection>,
     table: TableRef,
     filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
-struct Insert {
+pub(super) struct Insert {
     table: TableRef,
     columns: Vec<String>,
     values: Vec<Vec<Expr>>,
 }
 
 #[derive(Debug, PartialEq)]
-struct Update {
+pub(super) struct Update {
     table: TableRef,
     assignments: Vec<Assignment>,
     filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
-struct Delete {
+pub(super) struct Delete {
     table: TableRef,
     filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
-enum Expr {
+pub(super) enum Expr {
     Literal(Literal),
     ColumnRef { qualifier: Option<String>, column: String },
     Binary { left: Box<Expr>, operator: BOp, right: Box<Expr> },
@@ -62,7 +62,7 @@ enum Expr {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Literal {
+pub(super) enum Literal {
     Str(String),
     Int(isize),
     Float(f64),
@@ -71,35 +71,35 @@ pub enum Literal {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Projection {
+pub(super) enum Projection {
     Wildcard,
     QualifiedWildcard(String),
     Expr { expr: Expr, alias: Option<String> },
 }
 
 #[derive(Debug, PartialEq)]
-pub struct TableRef {
+pub(super) struct TableRef {
     name: String,
     alias: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum BOp { Eq, NotEq, Lt, Gt, LtEq, GtEq, And, Or, Add, Sub, Mul, Div }
+pub(super) enum BOp { Eq, NotEq, Lt, Gt, LtEq, GtEq, And, Or, Add, Sub, Mul, Div }
 
 #[derive(Debug, PartialEq)]
-pub enum UOp { Not, Neg, Pos }
+pub(super) enum UOp { Not, Neg, Pos }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Prec { Lowest, Or, And, Not, Is, Cmp, Add, Mul, Neg }
 
 #[derive(Debug, PartialEq)]
-pub struct Assignment {
+pub(super) struct Assignment {
     column: String,
     val: Box<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Definition {
+pub(super) struct Definition {
     name: String,
     ty: Type,
     primary: bool,

@@ -163,6 +163,8 @@ pub enum UserErr {
     LongKey(String),
     #[error("Error defining new table")]
     TableDefErr(#[from] TableDefErr),
+    #[error("Table already exists")]
+    TableExists,
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
