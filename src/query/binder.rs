@@ -3,12 +3,16 @@ use crate::{
     store::{
         value::Value,
         catalog::Catalog,
-        relation::schema::Type,
+        relation::{schema::Type, table::Table },
     },
-    query::ast::{BOp, UOp, Statement, Create, Drop, Select, Insert, Update, Delete, Expr},
+    query::ast::{
+        BOp, UOp, Statement,
+        Create, Drop, Select, Insert, Update, Delete,
+        Expr, Projection
+    },
 };
 
-pub enum BoundStatement {
+pub(super) enum BoundStatement {
     Create(BoundCreate),
     Drop(BoundDrop),
     Select(BoundSelect),
@@ -18,47 +22,47 @@ pub enum BoundStatement {
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundCreate {
+pub(super) struct BoundCreate {
     name: String,
     columns: Vec<BoundDefinition>,
     primary_key: Option<Vec<usize>>,
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundDrop(usize);
+pub(super) struct BoundDrop(usize);
 
 #[derive(Debug, PartialEq)]
-struct BoundSelect {
+pub(super) struct BoundSelect {
     table: usize,
-    projection: Vec<BoundProjection>,
+    projections: Vec<BoundProjection>,
     filter: Option<BoundExpr>
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundInsert {
+pub(super) struct BoundInsert {
     table: usize,
     columns: Vec<usize>, // indicies of columns
     values: Vec<Vec<BoundExpr>>,
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundUpdate {
+pub(super) struct BoundUpdate {
     table: usize,
     assignments: Vec<(usize, BoundExpr)>, // (column index, value)
     filter: Option<BoundExpr>
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundDelete {
+pub(super) struct BoundDelete {
     table: usize,
     filter: Option<BoundExpr>
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundExpr { kind: BoundExprKind, ty: Type }
+pub(super) struct BoundExpr { kind: BoundExprKind, ty: Type }
 
 #[derive(Debug, PartialEq)]
-enum BoundExprKind {
+pub(super) enum BoundExprKind {
     Column { table: usize, index: usize },
     Literal(Value),
     Unary { op: UOp, expr: Box<BoundExpr> },
@@ -67,14 +71,14 @@ enum BoundExprKind {
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundDefinition {
+pub(super) struct BoundDefinition {
     name: String,
     ty: Type,
     nullable: bool,
 }
 
 #[derive(Debug, PartialEq)]
-struct BoundProjection {
+pub(super) struct BoundProjection {
     expr: BoundExpr,
     name: String, // alias or column name
 }
@@ -124,7 +128,46 @@ fn bind_drop(statement: Drop, catalog: &Catalog) -> DbResult<BoundDrop> {
 }
 
 fn bind_select(statement: Select, catalog: &Catalog) -> DbResult<BoundSelect> {
-    todo!()
+    let table = catalog.lookup_by_name(&statement.table.name)?;
+
+    let mut projections: Vec<BoundProjection> = Vec::new();
+    for projection in statement.projections {
+        match projection {
+            Projection::Wildcard => {
+                projections.extend(table.schema.0.iter().enumerate().map(|(i, col)| {
+                    BoundProjection {
+                        expr: BoundExpr {
+                            kind: BoundExprKind::Column { table: col.tid, index: i },
+                            ty: col.ty
+                        },
+                        name: col.name.clone(),
+                    }
+                }));
+            },
+            Projection::QualifiedWildcard(qualifier) => {
+                let visible = statement.table.alias.unwrap_or(statement.table.name);
+                if qualifier != visible {
+                    return Err(UserErr::TableNotInScope(qualifier))?;
+                }
+                projections.extend(table.schema.0.iter().enumerate().map(|(i, col)| {
+                    BoundProjection {
+                        expr: BoundExpr {
+                            kind: BoundExprKind::Column { table: col.tid, index: i },
+                            ty: col.ty
+                        },
+                        name: col.name.clone(),
+                    }
+                }));
+            },
+            Projection::Expr { expr, alias } => ,
+        }
+    }
+
+    let filter = if let Some(expr) = statement.filter {
+        Some(bind_expr(expr, &table)?)
+    } else { None };
+
+    Ok(BoundSelect { table: table.tid, projections, filter })
 }
 
 fn bind_insert(statement: Insert, catalog: &Catalog) -> DbResult<BoundInsert> {
@@ -139,8 +182,19 @@ fn bind_delete(statement: Delete, catalog: &Catalog) -> DbResult<BoundDelete> {
     todo!()
 }
 
-fn bind_expr(expr: Expr, catalog: &Catalog) -> DbResult<BoundExpr> {
-    todo!()
+fn bind_expr(expr: Expr, table: &Table) -> DbResult<BoundExpr> {
+    match expr {
+        Expr::ColumnRef { qualifier, column } => {
+        },
+        Expr::Unary { operator, expr } => {
+        },
+        Expr::Binary { left, operator, right } => {
+        },
+        Expr::Literal(literal) => {
+        },
+        Expr::IsNull { expr, negated } => {
+        }
+    }
 }
 
 #[cfg(test)]

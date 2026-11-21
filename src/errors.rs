@@ -165,6 +165,8 @@ pub enum UserErr {
     TableDefErr(#[from] TableDefErr),
     #[error("Table already exists")]
     TableExists,
+    #[error("Table {0} not in scope")]
+    TableNotInScope(String),
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;

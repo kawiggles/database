@@ -27,9 +27,9 @@ pub(super) struct Drop {
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Select {
-    projections: Vec<Projection>,
-    table: TableRef,
-    filter: Option<Expr>,
+    pub(super) projections: Vec<Projection>,
+    pub(super) table: TableRef,
+    pub(super) filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
