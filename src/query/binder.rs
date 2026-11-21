@@ -1,5 +1,5 @@
 use crate::{
-    errors::{DbResult, UserErr}
+    errors::{DbResult, UserErr},
     store::{
         value::Value,
         catalog::Catalog,
@@ -17,39 +17,47 @@ pub enum BoundStatement {
     Delete(BoundDelete),
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundCreate {
     name: String,
     columns: Vec<BoundDefinition>,
     primary_key: Option<Vec<usize>>,
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundDrop(usize);
 
+#[derive(Debug, PartialEq)]
 struct BoundSelect {
     table: usize,
     projection: Vec<BoundProjection>,
     filter: Option<BoundExpr>
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundInsert {
     table: usize,
     columns: Vec<usize>, // indicies of columns
     values: Vec<Vec<BoundExpr>>,
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundUpdate {
     table: usize,
     assignments: Vec<(usize, BoundExpr)>, // (column index, value)
     filter: Option<BoundExpr>
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundDelete {
     table: usize,
     filter: Option<BoundExpr>
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundExpr { kind: BoundExprKind, ty: Type }
 
+#[derive(Debug, PartialEq)]
 enum BoundExprKind {
     Column { table: usize, index: usize },
     Literal(Value),
@@ -58,12 +66,14 @@ enum BoundExprKind {
     IsNull { expr: Box<BoundExpr>, negated: bool }
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundDefinition {
     name: String,
     ty: Type,
     nullable: bool,
 }
 
+#[derive(Debug, PartialEq)]
 struct BoundProjection {
     expr: BoundExpr,
     name: String, // alias or column name
@@ -87,15 +97,30 @@ fn bind_create(statement: Create, catalog: &Catalog) -> DbResult<BoundCreate> {
         return Err(UserErr::TableExists)?;
     }
 
-    let mut primary_key = None;
-    statement.columns.iter().enumerate();
+    let mut primary_key: Option<Vec<usize>> = None;
+    let mut columns = Vec::new();
+    for (i, def) in statement.columns.iter().enumerate() {
+        if def.primary {
+            if let Some(keys) = &mut primary_key {
+                keys.push(i);
+            } else {
+                primary_key = Some(vec![i]);
+            }
+        }
 
+        columns.push(BoundDefinition {
+            name: def.name.clone(),
+            ty: def.ty,
+            nullable: !def.not_null,
+        });
+    }
 
-    Ok(BoundCreate { name: statement.name, columns: (), primary_key })
+    Ok(BoundCreate { name: statement.name, columns, primary_key })
 }
 
 fn bind_drop(statement: Drop, catalog: &Catalog) -> DbResult<BoundDrop> {
-    todo!()
+    let table = catalog.lookup_by_name(&statement.table.name)?;
+    Ok(BoundDrop(table.tid))
 }
 
 fn bind_select(statement: Select, catalog: &Catalog) -> DbResult<BoundSelect> {
@@ -116,4 +141,64 @@ fn bind_delete(statement: Delete, catalog: &Catalog) -> DbResult<BoundDelete> {
 
 fn bind_expr(expr: Expr, catalog: &Catalog) -> DbResult<BoundExpr> {
     todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{query::ast::{Definition, TableRef}, store::relation::schema::{Column, Schema}};
+    use super::*;
+    use crate::store::pager::Pager;
+    use tempfile::NamedTempFile;
+
+    fn init_catalog() -> (Pager, Catalog) {
+        let file = NamedTempFile::new().unwrap();
+        let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap(); // trust me bro
+        let catalog = Catalog::init(&mut pager).unwrap();
+
+        (pager, catalog)
+    }
+
+    #[test]
+    fn bind_basic_create() {
+        let (_, catalog) = init_catalog();
+
+        let create = Create {
+            name: "test".into(),
+            columns: vec![
+                Definition { name: "col1".into(), ty: Type::Uint, primary: true, not_null: true },
+                Definition { name: "col2".into(), ty: Type::Text, primary: false, not_null: false },
+            ],
+        };
+
+        let bound = bind_create(create, &catalog).unwrap();
+        let expected = BoundCreate {
+            name: "test".into(),
+            columns: vec![
+                BoundDefinition { name: "col1".into(), ty: Type::Uint, nullable: false },
+                BoundDefinition { name: "col2".into(), ty: Type::Text, nullable: true },
+            ],
+            primary_key: Some(vec![0])
+        };
+
+        assert_eq!(bound, expected)
+    }
+
+    #[test]
+    fn bind_basic_drop() {
+        let (mut pager, mut catalog) = init_catalog();
+        let cols: &[(&str, Type, bool)] = &[
+            ("col1", Type::Uint, true),
+            ("col2", Type::Text, false),
+        ];
+
+        let schema = Schema::from_static(cols, 3);
+        catalog.create_table("table", schema, &mut pager).unwrap();
+
+        let drop = Drop { table: TableRef { name: "table".into(), alias: None } };
+
+        let bound = bind_drop(drop, &catalog).unwrap();
+        let expected = BoundDrop(3);
+
+        assert_eq!(bound, expected)
+    }
 }

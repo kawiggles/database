@@ -22,7 +22,7 @@ pub(super) struct Create {
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Drop {
-    table: TableRef,
+    pub(super) table: TableRef,
 }
 
 #[derive(Debug, PartialEq)]
@@ -79,8 +79,8 @@ pub(super) enum Projection {
 
 #[derive(Debug, PartialEq)]
 pub(super) struct TableRef {
-    name: String,
-    alias: Option<String>,
+    pub(super) name: String,
+    pub(super) alias: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -100,10 +100,10 @@ pub(super) struct Assignment {
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Definition {
-    name: String,
-    ty: Type,
-    primary: bool,
-    not_null: bool,
+    pub(super) name: String,
+    pub(super) ty: Type,
+    pub(super) primary: bool,
+    pub(super) not_null: bool,
 }
 
 struct Parser<'a> {
