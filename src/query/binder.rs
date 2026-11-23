@@ -1,14 +1,8 @@
 use crate::{
-    errors::{DbResult, UserErr},
-    store::{
-        value::Value,
-        catalog::Catalog,
-        relation::{schema::Type, table::Table },
-    },
-    query::ast::{
-        BOp, UOp, Statement,
-        Create, Drop, Select, Insert, Update, Delete,
-        Expr, Projection
+    errors::{DbResult, UserErr::{self, TableNotInScope}}, query::ast::{
+        BOp, Create, Delete, Drop, Expr, Insert, Literal, Op, Projection, Select, Statement, UOp, Update
+    }, store::{
+        catalog::Catalog, relation::{schema::Type, table::Table}, value::Value,
     },
 };
 
@@ -59,15 +53,84 @@ pub(super) struct BoundDelete {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) struct BoundExpr { kind: BoundExprKind, ty: Type }
-
-#[derive(Debug, PartialEq)]
-pub(super) enum BoundExprKind {
-    Column { table: usize, index: usize },
-    Literal(Value),
+pub(super) enum BoundExpr {
+    Column { table: usize, index: usize, ty: Type },
+    Literal(Option<Value>),
     Unary { op: UOp, expr: Box<BoundExpr> },
     Binary { left: Box::<BoundExpr>, op: BOp, right: Box<BoundExpr> },
     IsNull { expr: Box<BoundExpr>, negated: bool }
+}
+
+impl BoundExpr {
+    fn ty(&self) -> Option<Type> {
+        match self {
+            Self::Column { ty, .. } => Some(*ty),
+            Self::Literal(v) => v.as_ref().map(Value::ty),
+            Self::IsNull { .. } => Some(Type::Bool),
+            Self::Unary { op: UOp::Not, .. } => Some(Type::Bool),
+            Self::Unary { expr, .. } => expr.ty(),
+            Self::Binary { op, left, right } => {
+                match op {
+                    BOp::Add | BOp::Sub | BOp::Mul | BOp::Div => left.ty().or(right.ty()),
+                    _ => Some(Type::Bool),
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) struct Binder<'a> {
+    table: &'a Table,
+    name: &'a str,
+}
+
+impl Binder<'_> {
+    fn resolve(&self, qualifier: Option<&str>, column_name: &str) -> DbResult<BoundExpr> {
+        if let Some(qual) = qualifier && qual != self.name {
+            return Err(UserErr::TableNotInScope(qual.into()))?;
+        } else {
+            let (index, column) = self.table.schema.0.iter().enumerate()
+                .find(|(_, c)| !c.is_dead && c.name == column_name)
+                .ok_or_else(|| UserErr::ColumnNotFound {
+                    table: self.name.into(),
+                    column: column_name.into(),
+                })?;
+
+            Ok(BoundExpr::Column { table: column.tid, index, ty: column.ty })
+        }
+    }
+
+    fn bind_expr(&self, expr: Expr) -> DbResult<BoundExpr> {
+        match expr {
+            Expr::ColumnRef { qualifier, column } => self.resolve(qualifier.as_deref(), &column),
+            Expr::Literal(literal) => Ok(bind_literal(literal)),
+            Expr::Unary { operator, expr } => self.bind_unary(*expr, operator),
+            Expr::Binary { left, operator, right } => self.bind_binary(*left, *right, operator),
+            Expr::IsNull { expr, negated } => self.bind_is_null(*expr, negated),
+        }
+    }
+
+    fn bind_unary(&self, expr: Expr, op: UOp) -> DbResult<BoundExpr> {
+        let operand = self.bind_expr(expr)?;
+        match (&op, operand.ty()) {
+            (_, None) => {},
+            (UOp::Not, Some(Type::Bool)) => {},
+            (UOp::Neg, Some(Type::Int | Type::Float)) => {},
+            (UOp::Pos, Some(Type::Int | Type::Uint | Type::Float)) => {},
+            (_, Some(ty)) => return Err(UserErr::BadOperand { op: Op::U(op), ty })?,
+        }
+
+        Ok(BoundExpr::Unary { op, expr: Box::new(operand) })
+    }
+
+    fn bind_binary(&self, left: Expr, right: Expr, op: BOp) -> DbResult<BoundExpr> {
+        todo!()
+    }
+
+    fn bind_is_null(&self, expr: Expr, negated: bool) -> DbResult<BoundExpr> {
+        todo!()
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -128,46 +191,44 @@ fn bind_drop(statement: Drop, catalog: &Catalog) -> DbResult<BoundDrop> {
 }
 
 fn bind_select(statement: Select, catalog: &Catalog) -> DbResult<BoundSelect> {
-    let table = catalog.lookup_by_name(&statement.table.name)?;
+    let binder = Binder {
+        table: catalog.lookup_by_name(&statement.table.name)?,
+        name: &statement.table.alias.unwrap_or(statement.table.name),
+    };
 
     let mut projections: Vec<BoundProjection> = Vec::new();
     for projection in statement.projections {
+        // TODO: ignore is_dead columns
         match projection {
             Projection::Wildcard => {
-                projections.extend(table.schema.0.iter().enumerate().map(|(i, col)| {
-                    BoundProjection {
-                        expr: BoundExpr {
-                            kind: BoundExprKind::Column { table: col.tid, index: i },
-                            ty: col.ty
-                        },
-                        name: col.name.clone(),
-                    }
-                }));
+                projections.extend(binder.table.schema.0.iter().enumerate()
+                    .map(|(i, col)| {
+                        BoundProjection {
+                            expr: BoundExpr::Column { table: col.tid, index: i, ty: col.ty },
+                            name: col.name.clone(),
+                        }})
+                );
             },
             Projection::QualifiedWildcard(qualifier) => {
-                let visible = statement.table.alias.unwrap_or(statement.table.name);
-                if qualifier != visible {
-                    return Err(UserErr::TableNotInScope(qualifier))?;
-                }
-                projections.extend(table.schema.0.iter().enumerate().map(|(i, col)| {
+                if qualifier != binder.name { return Err(TableNotInScope(qualifier))?; }
+                projections.extend(binder.table.schema.0.iter().enumerate().map(|(i, col)| {
                     BoundProjection {
-                        expr: BoundExpr {
-                            kind: BoundExprKind::Column { table: col.tid, index: i },
-                            ty: col.ty
-                        },
+                        expr: BoundExpr::Column { table: col.tid, index: i, ty: col.ty },
                         name: col.name.clone(),
                     }
                 }));
             },
-            Projection::Expr { expr, alias } => ,
+            Projection::Expr { expr, alias } => {
+                todo!()
+            },
         }
     }
 
     let filter = if let Some(expr) = statement.filter {
-        Some(bind_expr(expr, &table)?)
+        Some(binder.bind_expr(expr)?)
     } else { None };
 
-    Ok(BoundSelect { table: table.tid, projections, filter })
+    Ok(BoundSelect { table: binder.table.tid, projections, filter })
 }
 
 fn bind_insert(statement: Insert, catalog: &Catalog) -> DbResult<BoundInsert> {
@@ -182,17 +243,27 @@ fn bind_delete(statement: Delete, catalog: &Catalog) -> DbResult<BoundDelete> {
     todo!()
 }
 
-fn bind_expr(expr: Expr, table: &Table) -> DbResult<BoundExpr> {
-    match expr {
-        Expr::ColumnRef { qualifier, column } => {
-        },
-        Expr::Unary { operator, expr } => {
-        },
-        Expr::Binary { left, operator, right } => {
-        },
-        Expr::Literal(literal) => {
-        },
-        Expr::IsNull { expr, negated } => {
+fn bind_literal(literal: Literal) -> BoundExpr {
+    match literal {
+        Literal::Str(string) => BoundExpr::Literal(Some(Value::Text(string))),
+        Literal::Int(int) => BoundExpr::Literal(Some(Value::Int(int))),
+        Literal::Float(float) => BoundExpr::Literal(Some(Value::Float(float))),
+        Literal::Bool(b) => BoundExpr::Literal(Some(Value::Bool(b))),
+        Literal::Null => BoundExpr::Literal(None),
+    }
+}
+
+fn unify(left: BoundExpr, right: BoundExpr) -> DbResult<(BoundExpr, BoundExpr)> {
+    match (left.ty(), right.ty()) {
+        (a, b) if a == b => Ok((left, right)),
+        (None, _) | (_, None) => Ok((left, right)),
+        (Some(lt), Some(rt)) => {
+            // unwraps here are fine because the null type is checked above
+            if let BoundExpr::Literal(lit) = left {
+                Ok((BoundExpr::Literal(Some(lit.unwrap().coerce(rt)?)), right))
+            } else if let BoundExpr::Literal(lit) = right { 
+                Ok((left, BoundExpr::Literal(Some(lit.unwrap().coerce(lt)?))))
+            } else { Err(UserErr::TypeMismatch { left: lt, right: rt })? }
         }
     }
 }

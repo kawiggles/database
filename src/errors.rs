@@ -8,7 +8,10 @@ use simplelog::{WriteLogger, Config};
 
 use crate::{
     tcp::response::Response,
-    query::lexer::Token,
+    query::{
+        lexer::Token,
+        ast::Op,
+    },
     store::{
         pager::{PageType, PageId},
         relation::schema::Type,
@@ -167,6 +170,23 @@ pub enum UserErr {
     TableExists,
     #[error("Table {0} not in scope")]
     TableNotInScope(String),
+    #[error("Column {} not found in table {}", column, table)]
+    ColumnNotFound {
+        column: String,
+        table: String,
+    },
+    #[error("Operation {:?} cannot be performed on type {:?}", op, ty)]
+    BadOperand {
+        op: Op,
+        ty: Type,
+    },
+    #[error("Type of expression {:?} does not match expression {:?}", left, right)]
+    TypeMismatch {
+        left: Type,
+        right: Type,
+    },
+    #[error("Cannot coerce null values")]
+    NullTypeCoercion,
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;

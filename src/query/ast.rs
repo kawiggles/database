@@ -84,6 +84,12 @@ pub(super) struct TableRef {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum Op {
+    U(UOp),
+    B(BOp),
+}
+
+#[derive(Debug, PartialEq)]
 pub(super) enum BOp { Eq, NotEq, Lt, Gt, LtEq, GtEq, And, Or, Add, Sub, Mul, Div }
 
 #[derive(Debug, PartialEq)]

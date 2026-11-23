@@ -44,6 +44,33 @@ impl Value {
     pub fn to_bytes(&self) -> Vec<u8> {
         todo!()
     }
+
+    pub fn ty(&self) -> Type {
+        match self {
+            Value::Bool(_) => Type::Bool,
+            Value::Text(_) => Type::Text,
+            Value::Int(_) => Type::Int,
+            Value::Uint(_) => Type::Uint,
+            Value::Float(_) => Type::Float,
+            Value::Blob(_) => Type::Blob,
+        }
+    }
+
+    pub fn coerce(&self, ty: Type) -> StoreResult<Self> {
+        match (self, ty) {
+            (Value::Bool(b), Type::Int) => Ok(Value::Int((*b).into())),
+            (Value::Bool(b), Type::Uint) => Ok(Value::Uint((*b).into())),
+            (Value::Bool(b), Type::Float) => Ok(Value::Float((*b).into())),
+            (Value::Bool(b), Type::Text) => {
+                if *b { Ok(Value::Text("true".into())) } else { Ok(Value::Text("false".into())) }
+            },
+            (Value::Bool(b), Type::Blob) => {
+                if *b { Ok(Value::Blob(vec![1])) } else { Ok(Value::Blob(vec![0])) }
+            },
+            // TODO: make an error type for failed coercions
+            _ => todo!()
+        }
+    }
 }
 
 
