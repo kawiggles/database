@@ -187,6 +187,10 @@ pub enum UserErr {
     },
     #[error("Cannot coerce null values")]
     NullTypeCoercion,
+    #[error("Filtering expression cannot be evaluated as a boolean")]
+    NonBoolFilter,
+    #[error("Unequal number of target columns and values")]
+    ColValMismatch,
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;

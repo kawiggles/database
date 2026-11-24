@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     Row, Rid,
-    schema::Schema,
+    schema::{Schema},
 };
 
 #[derive(Debug, PartialEq)]

@@ -111,6 +111,10 @@ impl Schema {
             .collect()
     }
 
+    pub fn find(&self, name: &str) -> Option<(usize, &Column)> {
+        self.0.iter().enumerate().find(|(_, c)| !c.is_dead && c.name == name)
+    }
+
     pub fn decode(&self, mut row_bytes: &[u8]) -> StoreResult<Row> {
         let mut vals: Vec<Option<Value>> = Vec::with_capacity(self.0.len());
 

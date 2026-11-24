@@ -56,19 +56,14 @@ impl Value {
         }
     }
 
-    pub fn coerce(&self, ty: Type) -> StoreResult<Self> {
+    pub fn coerce(self, ty: Type) -> Option<Self> {
         match (self, ty) {
-            (Value::Bool(b), Type::Int) => Ok(Value::Int((*b).into())),
-            (Value::Bool(b), Type::Uint) => Ok(Value::Uint((*b).into())),
-            (Value::Bool(b), Type::Float) => Ok(Value::Float((*b).into())),
-            (Value::Bool(b), Type::Text) => {
-                if *b { Ok(Value::Text("true".into())) } else { Ok(Value::Text("false".into())) }
-            },
-            (Value::Bool(b), Type::Blob) => {
-                if *b { Ok(Value::Blob(vec![1])) } else { Ok(Value::Blob(vec![0])) }
-            },
-            // TODO: make an error type for failed coercions
-            _ => todo!()
+            (v, ty) if v.ty() == ty => Some(v),
+            (Value::Int(n), Type::Uint) => usize::try_from(n).ok().map(Value::Uint),
+            (Value::Int(n), Type::Float) => Some(Value::Float(n as f64)),
+            (Value::Uint(n), Type::Int) => isize::try_from(n).ok().map(Value::Int),
+            (Value::Uint(n), Type::Float) => Some(Value::Float(n as f64)),
+            _ => None
         }
     }
 }

@@ -34,22 +34,22 @@ pub(super) struct Select {
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Insert {
-    table: TableRef,
-    columns: Vec<String>,
-    values: Vec<Vec<Expr>>,
+    pub(super) table: TableRef,
+    pub(super) columns: Vec<String>,
+    pub(super) values: Vec<Vec<Expr>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Update {
-    table: TableRef,
-    assignments: Vec<Assignment>,
-    filter: Option<Expr>,
+    pub(super) table: TableRef,
+    pub(super) assignments: Vec<Assignment>,
+    pub(super) filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Delete {
-    table: TableRef,
-    filter: Option<Expr>,
+    pub(super) table: TableRef,
+    pub(super) filter: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -59,6 +59,15 @@ pub(super) enum Expr {
     Binary { left: Box<Expr>, operator: BOp, right: Box<Expr> },
     Unary { operator: UOp, expr: Box<Expr> },
     IsNull { expr: Box<Expr>, negated: bool },
+}
+
+impl Expr {
+    pub(super) fn default_name(&self) -> String {
+        match self {
+            Expr::ColumnRef { column, .. } => column.clone(),
+            _ => "?column?".into()
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
