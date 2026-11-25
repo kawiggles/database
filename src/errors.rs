@@ -203,6 +203,8 @@ pub enum TableDefErr {
     NonEndingTextKey,
     #[error("The defined schema has no key columns")]
     NoKey,
+    #[error("The defined table name {0} already exists")]
+    TableExists(String),
 }
 
 #[derive(Error, Debug)]

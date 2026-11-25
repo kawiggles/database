@@ -146,4 +146,20 @@ impl From<&Table> for Row {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Catalog;
+    use tempfile::NamedTempFile;
+
+    fn setup() -> (Catalog, Pager) {
+        let file = NamedTempFile::new().unwrap();
+        let mut pager = Pager::new(file.path().to_str().unwrap()).unwrap();
+        let catalog = Catalog::init(&mut pager).unwrap();
+
+        (catalog, pager)
+    }
+
+    #[test]
+    fn table_new() {
+        let (mut catalog, mut pager) = setup();
+    
+    }
 }

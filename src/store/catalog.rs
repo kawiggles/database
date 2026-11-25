@@ -1,5 +1,5 @@
 use crate::{
-    errors::{DbResult, UserErr, UserResult, StoreErr},
+    errors::{DbResult, UserErr, UserResult, StoreErr, TableDefErr},
     store::{
         bptree::BpTree,
         pager::{DataPage, Pager, page::PageId},
@@ -11,7 +11,7 @@ use crate::{
 };
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
 };
 
 // Hardcoded class schema
@@ -144,8 +144,11 @@ impl Catalog {
         let tid = self.next_tid;
         let new_table = Table::new(tid, name, schema.clone(), pager)?;
         
+        if self.names.contains_key(name) {
+            return Err(UserErr::TableDefErr(TableDefErr::TableExists(name.into())))?;
+        }
+
         let class = self.tables.get_mut(&CLASS_TID).ok_or(StoreErr::NoClass)?;
-        // TODO: check that the name doesn't override an existing table
         class.insert((&new_table).into(), pager)?;
 
         let attr = self.tables.get_mut(&ATTR_TID).ok_or(StoreErr::NoAttr)?;
@@ -163,8 +166,25 @@ impl Catalog {
         Ok(tid)
     }
 
-    pub fn delete_table(&mut self, tid: usize) -> DbResult<()> {
-        todo!()
+    pub fn delete_table(&mut self, tid: usize, pager: &mut Pager) -> DbResult<()> {
+        if let Some(table) = self.tables.get_mut(&tid) {
+            let mut tree = BpTree::open(table.tree_root);
+            
+
+            let mut pages: HashSet<PageId> = HashSet::new();
+
+            for rid in rids {
+                if pages.contains(&rid.page) {
+                } else {
+                    pages.insert(rid.page);
+                }
+            }
+
+            self.names.remove(&table.name);
+            self.tables.remove(&tid);
+
+            Ok(())
+        } else { Err(UserErr::NoTable)? }
     }
 }
 
@@ -278,6 +298,25 @@ mod tests {
         let (_, e_catalog) = open_catalog(file);
         
         assert_eq!(i_catalog, e_catalog);
+
+        Ok(())
+    }
+
+    #[test]
+    fn delete_and_close() -> DbResult<()> {
+        let (mut pager, mut catalog, _) = init_catalog();
+
+        let schema = Schema::from_static(&[
+            ("key val", Type::Text, true),
+            ("a bool", Type::Bool, false),
+            ("a num", Type::Int, false),
+        ], catalog.next_tid);
+
+        catalog.create_table("test", schema, &mut pager)?;
+
+        let table = catalog.lookup_by_name("test")?;
+
+        assert!(catalog.lookup_by_name("test").is_err());
 
         Ok(())
     }
