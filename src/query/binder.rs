@@ -267,18 +267,31 @@ fn bind_insert(statement: Insert, catalog: &Catalog) -> DbResult<BoundInsert> {
         name: &statement.table.alias.unwrap_or(statement.table.name),
     };
 
-    if statement.columns.len() != statement.values.len() { return Err(UserErr::ColValMismatch)?; }
-
     let mut columns = Vec::new();
-    for (i, name) in statement.columns.iter().enumerate() {
-        if let Some((j, column)) = binder.table.schema.find(&name) {
-            columns.push(j);
+    for name in statement.columns {
+        if let Some(column) = binder.table.schema.find(&name) {
+            columns.push(column);
         } else {
-            return Err(UserErr::ColumnNotFound { column: name.into(), table: binder.table.name })?
+            return Err(UserErr::ColumnNotFound {
+                column: name.into(),
+                table: binder.table.name.clone()
+            })?;
+        }
+    }
+
+    let mut values = Vec::new();
+    for vals in statement.values {
+        // type checking
+        for (i, val) in vals.iter().enumerate() { // we love (sarcastically) nested loops
+            let col = columns.get(i).ok_or(Err(UserErr::ColValMismatch)?).1;
         }
     }
     
-    Ok(BoundInsert { table: binder.table.tid, columns, values })
+    Ok(BoundInsert {
+        table: binder.table.tid,
+        columns: columns.iter().map(|c| { c.0 }).collect(),
+        values
+    })
 }
 
 fn bind_update(statement: Update, catalog: &Catalog) -> DbResult<BoundUpdate> {
