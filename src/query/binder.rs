@@ -2,7 +2,7 @@ use crate::{
     errors::{DbResult, UserErr::{self, TableNotInScope}}, query::ast::{
         BOp, Create, Delete, Drop, Expr, Insert, Literal, Op, Projection, Select, Statement, UOp, Update
     }, store::{
-        catalog::Catalog, relation::{schema::Type, table::Table}, value::Value,
+        catalog::Catalog, relation::{schema::{Type, Column}, table::Table}, value::Value,
     },
 };
 
@@ -75,6 +75,20 @@ impl BoundExpr {
                     _ => Some(Type::Bool),
                 }
             }
+        }
+    }
+
+    fn coerce_to(self, col: &Column) -> DbResult<Self> {
+        match self {
+            Self::Literal(None) if !col.nullable => Err(UserErr::NotNullCol)?,
+            Self::Literal(Some(literal)) => {
+                let from = literal.ty();
+                literal.coerce(col.ty)
+                    .map(|v| BoundExpr::Literal(Some(v)))
+                    .ok_or_else(|| UserErr::TypeMismatch { left: from, right: col.ty }.into())
+            },
+            e if e.ty().is_none_or(|t| t == col.ty) => Ok(e),
+            e => Err(UserErr::TypeMismatch { left: e.ty().unwrap(), right: col.ty })?,
         }
     }
 }
@@ -173,7 +187,7 @@ impl Binder<'_> {
         let filter = self.bind_expr(expr)?;
         match filter.ty() {
             None | Some(Type::Bool) => Ok(filter),
-            Some(ty) => Err(UserErr::NonBoolFilter)?,
+            Some(_) => Err(UserErr::NonBoolFilter)?,
         }
     }
 }
@@ -280,11 +294,16 @@ fn bind_insert(statement: Insert, catalog: &Catalog) -> DbResult<BoundInsert> {
     }
 
     let mut values = Vec::new();
-    for vals in statement.values {
-        // type checking
-        for (i, val) in vals.iter().enumerate() { // we love (sarcastically) nested loops
-            let col = columns.get(i).ok_or(Err(UserErr::ColValMismatch)?).1;
+    for row in statement.values {
+        if row.len() != columns.len() {
+            return Err(UserErr::ColValMismatch)?;
         }
+
+        // type checking
+        values.push(row.into_iter()
+            .zip(&columns)
+            .map(|(expr, (_, col))| { binder.bind_expr(expr)?.coerce_to(col) })
+            .collect::<DbResult<Vec<_>>>()?);
     }
     
     Ok(BoundInsert {

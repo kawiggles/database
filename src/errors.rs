@@ -191,6 +191,8 @@ pub enum UserErr {
     NonBoolFilter,
     #[error("Unequal number of target columns and values")]
     ColValMismatch,
+    #[error("Column value cannot be null")]
+    NotNullCol,
 }
 
 pub type UserResult<T> = std::result::Result<T, UserErr>;
